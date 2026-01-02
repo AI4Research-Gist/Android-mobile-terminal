@@ -28,6 +28,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.ai4research.core.floating.FloatingBallService
+import com.example.ai4research.core.floating.OverlayPermission
 import com.example.ai4research.core.theme.ThemeMode
 
 /**
@@ -49,6 +52,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val currentThemeMode by viewModel.currentThemeMode.collectAsState()
+    val context = LocalContext.current
     
     Scaffold(
         topBar = {
@@ -98,9 +102,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.White
-                ),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(
@@ -160,7 +162,91 @@ fun SettingsScreen(
             }
             
             Spacer(modifier = Modifier.height(32.dp))
+
+            // 采集工具分组
+            Text(
+                text = "采集",
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.Gray,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "悬浮球采集",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "在任何 App 里快速采集链接/拍照（需要悬浮窗权限）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val hasOverlayPermission = OverlayPermission.canDrawOverlays(context)
+                    Text(
+                        text = if (hasOverlayPermission) "权限状态：已授权" else "权限状态：未授权",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (hasOverlayPermission) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    if (!hasOverlayPermission) {
+                                        context.startActivity(OverlayPermission.createSettingsIntent(context))
+                                    } else {
+                                        FloatingBallService.start(context)
+                                    }
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                            elevation = CardDefaults.cardElevation(0.dp)
+                        ) {
+                            Text(
+                                text = if (hasOverlayPermission) "开启悬浮球" else "去授权",
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { FloatingBallService.stop(context) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            elevation = CardDefaults.cardElevation(0.dp)
+                        ) {
+                            Text(
+                                text = "关闭悬浮球",
+                                modifier = Modifier.padding(vertical = 12.dp),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
             
+            Spacer(modifier = Modifier.height(32.dp))
+
             // 关于部分
             Text(
                 text = "关于",
@@ -173,9 +259,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp)),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.White
-                ),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(

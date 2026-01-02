@@ -51,6 +51,18 @@ interface ItemDao {
      */
     @Query("SELECT * FROM items WHERE title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%' ORDER BY created_at DESC")
     fun searchItems(query: String): Flow<List<ItemEntity>>
+
+    /**
+     * 搜索 + 类型过滤（标题和摘要）
+     */
+    @Query(
+        """
+        SELECT * FROM items
+        WHERE type = :type AND (title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%')
+        ORDER BY created_at DESC
+        """
+    )
+    fun searchItemsByType(type: String, query: String): Flow<List<ItemEntity>>
     
     /**
      * 插入或替换
@@ -87,6 +99,12 @@ interface ItemDao {
      */
     @Delete
     suspend fun deleteItem(item: ItemEntity)
+
+    /**
+     * 按 id 删除
+     */
+    @Query("DELETE FROM items WHERE id = :id")
+    suspend fun deleteItemById(id: String)
     
     /**
      * 清空所有数据（慎用）

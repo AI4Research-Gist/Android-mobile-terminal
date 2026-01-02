@@ -20,7 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
-import com.example.ai4research.ui.theme.AI4ResearchTheme
+import com.example.ai4research.core.theme.AI4ResearchTheme
 import com.example.ai4research.core.theme.ThemeManager
 import com.example.ai4research.core.theme.ThemeMode
 import com.example.ai4research.data.repository.AuthRepository

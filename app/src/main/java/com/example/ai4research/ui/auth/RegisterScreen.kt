@@ -1,55 +1,31 @@
 package com.example.ai4research.ui.auth
 
 import android.widget.Toast
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.core.security.BiometricHelper
-import com.example.ai4research.ui.components.GistTextField
+import com.example.ai4research.core.theme.IOSTheme
+import com.example.ai4research.ui.components.IOSButton
+import com.example.ai4research.ui.components.IOSTextField
 
 @Composable
 fun RegisterScreen(
@@ -60,12 +36,12 @@ fun RegisterScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val iosColors = IOSTheme.colors
 
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
     var showBiometricDialog by remember { mutableStateOf(false) }
 
     // Handle UI State
@@ -128,126 +104,145 @@ fun RegisterScreen(
                 TextButton(onClick = {
                     showBiometricDialog = false
                     onRegisterSuccess()
-                }) { Text("跳过", color = Color.Gray) }
+                }) { Text("跳过", color = iosColors.secondaryLabel) }
             },
-            containerColor = Color.White
+            containerColor = iosColors.secondarySystemBackground
         )
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { viewModel.register(email, password, confirmPassword, username) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
-                shape = CircleShape,
-                modifier = Modifier.size(64.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "注册")
-            }
-        }
-    ) { innerPadding ->
+    // Modern Tech Background Gradient
+    val backgroundBrush = Brush.verticalGradient(
+        colors = listOf(
+            iosColors.systemBackground,
+            iosColors.systemBlue.copy(alpha = 0.05f),
+            iosColors.systemPurple.copy(alpha = 0.05f)
+        )
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundBrush)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.Start
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Header
+            // Tech Style Header
             Text(
                 text = "创建账号",
-                style = MaterialTheme.typography.displayMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Black
+                style = MaterialTheme.typography.displayMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-1).sp
+                ),
+                color = iosColors.systemBlue
             )
+            
             Spacer(modifier = Modifier.height(8.dp))
+            
             Text(
                 text = "加入 Gist 开始记录",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.Gray
+                style = MaterialTheme.typography.titleMedium,
+                color = iosColors.secondaryLabel
             )
 
             Spacer(modifier = Modifier.height(40.dp))
 
             // Form
-            GistTextField(
+            IOSTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = "用户名",
-                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Next
-                )
+                placeholder = "用户名",
+                leadingIcon = { 
+                    Icon(
+                        Icons.Default.Person, 
+                        contentDescription = null,
+                        tint = iosColors.secondaryLabel
+                    ) 
+                },
+                imeAction = ImeAction.Next
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            GistTextField(
+            IOSTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = "邮箱",
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next
-                )
+                placeholder = "邮箱",
+                leadingIcon = { 
+                    Icon(
+                        Icons.Default.Email, 
+                        contentDescription = null,
+                        tint = iosColors.secondaryLabel
+                    ) 
+                },
+                keyboardType = KeyboardType.Email,
+                imeAction = ImeAction.Next
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            GistTextField(
+            IOSTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = "密码",
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = "切换密码可见性"
-                        )
-                    }
+                placeholder = "密码",
+                isPassword = true,
+                leadingIcon = { 
+                    Icon(
+                        Icons.Default.Lock, 
+                        contentDescription = null,
+                        tint = iosColors.secondaryLabel
+                    ) 
                 },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Next
-                )
+                imeAction = ImeAction.Next
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            GistTextField(
+            IOSTextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it },
-                label = "确认密码",
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                )
+                placeholder = "确认密码",
+                isPassword = true,
+                leadingIcon = { 
+                    Icon(
+                        Icons.Default.Lock, 
+                        contentDescription = null,
+                        tint = iosColors.secondaryLabel
+                    ) 
+                },
+                imeAction = ImeAction.Done,
+                onImeAction = { viewModel.register(email, password, confirmPassword, username) }
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Row(
+            IOSButton(
+                text = "注册",
+                onClick = { viewModel.register(email, password, confirmPassword, username) },
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
+                backgroundColor = iosColors.systemBlue
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            TextButton(
+                onClick = onNavigateToLogin
             ) {
-                TextButton(
-                    onClick = onNavigateToLogin
-                ) {
-                    Text("已有账号? 立即登录")
-                }
+                Text(
+                    "已有账号? 立即登录",
+                    color = iosColors.systemBlue,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
             
-            Spacer(modifier = Modifier.height(80.dp))
+            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }

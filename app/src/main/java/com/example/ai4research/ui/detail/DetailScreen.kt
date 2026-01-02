@@ -33,6 +33,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.ai4research.domain.model.ItemType
 import dev.jeziellago.compose.markdowntext.MarkdownText
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,24 +54,18 @@ fun DetailScreen(
     itemId: String,
     onNavigateBack: () -> Unit
 ) {
-    // TODO: Fetch item by itemId using ViewModel
-    val title = "Attention Is All You Need"
-    val date = "2017"
-    val source = "NIPS"
-    val type = "论文"
-    val markdownContent = """
-        # 摘要
-        主流的序列转导模型基于复杂的循环或卷积神经网络，包含编码器和解码器。性能最好的模型还通过注意力机制连接编码器和解码器。我们提出了一种新的简单网络架构——Transformer，它完全基于注意力机制，彻底摒弃了循环和卷积。
-        
-        ## 1. 介绍
-        循环神经网络，特别是长短期记忆（LSTM）和门控循环神经网络（GRU），已经在序列建模和转导问题（如语言建模和机器翻译）中确立了最先进的方法地位。
-        
-        ## 2. 背景
-        减少顺序计算的目标也是扩展神经GPU、ByteNet和ConvS2S的基础，所有这些都使用卷积神经网络作为基本构建块。
-        
-        ## 3. 模型架构
-        大多数具有竞争力的神经序列转导模型都具有编码器-解码器结构。在这里，编码器将符号表示的输入序列 (x_1, ..., x_n) 映射到连续表示序列 z = (z_1, ..., z_n)。
-    """.trimIndent()
+    val viewModel: DetailViewModel = hiltViewModel()
+    val uiState by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(itemId) {
+        viewModel.load(itemId)
+    }
+
+    val item = uiState.item
+    val title = item?.title ?: "详情"
+    val type = item?.type
+    val typeName = type?.let { getItemTypeName(it) }.orEmpty()
+    val markdownContent = item?.contentMarkdown?.takeIf { it.isNotBlank() } ?: item?.summary.orEmpty()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -74,7 +73,7 @@ fun DetailScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        text = "详情",
+                        text = title,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 },
@@ -108,13 +107,16 @@ fun DetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                   IconButton(onClick = { /* Mark as read */ }) {
+                   IconButton(onClick = { viewModel.markAsRead() }) {
                         Icon(Icons.Default.CheckCircle, contentDescription = "标记已读", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = { /* Chat */ }) {
                         Icon(Icons.Default.Chat, contentDescription = "AI 对话", tint = MaterialTheme.colorScheme.primary)
                     }
-                    IconButton(onClick = { /* Delete */ }) {
+                    IconButton(onClick = {
+                        viewModel.delete()
+                        onNavigateBack()
+                    }) {
                         Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -128,33 +130,36 @@ fun DetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp)
         ) {
-            // Big Rounded Card for "Album Art" style or just Title area
+            // Hero
+            val heroAccent = type?.let { getItemAccent(it) } ?: MaterialTheme.colorScheme.primary
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(168.dp)
                     .clip(RoundedCornerShape(32.dp))
-                    .background(Color(0xFF3D7AF0).copy(alpha = 0.1f)), // Light blue box
+                    .background(heroAccent.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = type,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    if (typeName.isNotBlank()) {
+                        Text(
+                            text = typeName,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = heroAccent
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                     Text(
                         text = "AI 总结",
                         style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
+                        color = heroAccent
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Title and Info
+            // Title & meta
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
@@ -162,23 +167,23 @@ fun DetailScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
+
+            Spacer(modifier = Modifier.height(10.dp))
+
             Text(
-                text = "$source • $date",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.Gray,
+                text = item?.originUrl ?: "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-            
-            Spacer(modifier = Modifier.height(32.dp))
+
+            Spacer(modifier = Modifier.height(24.dp))
             
             // Content Card (Lyrics style)
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.surface
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 shape = RoundedCornerShape(24.dp),
@@ -186,7 +191,7 @@ fun DetailScreen(
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
                     MarkdownText(
-                        markdown = markdownContent,
+                        markdown = if (markdownContent.isNotBlank()) markdownContent else "（暂无内容）",
                         style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 28.sp),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -196,4 +201,18 @@ fun DetailScreen(
             Spacer(modifier = Modifier.height(80.dp)) // Bottom padding
         }
     }
+}
+
+private fun getItemTypeName(type: ItemType): String = when (type) {
+    ItemType.PAPER -> "论文"
+    ItemType.INSIGHT -> "灵感"
+    ItemType.VOICE -> "语音"
+    ItemType.COMPETITION -> "竞赛"
+}
+
+private fun getItemAccent(type: ItemType): Color = when (type) {
+    ItemType.PAPER -> Color(0xFF2F6DFF)
+    ItemType.INSIGHT -> Color(0xFFB24DFF)
+    ItemType.VOICE -> Color(0xFFFF8A00)
+    ItemType.COMPETITION -> Color(0xFFFF2D55)
 }

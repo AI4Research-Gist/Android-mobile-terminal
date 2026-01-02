@@ -15,6 +15,12 @@
     <!-- 悬浮窗权限（后续功能需要）-->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- 前台服务（悬浮球常驻需要） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Android 13+ 通知权限（前台服务通知） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".AI4ResearchApp"
         android:allowBackup="true"
@@ -37,6 +43,31 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.capture.CaptureLinkActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AI4Research" />
+
+        <activity
+            android:name=".ui.capture.CameraCaptureActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AI4Research" />
+
+        <service
+            android:name=".core.floating.FloatingBallService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

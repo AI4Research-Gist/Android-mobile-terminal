@@ -1,61 +1,34 @@
 package com.example.ai4research.ui.auth
 
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.ai4research.R // Assuming R exists, but will check. If not, I'll remove Image.
 import com.example.ai4research.core.security.BiometricHelper
-import com.example.ai4research.ui.components.GistTextField
+import com.example.ai4research.core.theme.IOSTheme
+import com.example.ai4research.ui.components.IOSButton
+import com.example.ai4research.ui.components.IOSTextField
 
 @Composable
 fun LoginScreen(
@@ -67,10 +40,10 @@ fun LoginScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val hasBiometricCredentials by viewModel.hasBiometricCredentials.collectAsState()
+    val iosColors = IOSTheme.colors
 
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
     var showBiometricOption by remember { mutableStateOf(false) }
 
     // Check Biometric Availability
@@ -97,119 +70,121 @@ fun LoginScreen(
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            // "Let's Go" style button
-            FloatingActionButton(
-                onClick = { viewModel.login(email, password) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
-                shape = CircleShape,
-                modifier = Modifier.size(64.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "登录")
-            }
-        }
-    ) { innerPadding ->
+    // Modern Tech Background Gradient
+    val backgroundBrush = Brush.verticalGradient(
+        colors = listOf(
+            iosColors.systemBackground,
+            iosColors.systemBlue.copy(alpha = 0.05f),
+            iosColors.systemPurple.copy(alpha = 0.05f)
+        )
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundBrush)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.Start
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Spacer(modifier = Modifier.height(60.dp))
+            Spacer(modifier = Modifier.height(80.dp))
 
-            // Header (PixelPlay Style: Large Bold Text)
-            Text(
-                text = "欢迎来到",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold
-            )
+            // Tech Style Header
             Text(
                 text = "AI4Research",
-                style = MaterialTheme.typography.displayMedium, // Bigger font
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Black
+                style = MaterialTheme.typography.displayMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = (-1).sp
+                ),
+                color = iosColors.systemBlue
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
+            
+            Spacer(modifier = Modifier.height(8.dp))
             
             Text(
-                text = "让我们开始您的科研之旅",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.Gray
+                text = "未来的科研助手",
+                style = MaterialTheme.typography.titleMedium,
+                color = iosColors.secondaryLabel
             )
 
             Spacer(modifier = Modifier.height(60.dp))
 
-            // Form
-            GistTextField(
+            // Form Fields
+            IOSTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = "邮箱",
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next
-                )
+                placeholder = "邮箱",
+                leadingIcon = { 
+                    Icon(
+                        Icons.Default.Email, 
+                        contentDescription = null,
+                        tint = iosColors.secondaryLabel
+                    ) 
+                },
+                keyboardType = KeyboardType.Email,
+                imeAction = ImeAction.Next
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            GistTextField(
+            IOSTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = "密码",
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = "切换密码可见性"
-                        )
-                    }
+                placeholder = "密码",
+                isPassword = true,
+                leadingIcon = { 
+                    Icon(
+                        Icons.Default.Lock, 
+                        contentDescription = null,
+                        tint = iosColors.secondaryLabel
+                    ) 
                 },
-                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                )
+                imeAction = ImeAction.Done,
+                onImeAction = { viewModel.login(email, password) }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Biometric Option
+            // Action Buttons
+            IOSButton(
+                text = "登录",
+                onClick = { viewModel.login(email, password) },
+                modifier = Modifier.fillMaxWidth(),
+                backgroundColor = iosColors.systemBlue
+            )
+
             if (showBiometricOption) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                   IconButton(
-                        onClick = {
-                            if (context is FragmentActivity) {
-                                biometricHelper.showBiometricPrompt(
-                                    activity = context,
-                                    onSuccess = { viewModel.biometricLogin() },
-                                    onError = { _, msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
-                                )
-                            }
+                Spacer(modifier = Modifier.height(24.dp))
+                IconButton(
+                    onClick = {
+                        if (context is FragmentActivity) {
+                            biometricHelper.showBiometricPrompt(
+                                activity = context,
+                                onSuccess = { viewModel.biometricLogin() },
+                                onError = { _, msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
+                            )
                         }
-                    ) {
-                        Icon(
-                            Icons.Default.Fingerprint,
-                            contentDescription = "生物识别登录",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
+                    },
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(iosColors.systemBlue.copy(alpha = 0.1f))
+                ) {
+                    Icon(
+                        Icons.Default.Fingerprint,
+                        contentDescription = "生物识别登录",
+                        tint = iosColors.systemBlue,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
             // Footer Links
             Row(
@@ -218,15 +193,22 @@ fun LoginScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = onNavigateToRegister) {
-                    Text("创建账号", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "创建账号", 
+                        color = iosColors.systemBlue,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
                 
                 TextButton(onClick = { /* Forgot Password */ }) {
-                    Text("忘记密码?", color = Color.Gray)
+                    Text(
+                        "忘记密码?", 
+                        color = iosColors.secondaryLabel
+                    )
                 }
             }
             
-            Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }
