@@ -13,8 +13,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.ai4research"
-        minSdk = 26  // 按照文档要求
-        targetSdk = 34  // 按照文档要求
+        minSdk = 26  
+        targetSdk = 34  
         versionCode = 1
         versionName = "1.0"
 
@@ -54,6 +54,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation("androidx.compose.material:material")
     // Material Icons Extended
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
     

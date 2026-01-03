@@ -6,6 +6,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -16,8 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,6 +43,7 @@ fun IOSTextField(
     keyboardType: KeyboardType = KeyboardType.Text,
     imeAction: ImeAction = ImeAction.Next,
     onImeAction: () -> Unit = {},
+    containerColor: Color = IOSTheme.colors.systemBackground,
     enabled: Boolean = true,
     singleLine: Boolean = true
 ) {
@@ -55,7 +57,7 @@ fun IOSTextField(
             .fillMaxWidth()
             .height(50.dp)
             .clip(RoundedCornerShape(IOSCornerRadius.Medium))
-            .background(iosColors.systemBackground),
+            .background(containerColor),
         textStyle = MaterialTheme.typography.bodyLarge.copy(
             color = iosColors.label
         ),
@@ -108,9 +110,18 @@ fun IOSTextField(
                         onClick = { passwordVisible = !passwordVisible },
                         modifier = Modifier.size(24.dp)
                     ) {
-                        Text(
-                            text = if (passwordVisible) "👁️" else "👁️‍🗨️",
-                            style = MaterialTheme.typography.bodyMedium
+                        Icon(
+                            imageVector = if (passwordVisible) {
+                                Icons.Filled.VisibilityOff
+                            } else {
+                                Icons.Filled.Visibility
+                            },
+                            contentDescription = if (passwordVisible) {
+                                "Hide password"
+                            } else {
+                                "Show password"
+                            },
+                            tint = iosColors.secondaryLabel
                         )
                     }
                 } else if (trailingIcon != null) {

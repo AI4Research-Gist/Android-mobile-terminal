@@ -107,7 +107,15 @@ fun MainScreen(
             composable(BottomNavItem.Home.route) {
                 HomeScreen(
                     onLogout = onLogout,
-                    onNavigateToSettings = { /* Navigate to settings? */ },
+                    onNavigateToSettings = {
+                        navController.navigate(BottomNavItem.Profile.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     onItemClick = onNavigateToDetail
                 )
             }

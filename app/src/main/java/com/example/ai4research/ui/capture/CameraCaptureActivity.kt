@@ -59,3 +59,6 @@ class CameraCaptureActivity : ComponentActivity() {
 }
 
 
+
+
+
