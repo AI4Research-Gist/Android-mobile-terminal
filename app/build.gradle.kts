@@ -56,7 +56,6 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    implementation("androidx.compose.material:material")
     // Material Icons Extended
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
     
@@ -80,11 +79,7 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
     
-    // Coil (图片加载)
-    implementation(libs.coil.compose)
     
-    // WorkManager (后台任务)
-    implementation(libs.work.runtime.ktx)
     
     // Gson (JSON解析，用于Room TypeConverter)
     implementation(libs.gson)
@@ -92,8 +87,6 @@ dependencies {
     // Compose Markdown (Markdown渲染)
     implementation(libs.compose.markdown)
     
-    // Accompanist Permissions (权限管理)
-    implementation(libs.accompanist.permissions)
     
     // Security & Biometric (安全存储与生物识别)
     implementation(libs.androidx.biometric)

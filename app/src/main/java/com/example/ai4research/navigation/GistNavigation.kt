@@ -20,32 +20,3 @@ sealed class Screen(val route: String) {
         fun createRoute(itemId: String) = "detail/$itemId"
     }
 }
-
-/**
- * Bottom Navigation Items
- */
-sealed class BottomNavItem(
-    val route: String,
-    val title: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector
-) {
-    object Home : BottomNavItem(
-        route = "home_tab",
-        title = "主页",
-        selectedIcon = Icons.Filled.Home,
-        unselectedIcon = Icons.Outlined.Home
-    )
-    object Voice : BottomNavItem(
-        route = "voice_tab",
-        title = "语音",
-        selectedIcon = Icons.Filled.Mic,
-        unselectedIcon = Icons.Outlined.Mic
-    )
-    object Profile : BottomNavItem(
-        route = "profile_tab",
-        title = "我的",
-        selectedIcon = Icons.Filled.Person,
-        unselectedIcon = Icons.Outlined.Person
-    )
-}

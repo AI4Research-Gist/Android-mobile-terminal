@@ -1,93 +1,103 @@
 # AI4Research
 
 <p align="center">
-  <img src="logo.png" alt="AI4Research Logo" width="120"/>
+  <img src="app/src/main/assets/logo.png" alt="AI4Research Logo" width="120"/>
 </p>
 
 <p align="center">
-  <b>智能科研助手 - 碎片化采集，AI 重构，结构化呈现</b>
+  <b>Photon Lab - 您的个人 AI 研究助手</b>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-green.svg"/>
   <img src="https://img.shields.io/badge/Language-Kotlin-blue.svg"/>
-  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose-purple.svg"/>
-  <img src="https://img.shields.io/badge/Min%20SDK-26-orange.svg"/>
-  <img src="https://img.shields.io/badge/Target%20SDK-34-red.svg"/>
+  <img src="https://img.shields.io/badge/UI-Hybrid%20(React%20%2B%20Compose)-orange.svg"/>
+  <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean-purple.svg"/>
+  <img src="https://img.shields.io/badge/Min%20SDK-26-gray.svg"/>
 </p>
 
 ---
 
 ## 📖 项目简介
 
-AI4Research 是一款面向科研人员的 Android 移动端应用，旨在帮助用户随时随地采集科研灵感、文献资料，并通过云端 AI 进行智能解析，最终以结构化卡片的形式呈现。
+**AI4Research** 是一款专为 AI 研究人员设计的移动端助手应用，旨在帮助用户高效管理论文、追踪前沿竞赛并记录灵感。
 
-### 核心理念
-> **碎片化采集** → **云端 AI 重构** → **本地结构化卡片**
-
----
-
-## ✨ 主要功能
-
-### 🔗 全场景采集
-- **分享菜单采集**: 在微信、浏览器等任意 App 中，通过分享功能快速采集链接
-- **全局悬浮球**: 类似 iOS 辅助触控，随时唤起采集功能
-- **语音灵感**: 快速录音记录灵感，AI 自动转写整理
-
-### 🤖 AI 智能解析
-- 论文自动提取摘要、关键信息
-- 比赛信息自动生成时间线
-- 语音内容智能转写与结构化
-
-### 📱 iOS 风格体验
-- 高斯模糊毛玻璃效果
-- 流畅弹簧动画
-- 极简白灰配色
-- 无阴影设计语言
+本项目采用 **"UI/UX Pro Max"** 设计理念，结合 **Hybrid 混合开发架构**，在 Android 原生应用中无缝集成了 React + Tailwind CSS 的现代化 Web 界面，实现了极致丝滑的视觉体验与原生性能的完美平衡。
 
 ---
 
-## 🛠️ 技术栈
+## ✨ 核心特性
 
-| 类别 | 技术 |
-|------|------|
-| **语言** | Kotlin 100% |
+- **🌌 双模 UI 引擎 (Dual-Theme Engine)**
+  - **Holographic Day**: 全息银白风格，清爽透亮，适合日间阅读。
+  - **Cyber Void**: 午夜霓虹风格，深邃沉浸，科技感十足。
+  - 支持系统自动切换与手动一键切换。
+
+- **🚀 混合架构 (Hybrid Architecture)**
+  - **主界面 (Main Stream)**: 采用 React + Tailwind + Framer Motion 构建，运行于高性能 WebView 中，实现复杂的玻璃拟态 (Glassmorphism) 和流体动画。
+  - **详情页 (Native Detail)**: 采用 Jetpack Compose 原生开发，确保沉浸式阅读体验和高性能 Markdown 渲染。
+  - **无缝交互**: 通过 `AndroidInterface` 桥接层，实现 Web 与 Native 的双向通信（跳转、状态同步、原生能力调用）。
+
+- **🧠 智能功能**
+  - **论文追踪 (Papers)**: 聚合 LoRA、LLM 等前沿论文，支持状态管理（未读/在读/星标）。
+  - **竞赛日历 (Events)**: 直观的时间轴展示 ICCV、Kaggle 等重要比赛截止日期 (DDL)。
+  - **一键采集 (Capture)**: 底部中央悬浮按钮，支持剪贴板智能检测、链接采集等功能。
+
+---
+
+## 🛠 技术栈
+
+### Android Native
+| 模块 | 技术选型 |
+|------|----------|
+| **语言** | Kotlin |
 | **UI 框架** | Jetpack Compose (Material 3) |
 | **架构模式** | MVVM + Clean Architecture |
 | **依赖注入** | Hilt |
-| **异步处理** | Coroutines + Flow |
-| **网络层** | Retrofit + OkHttp |
-| **本地存储** | Room (SQLite ORM) |
-| **图片加载** | Coil |
-| **后台任务** | WorkManager |
-| **安全认证** | Biometric + EncryptedSharedPreferences |
+| **网络层** | Retrofit + OkHttp + Kotlinx Serialization |
+| **本地存储** | Room (SQLite) + DataStore |
+| **安全存储** | EncryptedSharedPreferences |
+| **Markdown** | compose-markdown |
+
+### Hybrid Web Frontend
+| 模块 | 技术选型 |
+|------|----------|
+| **核心库** | React 18 (via ESM) |
+| **样式** | Tailwind CSS (via CDN) |
+| **动画** | Framer Motion |
+| **图标** | Lucide React |
+| **构建方式** | Runtime ESM Import (无需 Node.js 构建步骤) |
 
 ---
 
-## 📁 项目结构
+## 📂 项目结构
 
 ```
-app/src/main/java/com/example/ai4research/
-├── core/                  # 核心基础库
-│   ├── network/           # 网络拦截器、Token 管理
-│   ├── security/          # 生物识别、密码加密
-│   ├── theme/             # iOS 风格主题系统
-│   └── util/              # 工具类、扩展函数
-├── di/                    # Hilt 依赖注入模块
-├── domain/                # 业务逻辑层
-│   └── model/             # 领域模型
-├── data/                  # 数据层
-│   ├── remote/            # API 服务、DTO
-│   ├── local/             # Room 数据库、DAO
-│   ├── repository/        # 仓库实现
-│   └── mapper/            # 数据映射
-├── ui/                    # 界面层
-│   ├── components/        # 通用 UI 组件
-│   ├── auth/              # 登录注册
-│   ├── home/              # 首页
-│   ├── detail/            # 详情页
-│   └── settings/          # 设置页
-└── navigation/            # 导航配置
+app/src/main/
+├── assets/                    # Web 前端资源 (Hybrid UI)
+│   ├── main_ui.html           # 主界面 (React应用入口)
+│   ├── login.html             # 登录界面 (React应用入口)
+│   └── logo.png               # 应用图标
+├── java/com/example/ai4research/
+│   ├── core/                  # 核心基础层
+│   │   ├── security/          # 生物识别与加密
+│   │   ├── network/           # 网络拦截器
+│   │   └── theme/             # 原生主题配置
+│   ├── data/                  # 数据层 (Data Layer)
+│   │   ├── local/             # Room 数据库 & DAO
+│   │   ├── remote/            # Retrofit API & DTO
+│   │   └── repository/        # 仓库实现
+│   ├── domain/                # 领域层 (Domain Layer)
+│   │   ├── model/             # 业务实体
+│   │   └── repository/        # 仓库接口
+│   ├── ui/                    # 表现层 (Presentation Layer)
+│   │   ├── main/              # 主界面容器 (WebView Wrapper)
+│   │   ├── detail/            # 详情页 (Native Compose)
+│   │   └── auth/              # 认证页容器
+│   ├── navigation/            # 导航图配置
+│   ├── MainActivity.kt        # 应用入口
+│   └── AI4ResearchApp.kt      # Application 类
+└── res/                       # Android 资源文件
 ```
 
 ---
@@ -96,121 +106,41 @@ app/src/main/java/com/example/ai4research/
 
 ### 环境要求
 - Android Studio Koala (2024.1.1) 或更高版本
-- JDK 11+
-- Android SDK 34
+- JDK 17
+- Android SDK 34 (UpsideDownCake)
 
 ### 构建步骤
+1. 克隆仓库:
+   ```bash
+   git clone <your-repo-url>
+   cd AI4Research
+   ```
+2. 打开 Android Studio，等待 Gradle 同步完成。
+3. 连接 Android 设备或启动模拟器。
+4. 点击 **Run 'app'** (Shift+F10)。
 
-1. **克隆仓库**
-```bash
-git clone https://github.com/AI4Research-Gist/Android-mobile-terminal.git
-cd Android-mobile-terminal
-```
-
-2. **打开项目**
-   - 使用 Android Studio 打开项目根目录
-
-3. **同步 Gradle**
-   - 等待 Gradle 自动同步依赖
-
-4. **运行应用**
-   - 连接 Android 设备或启动模拟器
-   - 点击 Run 按钮
+### 注意事项
+- 由于 Web 界面使用了 ESM 模块加载 (`esm.sh`) 和 CDN 资源，**运行应用时需要保持网络连接**。
+- 首次加载 WebView 可能需要几秒钟下载 React 依赖。
 
 ---
 
-## 📸 应用截图
-
-<p align="center">
-  <img src="png/1.jpg" width="200"/>
-  <img src="png/2.jpg" width="200"/>
-  <img src="png/3.jpg" width="200"/>
-</p>
-
-<p align="center">
-  <img src="png/4.jpg" width="200"/>
-  <img src="png/5.jpg" width="200"/>
-  <img src="png/6.jpg" width="200"/>
-</p>
-
----
-
-## 🎨 设计规范
-
-### 色彩系统
-| 名称 | 色值 | 用途 |
-|------|------|------|
-| Background | `#F2F2F7` | iOS 默认浅灰背景 |
-| Surface | `#FFFFFF` | 纯白卡片 |
-| Primary | `#007AFF` | iOS 蓝，主要操作 |
-| TextPrimary | `#000000` | 主要文字 |
-| TextSecondary | `#8E8E93` | 次要文字 |
-
-### 组件规范
-- **圆角**: 统一 20dp
-- **阴影**: 不使用，改用 0.5dp 灰色边框
-- **动画**: 弹簧动画 (dampingRatio = 0.8f)
-- **触觉**: 轻触反馈 (LIGHT_IMPACT)
-
----
-
-## 🔐 安全特性
-
-- ✅ 生物识别登录 (指纹/面部)
-- ✅ 密码 SHA-256 加密存储
-- ✅ Token 安全存储 (EncryptedSharedPreferences)
-- ✅ 网络请求 HTTPS 加密
-
----
-
-## 📋 权限说明
+## 📱 权限说明
 
 | 权限 | 用途 |
 |------|------|
-| `INTERNET` | 网络请求 |
-| `ACCESS_NETWORK_STATE` | 检测网络状态 |
-| `USE_BIOMETRIC` | 生物识别认证 |
-| `RECORD_AUDIO` | 语音录制功能 |
-| `SYSTEM_ALERT_WINDOW` | 悬浮球功能 |
+| `INTERNET` | 加载 Web 资源、同步数据 |
+| `ACCESS_NETWORK_STATE` | 检查网络连接状态 |
+| `USE_BIOMETRIC` | 生物识别登录（可选） |
 
 ---
 
-## 🗺️ 开发路线图
+## 🤝 贡献与支持
 
-- [x] 基础架构搭建
-- [x] 用户认证系统
-- [x] iOS 风格主题
-- [x] 首页信息流
-- [ ] 全局悬浮球
-- [ ] 语音录制功能
-- [ ] 分享菜单采集
-- [ ] AI 内容解析
-- [ ] Markdown 渲染
-
----
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 提交 Pull Request
-
----
-
-## 📄 开源协议
-
-本项目采用 MIT 协议 - 查看 [LICENSE](LICENSE) 文件了解详情
-
----
-
-## 📞 联系我们
+欢迎提交 Issue 或 Pull Request 来改进本项目。
 
 - **GitHub**: [AI4Research-Gist](https://github.com/AI4Research-Gist)
-- **Issues**: [提交问题](https://github.com/AI4Research-Gist/Android-mobile-terminal/issues)
+- **团队**: Photon Lab Team
 
 ---
 
