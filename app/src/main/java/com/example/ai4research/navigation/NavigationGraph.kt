@@ -9,9 +9,8 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.example.ai4research.ui.auth.AuthScreen
 import com.example.ai4research.ui.auth.AuthViewModel
-import com.example.ai4research.ui.auth.LoginScreen
-import com.example.ai4research.ui.auth.RegisterScreen
 import com.example.ai4research.ui.detail.DetailScreen
 import com.example.ai4research.ui.main.MainScreen
 
@@ -60,13 +59,14 @@ fun NavigationGraph(
     ) {
         // 登录页面
         composable(Screen.Login.route) {
-            LoginScreen(
-                onNavigateToRegister = {
-                    navController.navigate(Screen.Register.route) {
-                        popUpTo(Screen.Login.route) { inclusive = false }
+            AuthScreen(
+                initialAuthMode = 0,
+                onLoginSuccess = {
+                    navController.navigate(Screen.Main.route) {
+                        popUpTo(0) { inclusive = true }
                     }
                 },
-                onLoginSuccess = {
+                onRegisterSuccess = {
                     navController.navigate(Screen.Main.route) {
                         popUpTo(0) { inclusive = true }
                     }
@@ -77,9 +77,12 @@ fun NavigationGraph(
         
         // 注册页面
         composable(Screen.Register.route) {
-            RegisterScreen(
-                onNavigateToLogin = {
-                    navController.popBackStack()
+            AuthScreen(
+                initialAuthMode = 1,
+                onLoginSuccess = {
+                    navController.navigate(Screen.Main.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 },
                 onRegisterSuccess = {
                     navController.navigate(Screen.Main.route) {
