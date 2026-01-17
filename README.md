@@ -1,7 +1,7 @@
 # AI4Research
 
 <p align="center">
-  <img src="logo.jpg" alt="AI4Research Logo" width="120"/>
+  <img src="logo.png" alt="AI4Research Logo" width="120"/>
 </p>
 
 <p align="center">
