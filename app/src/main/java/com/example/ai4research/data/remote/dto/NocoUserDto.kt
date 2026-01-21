@@ -12,6 +12,9 @@ data class NocoUserDto(
     @SerialName("Id")
     val id: Int? = null,  // NocoDB 自动生成的ID（仅用于响应）
     
+    @SerialName("Phonenumber")
+    val phone: String? = null,  // 手机号
+    
     @SerialName("email")
     val email: String,
     
@@ -39,6 +42,9 @@ data class NocoUserDto(
  */
 @Serializable
 data class NocoUserCreateDto(
+    @SerialName("Phonenumber")
+    val phone: String? = null,  // 手机号
+    
     @SerialName("email")
     val email: String,
     

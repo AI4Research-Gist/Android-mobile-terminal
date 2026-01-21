@@ -35,6 +35,9 @@ data class NocoItemDto(
     
     @SerialName("read_status")
     val readStatus: String? = "unread",
+
+    @SerialName("tags")
+    val tags: String? = null,
     
     @SerialName("project_id")
     val projectId: String? = null,

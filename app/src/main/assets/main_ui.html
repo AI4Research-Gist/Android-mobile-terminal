@@ -1,688 +1,782 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI4Research</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        body { 
-            -webkit-tap-highlight-color: transparent; 
-            overscroll-behavior: none;
-            user-select: none;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-            display: none;
-        }
-        .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
-    </style>
-    <!-- Import dependencies as modules and expose to window for Babel script -->
-    <script type="module">
-        import React from 'https://esm.sh/react@18.2.0';
-        import * as ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
-        import * as FramerMotion from 'https://esm.sh/framer-motion@10.16.4?deps=react@18.2.0';
-        import * as LucideReact from 'https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0';
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AI4Research</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    /* Global Font Settings */
+    body {
+      font-family: 'Inter', sans-serif;
+    }
 
-        window.React = React;
-        window.ReactDOM = ReactDOM;
-        window.FramerMotion = FramerMotion;
-        window.LucideReact = LucideReact;
-        
-        // Signal that dependencies are loaded
-        window.dispatchEvent(new Event('deps-loaded'));
-    </script>
+    h1,
+    h2,
+    h3,
+    h4,
+    .font-display {
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    /* Critical: Hide content until fully loaded */
+    #root {
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+    }
+
+    #root.loaded {
+      opacity: 1;
+    }
+
+    /* Inline loading screen - no external dependencies */
+    #loading-screen {
+      position: fixed;
+      inset: 0;
+      background: #F2F2F7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.3s ease-out;
+    }
+
+    #loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(16, 185, 129, 0.2);
+      border-top-color: #10B981;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-text {
+      margin-top: 16px;
+      font-size: 14px;
+      color: #64748b;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes grid-move {
+      0% {
+        transform: translateY(0);
+      }
+
+      100% {
+        transform: translateY(40px);
+      }
+    }
+
+    .animate-grid {
+      animation: grid-move 20s linear infinite;
+    }
+
+    body {
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+      user-select: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+  <!-- Import dependencies as modules and expose to window for Babel script -->
+  <script type="module">
+    import React from 'https://esm.sh/react@18.2.0';
+    import * as ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+    import * as FramerMotion from 'https://esm.sh/framer-motion@10.16.4?deps=react@18.2.0';
+    import * as LucideReact from 'https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0';
+
+    window.React = React;
+    window.ReactDOM = ReactDOM;
+    window.FramerMotion = FramerMotion;
+    window.LucideReact = LucideReact;
+
+    // Signal that dependencies are loaded
+    window.dispatchEvent(new Event('deps-loaded'));
+  </script>
 </head>
-<body class="bg-black text-white h-screen w-screen overflow-hidden">
-    <div id="root" class="h-full w-full"></div>
 
-    <script type="text/babel" data-presets="react,env">
-        const { useState, useEffect, useContext, createContext } = React;
-        const { motion, AnimatePresence } = FramerMotion;
-        const { 
-            Home, BookOpen, Trophy, Lightbulb, Plus, Search, MoreHorizontal, 
-            Clock, Tag, ChevronRight, Mic, Image: ImageIcon, Link: LinkIcon, 
-            Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut
-        } = LucideReact;
+<body class="bg-[#F2F2F7] text-white h-screen w-screen overflow-hidden">
+  <!-- Inline loading screen - shows immediately -->
+  <div id="loading-screen">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">正在加载...</div>
+  </div>
 
-        // --- 数据模拟 ---
-        const PAPERS = [
-          {
-            id: 1,
-            title: "Low-Rank Adaptation of Large Language Models",
-            author: "Edward Hu et al.",
-            source: "ICLR 2022",
-            summary: "提出了一种冻结预训练模型权重，并在Transformer层中注入可训练秩分解矩阵的方法，大大减少了下游任务的参数量。",
-            tags: ["LoRA", "LLM", "Fine-tuning"],
-            status: "reading",
-            timestamp: "10 min ago"
-          },
-          {
-            id: 2,
-            title: "QLoRA: Efficient Finetuning of Quantized LLMs",
-            author: "Tim Dettmers et al.",
-            source: "NeurIPS 2023",
-            summary: "引入了4位量化、双量化和分页优化器，使得在单张48GB GPU上微调65B参数模型成为可能。",
-            tags: ["Quantization", "Efficiency"],
-            status: "unread",
-            timestamp: "2 hours ago"
-          }
-        ];
+  <div id="root" class="h-full w-full"></div>
 
-        const COMPETITIONS = [
-          {
-            id: 101,
-            title: "ICCV 2025: AI 创新挑战赛",
-            organizer: "Computer Vision Foundation",
-            deadline: "2025-10-15",
-            daysLeft: 12,
-            status: "registered",
-            tags: ["CV", "Multimodal"]
-          },
-          {
-            id: 102,
-            title: "Kaggle: LLM Science Exam",
-            organizer: "Kaggle / Google",
-            deadline: "2025-11-01",
-            daysLeft: 28,
-            status: "watching",
-            tags: ["NLP", "Reasoning"]
-          }
-        ];
+  <script type="text/babel" data-presets="react,env">
+    const { useState, useEffect, useContext, createContext } = React;
+    const { motion, AnimatePresence } = FramerMotion;
+    const {
+      Home, BookOpen, Trophy, Lightbulb, Plus, Search, MoreHorizontal,
+      Clock, Tag, ChevronRight, Mic, Image: ImageIcon, Link: LinkIcon,
+      Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut
+    } = LucideReact;
 
-        // --- 主题上下文配置 ---
-        const ThemeContext = createContext({ isDark: true, toggleTheme: () => {} });
+    // --- 数据模拟 ---
+    const PAPERS = [
+      {
+        id: 1,
+        title: "Low-Rank Adaptation of Large Language Models",
+        author: "Edward Hu et al.",
+        source: "ICLR 2022",
+        summary: "提出了一种冻结预训练模型权重，并在Transformer层中注入可训练秩分解矩阵的方法，大大减少了下游任务的参数量。",
+        tags: ["LoRA", "LLM", "Fine-tuning"],
+        status: "reading",
+        timestamp: "10 min ago"
+      },
+      {
+        id: 2,
+        title: "QLoRA: Efficient Finetuning of Quantized LLMs",
+        author: "Tim Dettmers et al.",
+        source: "NeurIPS 2023",
+        summary: "引入了4位量化、双量化和分页优化器，使得在单张48GB GPU上微调65B参数模型成为可能。",
+        tags: ["Quantization", "Efficiency"],
+        status: "unread",
+        timestamp: "2 hours ago"
+      }
+    ];
 
-        // --- 基础组件 ---
-        const GlassCard = ({ children, className = "", delay = 0, noPadding = false, ...props }) => {
-          const { isDark } = useContext(ThemeContext);
-          
-          return (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: delay, type: "spring", stiffness: 100 }}
-              whileTap={{ scale: 0.98 }}
-              className={`
+    const COMPETITIONS = [
+      {
+        id: 101,
+        title: "ICCV 2025: AI 创新挑战赛",
+        organizer: "Computer Vision Foundation",
+        deadline: "2025-10-15",
+        daysLeft: 12,
+        status: "registered",
+        tags: ["CV", "Multimodal"]
+      },
+      {
+        id: 102,
+        title: "Kaggle: LLM Science Exam",
+        organizer: "Kaggle / Google",
+        deadline: "2025-11-01",
+        daysLeft: 28,
+        status: "watching",
+        tags: ["NLP", "Reasoning"]
+      }
+    ];
+
+    // --- 主题上下文配置 ---
+    const ThemeContext = createContext({ isDark: true, toggleTheme: () => { } });
+
+    // --- 基础组件 ---
+    const GlassCard = ({ children, className = "", delay = 0, noPadding = false, ...props }) => {
+      const { isDark } = useContext(ThemeContext);
+
+      return (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: delay, type: "spring", stiffness: 100 }}
+          whileTap={{ scale: 0.98 }}
+          className={`
                 relative overflow-hidden transition-all duration-500 ease-in-out
                 ${noPadding ? '' : 'p-5'}
                 rounded-[2rem]
-                ${isDark 
-                  ? 'bg-white/5 border-white/10 shadow-lg shadow-black/20' 
-                  : 'bg-white/60 border-white/40 shadow-xl shadow-indigo-500/5'
-                }
+                ${isDark
+              ? 'bg-[#0c0c0e]/60 border-emerald-500/30 shadow-[0_8px_32px_rgba(16,185,129,0.1)]'
+              : 'bg-white/70 border-white/60 shadow-[0_8px_32px_rgba(16,185,129,0.05)]'
+            }
                 backdrop-blur-xl border
+                group hover:border-emerald-500/50 hover:shadow-emerald-500/20
                 ${className}
               `}
-              {...props}
-            >
-              <div className={`absolute inset-0 bg-gradient-to-br transition-opacity duration-500 pointer-events-none
+          {...props}
+        >
+          <div className={`absolute inset-0 bg-gradient-to-br transition-opacity duration-500 pointer-events-none
                 ${isDark ? 'from-white/5 to-transparent opacity-100' : 'from-white/40 to-transparent opacity-50'}
               `} />
-              
-              <div className="relative z-10">
-                {children}
-              </div>
-            </motion.div>
-          );
-        };
 
-        const TagBadge = ({ text, color = "blue" }) => {
-          const { isDark } = useContext(ThemeContext);
-          
-          const getColors = () => {
-            switch(color) {
-              case "purple": 
-                return isDark 
-                  ? "bg-purple-500/20 text-purple-200 border-purple-500/30" 
-                  : "bg-purple-100 text-purple-700 border-purple-200";
-              case "emerald":
-                return isDark
-                  ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
-                  : "bg-emerald-100 text-emerald-700 border-emerald-200";
-              default: // blue
-                return isDark
-                  ? "bg-blue-500/20 text-blue-200 border-blue-500/30"
-                  : "bg-blue-100 text-blue-700 border-blue-200";
-            }
-          };
+          <div className="relative z-10">
+            {children}
+          </div>
+        </motion.div>
+      );
+    };
 
-          return (
-            <span className={`px-2.5 py-1 text-[10px] font-semibold rounded-full border transition-colors duration-500 ${getColors()}`}>
-              {text}
-            </span>
-          );
-        };
+    const TagBadge = ({ text, color = "blue" }) => {
+      const { isDark } = useContext(ThemeContext);
 
-        const SectionHeader = ({ icon: Icon, title, colorClass }) => {
-          const { isDark } = useContext(ThemeContext);
-          return (
-            <div className="flex items-center gap-2 mb-4 px-1 mt-8 first:mt-2">
-              <div className={`p-1.5 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
-                <Icon className={`w-3.5 h-3.5 ${colorClass}`} />
-              </div>
-              <h2 className={`text-xs font-bold uppercase tracking-widest transition-colors duration-500 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
-                {title}
-              </h2>
+      const getColors = () => {
+        switch (color) {
+          case "purple":
+            return isDark
+              ? "bg-teal-500/20 text-teal-200 border-teal-500/30"
+              : "bg-teal-100 text-teal-700 border-teal-200";
+          case "emerald":
+            return isDark
+              ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/30"
+              : "bg-emerald-100 text-emerald-700 border-emerald-200";
+          default: // blue
+            return isDark
+              ? "bg-cyan-500/20 text-cyan-200 border-cyan-500/30"
+              : "bg-cyan-100 text-cyan-700 border-cyan-200";
+        }
+      };
+
+      return (
+        <span className={`px-2.5 py-1 text-[10px] font-semibold rounded-full border transition-colors duration-500 ${getColors()}`}>
+          {text}
+        </span>
+      );
+    };
+
+    const SectionHeader = ({ icon: Icon, title, colorClass }) => {
+      const { isDark } = useContext(ThemeContext);
+      return (
+        <div className="flex items-center gap-2 mb-4 px-1 mt-8 first:mt-2">
+          <div className={`p-1.5 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'}`}>
+            <Icon className={`w-3.5 h-3.5 ${colorClass}`} />
+          </div>
+          <h2 className={`text-xs font-bold uppercase tracking-widest transition-colors duration-500 ${isDark ? 'text-white/40' : 'text-black/40'}`}>
+            {title}
+          </h2>
+        </div>
+      );
+    };
+
+    // --- 页面视图 ---
+
+    const HomeView = () => {
+      const { isDark } = useContext(ThemeContext);
+
+      return (
+        <div className="space-y-2 pb-28">
+          {/* Date Header */}
+          <div className="flex justify-between items-center px-2 mb-6">
+            <div>
+              <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Today
+              </h1>
+              <p className={`text-xs font-medium mt-1 transition-colors duration-500 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                Monday, October 24
+              </p>
             </div>
-          );
-        };
 
-        // --- 页面视图 ---
-
-        const HomeView = () => {
-          const { isDark } = useContext(ThemeContext);
-
-          return (
-            <div className="space-y-2 pb-28">
-              {/* Date Header */}
-              <div className="flex justify-between items-center px-2 mb-6">
-                <div>
-                   <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    Today
-                  </h1>
-                  <p className={`text-xs font-medium mt-1 transition-colors duration-500 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-                    Monday, October 24
-                  </p>
-                </div>
-                
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500 border ${isDark ? 'bg-white/10 border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <div className="relative">
-                     <div className="w-2 h-2 bg-rose-500 rounded-full absolute top-0 right-0 border-2 border-black" />
-                     <ImageIcon className={`w-5 h-5 ${isDark ? 'text-white/70' : 'text-slate-600'}`} />
-                  </div>
-                </div>
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500 border ${isDark ? 'bg-white/10 border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className="relative">
+                <div className="w-2 h-2 bg-emerald-500 rounded-full absolute top-0 right-0 border-2 border-white dark:border-zinc-900" />
+                <ImageIcon className={`w-5 h-5 ${isDark ? 'text-white/70' : 'text-slate-600'}`} />
               </div>
+            </div>
+          </div>
 
-              {/* Priority Section */}
-              <SectionHeader icon={Sparkles} title="Recently Captured" colorClass="text-amber-400" />
-              
-              <GlassCard className="group">
-                <div className={`absolute top-0 right-0 p-4 transition-opacity duration-500 ${isDark ? 'opacity-50' : 'opacity-100'}`}>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Processing Complete</span>
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  </div>
+          {/* Priority Section */}
+          <SectionHeader icon={Sparkles} title="Recently Captured" colorClass="text-amber-400" />
+
+          <GlassCard className="group">
+            <div className={`absolute top-0 right-0 p-4 transition-opacity duration-500 ${isDark ? 'opacity-50' : 'opacity-100'}`}>
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-bold tracking-wider uppercase ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Processing Complete</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34D399]" />
+              </div>
+            </div>
+
+            <div className="flex items-start gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 bg-gradient-to-br from-emerald-600 to-teal-600`}>
+                <BookOpen className="w-6 h-6" />
+              </div>
+              <div className="flex-1 pt-1">
+                <h3 className={`text-lg font-bold leading-tight mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Low-Rank Adaptation
+                </h3>
+                <p className={`text-sm transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                  Imported from WeChat
+                </p>
+              </div>
+            </div>
+
+            {/* AI Summary Block */}
+            <div className={`p-4 rounded-xl border transition-all duration-500 ${isDark
+              ? 'bg-emerald-900/20 border-emerald-500/10'
+              : 'bg-emerald-50/50 border-emerald-100'
+              }`}>
+              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-500 mb-2">
+                <Sparkles className="w-3 h-3" />
+                <span>AI KEY TAKEAWAY</span>
+              </div>
+              <p className={`text-sm leading-relaxed transition-colors duration-500 ${isDark ? 'text-emerald-100/90' : 'text-slate-700'}`}>
+                "这篇论文提出了LoRA，核心通过冻结预训练权重并注入低秩矩阵来减少显存占用，非常适合你目前的<span className="font-bold border-b border-emerald-400/50">移动端部署项目</span>。"
+              </p>
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <TagBadge text="LoRA" color="blue" />
+              <TagBadge text="NLP" color="purple" />
+            </div>
+          </GlassCard>
+
+          {/* Competitions Section */}
+          <SectionHeader icon={Trophy} title="Deadlines" colorClass="text-rose-400" />
+
+          <div className="flex gap-4 overflow-x-auto pb-6 -mx-6 px-6 scrollbar-hide">
+            {COMPETITIONS.map((comp, idx) => (
+              <GlassCard key={comp.id} delay={0.1 * idx} className="min-w-[280px]">
+                <div className="flex justify-between items-start mb-3">
+                  <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
+                    }`}>
+                    {comp.daysLeft} DAYS LEFT
+                  </span>
+                  <div className={`w-2 h-2 rounded-full ${comp.status === 'registered' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-slate-300'}`} />
                 </div>
 
-                <div className="flex items-start gap-4 mb-4">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20 bg-gradient-to-br from-blue-600 to-indigo-600`}>
-                    <BookOpen className="w-6 h-6" />
-                  </div>
-                  <div className="flex-1 pt-1">
-                    <h3 className={`text-lg font-bold leading-tight mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      Low-Rank Adaptation
-                    </h3>
-                    <p className={`text-sm transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                      Imported from WeChat
-                    </p>
-                  </div>
-                </div>
-                
-                {/* AI Summary Block */}
-                <div className={`p-4 rounded-xl border transition-all duration-500 ${
-                  isDark 
-                    ? 'bg-black/20 border-white/5' 
-                    : 'bg-indigo-50/50 border-indigo-100'
-                }`}>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-indigo-400 mb-2">
-                     <Sparkles className="w-3 h-3" />
-                     <span>AI KEY TAKEAWAY</span>
-                  </div>
-                  <p className={`text-sm leading-relaxed transition-colors duration-500 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>
-                    "这篇论文提出了LoRA，核心通过冻结预训练权重并注入低秩矩阵来减少显存占用，非常适合你目前的<span className="font-bold border-b border-indigo-400/50">移动端部署项目</span>。"
-                  </p>
-                </div>
+                <h3 className={`text-base font-bold mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  {comp.title}
+                </h3>
+                <p className={`text-xs mb-4 transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                  {comp.organizer}
+                </p>
 
-                <div className="flex gap-2 mt-4">
-                  <TagBadge text="LoRA" color="blue" />
-                  <TagBadge text="NLP" color="purple" />
+                <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
+                  <div className="bg-gradient-to-r from-rose-500 to-orange-500 h-full w-[70%] rounded-full" />
                 </div>
               </GlassCard>
+            ))}
+          </div>
+        </div>
+      );
+    };
 
-              {/* Competitions Section */}
-              <SectionHeader icon={Trophy} title="Deadlines" colorClass="text-rose-400" />
-              
-              <div className="flex gap-4 overflow-x-auto pb-6 -mx-6 px-6 scrollbar-hide">
-                {COMPETITIONS.map((comp, idx) => (
-                  <GlassCard key={comp.id} delay={0.1 * idx} className="min-w-[280px]">
-                    <div className="flex justify-between items-start mb-3">
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${
-                        isDark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-600'
-                      }`}>
-                        {comp.daysLeft} DAYS LEFT
-                      </span>
-                      <div className={`w-2 h-2 rounded-full ${comp.status === 'registered' ? 'bg-emerald-400' : 'bg-slate-300'}`} />
-                    </div>
-                    
-                    <h3 className={`text-base font-bold mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      {comp.title}
-                    </h3>
-                    <p className={`text-xs mb-4 transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                      {comp.organizer}
-                    </p>
-                    
-                    <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
-                       <div className="bg-gradient-to-r from-rose-500 to-orange-500 h-full w-[70%] rounded-full" />
-                    </div>
-                  </GlassCard>
-                ))}
-              </div>
-            </div>
-          );
-        };
+    const PapersView = () => {
+      const { isDark } = useContext(ThemeContext);
 
-        const PapersView = () => {
-          const { isDark } = useContext(ThemeContext);
-          
-          return (
-            <div className="space-y-4 pb-28">
-              <div className="flex justify-between items-end mb-2 px-2">
-                <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>Papers</h1>
-                <button className={`p-2.5 rounded-full transition-colors duration-500 ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50'}`}>
-                  <Search className="w-5 h-5"/>
+      return (
+        <div className="space-y-4 pb-28">
+          <div className="flex justify-between items-end mb-2 px-2">
+            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>Papers</h1>
+            <button className={`p-2.5 rounded-full transition-colors duration-500 ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50'}`}>
+              <Search className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
+            {["All", "Unread", "Star", "Project A", "Project B"].map((filter, i) => (
+              <button key={filter} className={`
+                    px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap backdrop-blur-md transition-all duration-300
+                    ${i === 0
+                  ? (isDark ? 'bg-white text-black' : 'bg-slate-900 text-white')
+                  : (isDark ? 'bg-white/5 text-white/70 border border-white/10' : 'bg-white/60 text-slate-600 border border-slate-200/50')
+                }
+                  `}>
+                {filter}
+              </button>
+            ))}
+          </div>
+
+          {PAPERS.map((paper, idx) => (
+            <GlassCard
+              key={paper.id}
+              delay={0.05 * idx}
+              className="flex flex-col gap-3"
+              onClick={() => {
+                if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
+                  window.AndroidInterface.navigateToDetail(String(paper.id));
+                }
+              }}
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex-1 pr-4">
+                  <h3 className={`text-lg font-bold leading-snug mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {paper.title}
+                  </h3>
+                  <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                    {paper.author} · {paper.source}
+                  </p>
+                </div>
+                <button className={`transition-colors duration-500 ${isDark ? 'text-white/30 hover:text-white' : 'text-slate-400 hover:text-slate-700'}`}>
+                  <MoreHorizontal className="w-5 h-5" />
                 </button>
               </div>
-              
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
-                {["All", "Unread", "Star", "Project A", "Project B"].map((filter, i) => (
-                  <button key={filter} className={`
-                    px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap backdrop-blur-md transition-all duration-300
-                    ${i === 0 
-                      ? (isDark ? 'bg-white text-black' : 'bg-slate-900 text-white') 
-                      : (isDark ? 'bg-white/5 text-white/70 border border-white/10' : 'bg-white/60 text-slate-600 border border-slate-200/50')
-                    }
-                  `}>
-                    {filter}
-                  </button>
-                ))}
-              </div>
 
-              {PAPERS.map((paper, idx) => (
-                <GlassCard 
-                    key={paper.id} 
-                    delay={0.05 * idx} 
-                    className="flex flex-col gap-3"
-                    onClick={() => {
-                        if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
-                            window.AndroidInterface.navigateToDetail(String(paper.id));
-                        }
-                    }}
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1 pr-4">
-                      <h3 className={`text-lg font-bold leading-snug mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        {paper.title}
-                      </h3>
-                      <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        {paper.author} · {paper.source}
-                      </p>
-                    </div>
-                    <button className={`transition-colors duration-500 ${isDark ? 'text-white/30 hover:text-white' : 'text-slate-400 hover:text-slate-700'}`}>
-                      <MoreHorizontal className="w-5 h-5" />
-                    </button>
-                  </div>
-                  
-                  <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
-                    {paper.summary}
-                  </p>
+              <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                {paper.summary}
+              </p>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-dashed border-white/10">
-                    <div className="flex gap-2">
-                      {paper.tags.map(tag => <TagBadge key={tag} text={tag} color="purple" />)}
-                    </div>
-                    <div className={`flex items-center gap-1.5 text-xs font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
-                      <Clock className="w-3.5 h-3.5" />
-                      {paper.timestamp}
-                    </div>
-                  </div>
-                </GlassCard>
-              ))}
-            </div>
-          );
-        };
-
-        const SettingsView = () => {
-            const { isDark, toggleTheme } = useContext(ThemeContext);
-            
-            const handleLogout = () => {
-                if (window.AndroidInterface && window.AndroidInterface.logout) {
-                    window.AndroidInterface.logout();
-                } else {
-                    console.log("Logout clicked (AndroidInterface not found)");
-                }
-            };
-
-            return (
-                <div className="space-y-4 pb-28">
-                    <div className="flex justify-between items-end mb-6 px-2">
-                        <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>Settings</h1>
-                    </div>
-                    
-                    <GlassCard>
-                        <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-full ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
-                                    {isDark ? <Moon className="w-5 h-5 text-white" /> : <Sun className="w-5 h-5 text-amber-500" />}
-                                </div>
-                                <span className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>Dark Mode</span>
-                            </div>
-                            <button 
-                                onClick={toggleTheme}
-                                className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${isDark ? 'bg-green-500' : 'bg-slate-300'}`}
-                            >
-                                <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${isDark ? 'translate-x-6' : 'translate-x-0'}`} />
-                            </button>
-                        </div>
-                    </GlassCard>
-
-                    <GlassCard>
-                        <button onClick={handleLogout} className="w-full flex items-center gap-3 p-2 text-rose-500 font-medium">
-                            <LogOut className="w-5 h-5" />
-                            Logout
-                        </button>
-                    </GlassCard>
+              <div className="flex items-center justify-between pt-2 border-t border-dashed border-white/10">
+                <div className="flex gap-2">
+                  {paper.tags.map(tag => <TagBadge key={tag} text={tag} color="purple" />)}
                 </div>
-            );
-        };
+                <div className={`flex items-center gap-1.5 text-xs font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
+                  <Clock className="w-3.5 h-3.5" />
+                  {paper.timestamp}
+                </div>
+              </div>
+            </GlassCard>
+          ))}
+        </div>
+      );
+    };
 
-        // --- 全局悬浮组件 (FAB & Nav) ---
+    const SettingsView = () => {
+      const { isDark, toggleTheme } = useContext(ThemeContext);
 
-        const CaptureModal = ({ isOpen, onClose }) => {
-          const { isDark } = useContext(ThemeContext);
-          
-          if (!isOpen) return null;
-          return (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-end justify-center p-4"
-              onClick={onClose}
-            >
-              {/* Backdrop */}
-              <div className="absolute inset-0 bg-black/20 backdrop-blur-md transition-opacity" />
+      const handleLogout = () => {
+        if (window.AndroidInterface && window.AndroidInterface.logout) {
+          window.AndroidInterface.logout();
+        } else {
+          console.log("Logout clicked (AndroidInterface not found)");
+        }
+      };
 
-              <motion.div 
-                initial={{ y: "110%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "110%" }}
-                transition={{ type: "spring", damping: 30, stiffness: 400 }}
-                className={`
-                  w-full max-w-md relative z-10 rounded-[2.5rem] p-6 pb-8 border shadow-2xl
-                  ${isDark 
-                    ? 'bg-[#1c1c1e] border-white/10' 
-                    : 'bg-white border-white/40'
-                  }
-                `}
-                onClick={e => e.stopPropagation()}
+      return (
+        <div className="space-y-4 pb-28">
+          <div className="flex justify-between items-end mb-6 px-2">
+            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>Settings</h1>
+          </div>
+
+          <GlassCard>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
+                  {isDark ? <Moon className="w-5 h-5 text-white" /> : <Sun className="w-5 h-5 text-amber-500" />}
+                </div>
+                <span className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>Dark Mode</span>
+              </div>
+              <button
+                onClick={toggleTheme}
+                className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${isDark ? 'bg-emerald-500' : 'bg-slate-300'}`}
               >
-                <div className={`w-12 h-1.5 rounded-full mx-auto mb-8 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
-                
-                <h3 className={`text-xl font-bold mb-8 text-center transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  Capture to Gist
-                </h3>
-                
-                <div className="grid grid-cols-3 gap-6">
-                   {[
-                     { icon: LinkIcon, label: "Link", color: "from-blue-500 to-blue-600" },
-                     { icon: ImageIcon, label: "Scan", color: "from-indigo-500 to-indigo-600" },
-                     { icon: Mic, label: "Voice", color: "from-rose-500 to-rose-600" },
-                   ].map((item, idx) => (
-                     <button key={idx} className="flex flex-col items-center gap-4 group">
-                       <div className={`
+                <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${isDark ? 'translate-x-6' : 'translate-x-0'}`} />
+              </button>
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-2 text-red-500 font-medium">
+              <LogOut className="w-5 h-5" />
+              Logout
+            </button>
+          </GlassCard>
+        </div>
+      );
+    };
+
+    // --- 全局悬浮组件 (FAB & Nav) ---
+
+    const CaptureModal = ({ isOpen, onClose }) => {
+      const { isDark } = useContext(ThemeContext);
+
+      if (!isOpen) return null;
+      return (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-end justify-center p-4"
+          onClick={onClose}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-md transition-opacity" />
+
+          <motion.div
+            initial={{ y: "110%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "110%" }}
+            transition={{ type: "spring", damping: 30, stiffness: 400 }}
+            className={`
+                  w-full max-w-md relative z-10 rounded-[2.5rem] p-6 pb-8 border shadow-2xl
+                  ${isDark
+                ? 'bg-[#09090b] border-emerald-500/20'
+                : 'bg-white border-white/40'
+              }
+                `}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className={`w-12 h-1.5 rounded-full mx-auto mb-8 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
+
+            <h3 className={`text-xl font-bold mb-8 text-center transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Capture to Gist
+            </h3>
+
+            <div className="grid grid-cols-3 gap-6">
+              {[
+                { icon: LinkIcon, label: "Link", color: "from-cyan-400 to-cyan-600" },
+                { icon: ImageIcon, label: "Scan", color: "from-emerald-500 to-teal-500" },
+                { icon: Mic, label: "Voice", color: "from-orange-500 to-red-500" },
+              ].map((item, idx) => (
+                <button key={idx} className="flex flex-col items-center gap-4 group">
+                  <div className={`
                          w-18 h-18 w-full aspect-square rounded-[1.5rem] flex items-center justify-center text-white shadow-xl 
                          bg-gradient-to-br ${item.color}
                          group-active:scale-95 transition-all duration-200 ring-4 ring-transparent group-hover:ring-white/10
                        `}>
-                         <item.icon className="w-8 h-8" />
-                       </div>
-                       <span className={`text-sm font-medium transition-colors ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
-                         {item.label}
-                       </span>
-                     </button>
-                   ))}
-                </div>
-                
-                {/* Smart Paste Hint */}
-                <div className={`
+                    <item.icon className="w-8 h-8" />
+                  </div>
+                  <span className={`text-sm font-medium transition-colors ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
+                    {item.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Smart Paste Hint */}
+            <div className={`
                   mt-10 p-4 rounded-2xl border flex items-center gap-3
                   ${isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}
                 `}>
-                  <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                     <Zap className="w-4 h-4 text-emerald-500" fill="currentColor" />
-                  </div>
-                  <div className="flex-1">
-                     <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Clipboard Detected</p>
-                     <p className={`text-[10px] ${isDark ? 'text-white/50' : 'text-slate-500'}`}>"https://arxiv.org/abs/2106.09685"</p>
-                  </div>
-                  <button className="text-xs font-bold text-blue-500 bg-blue-500/10 px-3 py-1.5 rounded-lg">Add</button>
-                </div>
-              </motion.div>
-            </motion.div>
-          );
-        };
+              <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-emerald-500" fill="currentColor" />
+              </div>
+              <div className="flex-1">
+                <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Clipboard Detected</p>
+                <p className={`text-[10px] ${isDark ? 'text-white/50' : 'text-slate-500'}`}>"https://arxiv.org/abs/2106.09685"</p>
+              </div>
+              <button className="text-xs font-bold text-blue-500 bg-blue-500/10 px-3 py-1.5 rounded-lg">Add</button>
+            </div>
+          </motion.div>
+        </motion.div>
+      );
+    };
 
-        const NavBar = ({ activeTab, setActiveTab, onCapture }) => {
-          const { isDark } = useContext(ThemeContext);
+    const NavBar = ({ activeTab, setActiveTab, onCapture }) => {
+      const { isDark } = useContext(ThemeContext);
 
-          const NavButton = ({ id, icon: Icon, label }) => {
-            const isActive = activeTab === id;
-            return (
-              <button 
-                onClick={() => setActiveTab(id)}
-                className="flex flex-col items-center justify-center gap-1 w-14 h-full relative"
-              >
-                <div className={`transition-all duration-500 ease-out transform ${
-                  isActive 
-                    ? (isDark ? 'text-white translate-y-0 scale-110' : 'text-slate-900 translate-y-0 scale-110') 
-                    : (isDark ? 'text-white/30 hover:text-white/50 translate-y-1' : 'text-slate-400 hover:text-slate-600 translate-y-1')
-                }`}>
-                  <Icon className="w-6 h-6" strokeWidth={isActive ? 2.5 : 2} />
-                </div>
-              </button>
-            );
-          };
+      const NavButton = ({ id, icon: Icon, label }) => {
+        const isActive = activeTab === id;
+        return (
+          <button
+            onClick={() => setActiveTab(id)}
+            className="flex flex-col items-center justify-center gap-1 w-14 h-full relative"
+          >
+            <div className={`transition-all duration-500 ease-out transform ${isActive
+              ? (isDark ? 'text-white translate-y-0 scale-110' : 'text-slate-900 translate-y-0 scale-110')
+              : (isDark ? 'text-white/30 hover:text-white/50 translate-y-1' : 'text-slate-400 hover:text-slate-600 translate-y-1')
+              }`}>
+              <Icon className="w-6 h-6" strokeWidth={isActive ? 2.5 : 2} />
+            </div>
+          </button>
+        );
+      };
 
-          return (
-            <div className="fixed bottom-0 w-full max-w-md px-6 pb-6 pt-10 z-40 pointer-events-none">
-              {/* Gradient Fade Mask */}
-              <div className={`absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t transition-colors duration-500 pointer-events-none ${
-                isDark ? 'from-black via-black/90 to-transparent' : 'from-[#F2F2F7] via-[#F2F2F7]/90 to-transparent'
-              }`} />
-              
-              <div className={`
+      return (
+        <div className="fixed bottom-0 w-full max-w-md px-6 pb-6 pt-10 z-40 pointer-events-none">
+          {/* Gradient Fade Mask */}
+          <div className={`absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t transition-colors duration-500 pointer-events-none ${isDark ? 'from-black via-black/90 to-transparent' : 'from-[#F2F2F7] via-[#F2F2F7]/90 to-transparent'
+            }`} />
+
+          <div className={`
                 relative h-20 rounded-[2.5rem] flex items-center justify-between px-2 pointer-events-auto
                 backdrop-blur-2xl border transition-all duration-500
-                ${isDark 
-                  ? 'bg-[#1c1c1e]/80 border-white/10 shadow-2xl shadow-black/50' 
-                  : 'bg-white/80 border-white/50 shadow-2xl shadow-slate-300/50'
-                }
-              `}>
-                <div className="flex flex-1 justify-around">
-                  <NavButton id="home" icon={Home} label="Home" />
-                  <NavButton id="papers" icon={BookOpen} label="Papers" />
-                </div>
-
-                {/* Central FAB */}
-                <div className="relative -top-8 mx-2">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={onCapture}
-                    className={`
-                      w-18 h-18 rounded-full flex items-center justify-center text-white shadow-lg relative z-50 group
-                      bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500
-                      border-[6px] transition-colors duration-500
-                      ${isDark ? 'border-[#121212]' : 'border-[#F2F2F7]'}
-                    `}
-                  >
-                    <Plus className="w-8 h-8 group-hover:rotate-90 transition-transform duration-300" />
-                  </motion.button>
-                  
-                  {/* Breathing Glow */}
-                  <div className="absolute inset-0 bg-purple-500 rounded-full blur-xl opacity-40 animate-pulse -z-10 top-2" />
-                </div>
-
-                <div className="flex flex-1 justify-around">
-                   <NavButton id="competitions" icon={Trophy} label="Events" />
-                   <NavButton id="settings" icon={Settings} label="Settings" />
-                </div>
-              </div>
-            </div>
-          );
-        };
-
-        // --- App Entrance ---
-
-        const App = () => {
-          const [activeTab, setActiveTab] = useState('home');
-          const [isCaptureOpen, setIsCaptureOpen] = useState(false);
-          const [isDark, setIsDark] = useState(false); // Default to Light Mode per requirement
-
-          const toggleTheme = () => setIsDark(!isDark);
-
-          // Status Bar
-          const StatusBar = () => (
-            <div className={`flex justify-between items-center px-6 py-3 text-xs font-medium sticky top-0 z-50 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              <span>9:41</span>
-              
-              <div className="flex items-center gap-4">
-                {/* Theme Toggle Button */}
-                <button 
-                  onClick={toggleTheme}
-                  className={`p-2 rounded-full backdrop-blur-md transition-all duration-500 ${isDark ? 'bg-white/10 text-yellow-400 hover:bg-white/20' : 'bg-black/5 text-slate-600 hover:bg-black/10'}`}
-                >
-                  {isDark ? <Sun className="w-4 h-4 fill-current" /> : <Moon className="w-4 h-4 fill-current" />}
-                </button>
-
-                <div className="flex gap-1.5 items-center">
-                  <div className={`w-4 h-2.5 rounded-[1px] transition-colors duration-500 ${isDark ? 'bg-white' : 'bg-slate-900'}`} />
-                  <div className={`w-0.5 h-2.5 rounded-[1px] transition-colors duration-500 ${isDark ? 'bg-white/30' : 'bg-slate-900/30'}`} />
-                </div>
-              </div>
-            </div>
-          );
-
-          return (
-            <ThemeContext.Provider value={{ isDark, toggleTheme }}>
-              <div className={`h-full flex flex-col overflow-hidden font-sans transition-colors duration-700 ease-in-out ${isDark ? 'bg-black' : 'bg-[#F2F2F7]'}`}>
-                
-                {/* 动态背景层 (Dynamic Ambient Background) */}
-                <div className="fixed inset-0 z-0 pointer-events-none">
-                  {/* Noise Texture for Texture Feel */}
-                  <div className="absolute inset-0 opacity-[0.03] bg-[url('https://grainy-gradients.vercel.app/noise.svg')] mix-blend-overlay" />
-                  
-                  {/* Dark Mode Aurora */}
-                  <motion.div 
-                    animate={{ opacity: isDark ? 1 : 0 }}
-                    transition={{ duration: 0.8 }}
-                    className="absolute inset-0"
-                  >
-                    <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-900/40 rounded-full blur-[120px] mix-blend-screen animate-pulse" />
-                    <div className="absolute top-[20%] right-[-20%] w-[400px] h-[400px] bg-blue-900/30 rounded-full blur-[100px] mix-blend-screen" />
-                    <div className="absolute bottom-[-10%] left-[20%] w-[600px] h-[400px] bg-indigo-900/20 rounded-full blur-[130px]" />
-                  </motion.div>
-
-                  {/* Light Mode Holographic Gradients */}
-                  <motion.div 
-                    animate={{ opacity: isDark ? 0 : 1 }}
-                    transition={{ duration: 0.8 }}
-                    className="absolute inset-0"
-                  >
-                    <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-blue-200/40 rounded-full blur-[100px] mix-blend-multiply" />
-                    <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-purple-200/40 rounded-full blur-[120px] mix-blend-multiply" />
-                    <div className="absolute top-[40%] left-[30%] w-[300px] h-[300px] bg-rose-100/50 rounded-full blur-[80px] mix-blend-multiply" />
-                  </motion.div>
-                </div>
-
-                <div className="w-full h-full relative z-10 flex flex-col">
-                  <StatusBar />
-                  
-                  <main className="flex-1 overflow-y-auto px-6 pt-2 scrollbar-hide pb-28">
-                    <AnimatePresence mode="wait">
-                      {activeTab === 'home' && (
-                        <motion.div 
-                          key="home"
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 1.05 }}
-                          transition={{ duration: 0.3 }}
-                        >
-                          <HomeView />
-                        </motion.div>
-                      )}
-                      {activeTab === 'papers' && (
-                        <motion.div 
-                          key="papers"
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -20 }}
-                          transition={{ duration: 0.3 }}
-                        >
-                          <PapersView />
-                        </motion.div>
-                      )}
-                      {activeTab === 'settings' && (
-                        <motion.div 
-                          key="settings"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.3 }}
-                        >
-                          <SettingsView />
-                        </motion.div>
-                      )}
-                      {activeTab === 'competitions' && (
-                        <motion.div 
-                          key="competitions"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="flex flex-col items-center justify-center h-[60vh]"
-                        >
-                          <Sparkles className={`w-12 h-12 mb-4 opacity-50 ${isDark ? 'text-white' : 'text-slate-400'}`} />
-                          <p className={`font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>Competitions Module Loading...</p>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </main>
-
-                  <NavBar 
-                    activeTab={activeTab} 
-                    setActiveTab={setActiveTab} 
-                    onCapture={() => setIsCaptureOpen(true)}
-                  />
-
-                  <AnimatePresence>
-                    {isCaptureOpen && <CaptureModal isOpen={isCaptureOpen} onClose={() => setIsCaptureOpen(false)} />}
-                  </AnimatePresence>
-                  
-                </div>
-              </div>
-            </ThemeContext.Provider>
-          );
-        };
-
-        const root = window.ReactDOM.createRoot(document.getElementById('root'));
-        
-        // Wait for deps if needed, but module script runs before this usually?
-        // Actually module script is defer by default. text/babel is also defer.
-        // We can check if React is ready.
-        
-        const render = () => {
-            if (window.React && window.ReactDOM && window.FramerMotion && window.LucideReact) {
-                root.render(<App />);
-            } else {
-                setTimeout(render, 50);
+                ${isDark
+              ? 'bg-[#1c1c1e]/80 border-white/10 shadow-2xl shadow-black/50'
+              : 'bg-white/80 border-white/50 shadow-2xl shadow-slate-300/50'
             }
-        };
-        
-        render();
+              `}>
+            <div className="flex flex-1 justify-around">
+              <NavButton id="home" icon={Home} label="Home" />
+              <NavButton id="papers" icon={BookOpen} label="Papers" />
+            </div>
 
-    </script>
+            {/* Central FAB */}
+            <div className="relative -top-8 mx-2">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={onCapture}
+                className={`
+                      w-18 h-18 rounded-full flex items-center justify-center text-white shadow-lg relative z-50 group
+                      bg-gradient-to-tr from-emerald-400 via-teal-500 to-cyan-500
+                      border-[6px] transition-colors duration-500
+                      ${isDark ? 'border-[#09090b] shadow-emerald-500/20' : 'border-[#F2F2F7] shadow-lg'}
+                    `}
+              >
+                <Plus className="w-8 h-8 group-hover:rotate-90 transition-transform duration-300" />
+              </motion.button>
+
+              {/* Breathing Glow */}
+              <div className="absolute inset-0 bg-emerald-500 rounded-full blur-xl opacity-40 animate-pulse -z-10 top-2" />
+            </div>
+
+            <div className="flex flex-1 justify-around">
+              <NavButton id="competitions" icon={Trophy} label="Events" />
+              <NavButton id="settings" icon={Settings} label="Settings" />
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // --- App Entrance ---
+
+    const App = () => {
+      const [activeTab, setActiveTab] = useState('home');
+      const [isCaptureOpen, setIsCaptureOpen] = useState(false);
+      const [isDark, setIsDark] = useState(false); // Default to Light Mode per requirement
+
+      const toggleTheme = () => setIsDark(!isDark);
+
+      // Status Bar
+      const StatusBar = () => (
+        <div className={`flex justify-between items-center px-6 pt-6 pb-3 text-xs font-medium sticky top-0 z-50 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          <span>9:41</span>
+
+          <div className="flex gap-1.5 items-center">
+            <div className={`w-4 h-2.5 rounded-[1px] transition-colors duration-500 ${isDark ? 'bg-white' : 'bg-slate-900'}`} />
+            <div className={`w-0.5 h-2.5 rounded-[1px] transition-colors duration-500 ${isDark ? 'bg-white/30' : 'bg-slate-900/30'}`} />
+          </div>
+        </div>
+      );
+
+      return (
+        <ThemeContext.Provider value={{ isDark, toggleTheme }}>
+          <div className={`h-full flex flex-col overflow-hidden font-sans transition-colors duration-700 ease-in-out ${isDark ? 'bg-[#09090b]' : 'bg-[#F2F2F7]'}`}>
+
+            {/* 动态背景层 (Dynamic Ambient Background) */}
+            <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+              {/* Tech Grid Overlay */}
+              <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${isDark ? 'opacity-[0.15]' : 'opacity-[0.03]'}`}
+                style={{
+                  backgroundImage: `linear-gradient(${isDark ? '#10B981' : '#000'} 1px, transparent 1px), linear-gradient(90deg, ${isDark ? '#10B981' : '#000'} 1px, transparent 1px)`,
+                  backgroundSize: '40px 40px',
+                  transform: 'perspective(500px) rotateX(60deg) translateY(-100px) scale(2)'
+                }}
+              >
+                <div className="absolute inset-0 animate-grid" />
+              </div>
+
+              {/* Noise Texture */}
+              <div className="absolute inset-0 opacity-[0.05] bg-[url('https://grainy-gradients.vercel.app/noise.svg')] mix-blend-overlay" />
+
+              {/* Dark Mode Aurora */}
+              <motion.div
+                animate={{ opacity: isDark ? 1 : 0 }}
+                transition={{ duration: 0.8 }}
+                className="absolute inset-0"
+              >
+                <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] bg-emerald-500/20 rounded-full blur-[120px] mix-blend-screen" />
+                <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-teal-500/20 rounded-full blur-[100px] mix-blend-screen" />
+              </motion.div>
+
+              {/* Light Mode Holographic Gradients */}
+              <motion.div
+                animate={{ opacity: isDark ? 0 : 1 }}
+                transition={{ duration: 0.8 }}
+                className="absolute inset-0"
+              >
+                <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-emerald-100/60 rounded-full blur-[100px] mix-blend-multiply" />
+                <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-cyan-100/60 rounded-full blur-[120px] mix-blend-multiply" />
+              </motion.div>
+            </div>
+
+            <div className="w-full h-full relative z-10 flex flex-col">
+              <StatusBar />
+
+              <main className="flex-1 overflow-y-auto px-6 pt-2 scrollbar-hide pb-28">
+                <AnimatePresence mode="wait">
+                  {activeTab === 'home' && (
+                    <motion.div
+                      key="home"
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 1.05 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <HomeView />
+                    </motion.div>
+                  )}
+                  {activeTab === 'papers' && (
+                    <motion.div
+                      key="papers"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <PapersView />
+                    </motion.div>
+                  )}
+                  {activeTab === 'settings' && (
+                    <motion.div
+                      key="settings"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <SettingsView />
+                    </motion.div>
+                  )}
+                  {activeTab === 'competitions' && (
+                    <motion.div
+                      key="competitions"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex flex-col items-center justify-center h-[60vh]"
+                    >
+                      <Sparkles className={`w-12 h-12 mb-4 opacity-50 ${isDark ? 'text-white' : 'text-slate-400'}`} />
+                      <p className={`font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>Competitions Module Loading...</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </main>
+
+              <NavBar
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                onCapture={() => setIsCaptureOpen(true)}
+              />
+
+              <AnimatePresence>
+                {isCaptureOpen && <CaptureModal isOpen={isCaptureOpen} onClose={() => setIsCaptureOpen(false)} />}
+              </AnimatePresence>
+
+            </div>
+          </div>
+        </ThemeContext.Provider>
+      );
+    };
+
+    const root = window.ReactDOM.createRoot(document.getElementById('root'));
+
+    // Wait for deps if needed, but module script runs before this usually?
+    // Actually module script is defer by default. text/babel is also defer.
+    // We can check if React is ready.
+
+    const render = () => {
+      if (window.React && window.ReactDOM && window.FramerMotion && window.LucideReact) {
+        root.render(<App />);
+        // Smooth transition: hide loader, show content
+        requestAnimationFrame(() => {
+          document.getElementById('root').classList.add('loaded');
+          document.getElementById('loading-screen').classList.add('hidden');
+        });
+      } else {
+        setTimeout(render, 50);
+      }
+    };
+
+    render();
+
+  </script>
 </body>
+
 </html>

@@ -5,9 +5,9 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Toast
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -24,39 +24,42 @@ fun AuthScreen(
 ) {
     val context = LocalContext.current
     
+    // WebView 引用，用于调用 JavaScript
+    var webViewRef: WebView? = null
+    
     // WebApp Interface Class
     class WebAppInterface {
         @JavascriptInterface
-        fun login(username: String, password: String) {
-            // Bridge to ViewModel or handle logic directly
-            // Since this runs on a background thread (WebView thread), we need to post to main for UI or Toast
-            // For now, let's assume we call ViewModel (which is thread-safe mostly) or show Toast
-            
-            // In a real app, you would call viewModel.login(username, password)
-            // Here we simulate success for the demo
+        fun login(identifier: String, password: String) {
+            // 调用 ViewModel 登录逻辑
             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                Toast.makeText(context, "Web Login: $username", Toast.LENGTH_SHORT).show()
-                viewModel.login(username, password) // Call actual logic
+                viewModel.login(identifier, password)
             }
         }
 
         @JavascriptInterface
-        fun register(username: String, password: String) {
-             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                Toast.makeText(context, "Web Register: $username", Toast.LENGTH_SHORT).show()
-                 // Simulate register success for demo
-                 onRegisterSuccess()
+        fun register(username: String, email: String, password: String, phone: String?) {
+            // 调用 ViewModel 注册逻辑
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                viewModel.register(username, email, password, phone)
             }
         }
 
         @JavascriptInterface
         fun socialLogin(type: String) {
-             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                Toast.makeText(context, "Social Login: $type", Toast.LENGTH_SHORT).show()
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
                 if (type == "mobile") {
                     // Trigger One-Click Login SDK
                 }
+                // 其他社交登录逻辑
             }
+        }
+        
+        @JavascriptInterface
+        fun checkUsername(username: String): Boolean {
+            // 注意：这是同步调用，在 WebView JS 线程执行
+            // 对于异步检查，需要使用回调机制
+            return false // 默认返回 false，实际检查在注册时进行
         }
     }
 
@@ -89,14 +92,44 @@ fun AuthScreen(
 
                 // Load the asset file
                 loadUrl("file:///android_asset/login.html")
+                
+                // 保存引用
+                webViewRef = this
             }
         },
         update = { webView ->
             // You can update WebView state here if needed
+            webViewRef = webView
         }
     )
     
-    // Observe ViewModel state to trigger navigation (Optional, if ViewModel logic is hooked up)
-    // val uiState by viewModel.uiState.collectAsState()
-    // LaunchedEffect(uiState) { ... }
+    // Observe ViewModel state to trigger navigation or show errors
+    val uiState = viewModel.uiState.collectAsState()
+    
+    // 使用 LaunchedEffect(Unit) 配合状态检查，避免重复触发
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.uiState.collect { state ->
+            when (state) {
+                is AuthUiState.LoginSuccess -> {
+                    onLoginSuccess()
+                    viewModel.resetUiState() // 重置状态防止重复触发
+                }
+                is AuthUiState.RegisterSuccess -> {
+                    onRegisterSuccess()
+                    viewModel.resetUiState() // 重置状态防止重复触发
+                }
+                is AuthUiState.Error -> {
+                    // 将错误信息传递给前端显示
+                    val errorMessage = state.message
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        webViewRef?.evaluateJavascript(
+                            "if(window.showError) window.showError('$errorMessage');",
+                            null
+                        )
+                    }
+                }
+                else -> {}
+            }
+        }
+    }
 }

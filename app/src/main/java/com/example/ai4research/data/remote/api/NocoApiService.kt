@@ -112,12 +112,21 @@ interface NocoApiService {
     ): NocoUserDto
     
     /**
-     * 用户登录（通过邮箱查询）
-     * GET /users?where=(email,eq,{email})
+     * 用户登录（通过邮箱/用户名/手机号查询）
+     * GET /users?where=...
      */
     @GET("users")
     suspend fun loginUser(
-        @Query("where") where: String  // 格式：(email,eq,user@example.com)
+        @Query("where") where: String  // 支持多种查询条件
+    ): NocoUserListResponse
+    
+    /**
+     * 检查用户名是否已存在
+     * GET /users?where=(username,eq,{username})
+     */
+    @GET("users")
+    suspend fun checkUsernameExists(
+        @Query("where") where: String
     ): NocoUserListResponse
     
     /**

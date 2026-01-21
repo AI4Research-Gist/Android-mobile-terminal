@@ -58,11 +58,25 @@ class AuthViewModel @Inject constructor(
     
     /**
      * 用户注册
+     * @param username 用户名
+     * @param email 邮箱
+     * @param password 密码
+     * @param phone 手机号（可选）
      */
-    fun register(email: String, password: String, confirmPassword: String, username: String) {
-        // 验证输入
-        if (email.isBlank() || password.isBlank() || username.isBlank()) {
-            _uiState.value = AuthUiState.Error("请填写所有字段")
+    fun register(username: String, email: String, password: String, phone: String? = null) {
+        // 验证输入 - 用户名、邮箱、密码必填
+        if (username.isBlank()) {
+            _uiState.value = AuthUiState.Error("请填写用户名")
+            return
+        }
+        
+        if (email.isBlank()) {
+            _uiState.value = AuthUiState.Error("请填写邮箱")
+            return
+        }
+        
+        if (password.isBlank()) {
+            _uiState.value = AuthUiState.Error("请填写密码")
             return
         }
         
@@ -76,15 +90,10 @@ class AuthViewModel @Inject constructor(
             return
         }
         
-        if (password != confirmPassword) {
-            _uiState.value = AuthUiState.Error("两次密码不一致")
-            return
-        }
-        
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
             
-            val result = authRepository.register(email, password, username)
+            val result = authRepository.register(email, password, username, phone)
             
             result.onSuccess { user ->
                 _currentUser.value = user
@@ -97,23 +106,25 @@ class AuthViewModel @Inject constructor(
     
     /**
      * 用户登录
+     * @param identifier 用户名、手机号或邮箱
+     * @param password 密码
      */
-    fun login(email: String, password: String) {
+    fun login(identifier: String, password: String) {
         // 验证输入
-        if (email.isBlank() || password.isBlank()) {
-            _uiState.value = AuthUiState.Error("请填写邮箱和密码")
+        if (identifier.isBlank()) {
+            _uiState.value = AuthUiState.Error("请填写用户名/手机号")
             return
         }
         
-        if (!isValidEmail(email)) {
-            _uiState.value = AuthUiState.Error("邮箱格式不正确")
+        if (password.isBlank()) {
+            _uiState.value = AuthUiState.Error("请填写密码")
             return
         }
         
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
             
-            val result = authRepository.login(email, password)
+            val result = authRepository.login(identifier, password)
             
             result.onSuccess { user ->
                 _currentUser.value = user

@@ -1,24 +1,11 @@
 pluginManagement {
     repositories {
-        // 阿里云镜像 - Google Maven（优先）
-        maven {
-            url = uri("https://maven.aliyun.com/repository/google")
-            content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
-                includeGroupByRegex("androidx.*")
-            }
-        }
-        // 阿里云镜像 - Gradle Plugin Portal
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
-        // 阿里云镜像 - Maven Central
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        // 阿里云镜像 - JCenter
-        maven { url = uri("https://maven.aliyun.com/repository/jcenter") }
-        // 阿里云镜像 - Public（综合仓库）
+        // Aliyun Mirrors
         maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
         
-        // 备用：官方仓库（当镜像无法访问时）
+        // Official repositories first to avoid mirror TLS issues.
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -34,24 +21,17 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        // 阿里云镜像 - Google Maven（优先）
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        // 阿里云镜像 - Maven Central
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        // 阿里云镜像 - JCenter
-        maven { url = uri("https://maven.aliyun.com/repository/jcenter") }
-        // 阿里云镜像 - Public（综合仓库）
+        // Aliyun Mirrors
         maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
         
-        // JitPack（用于 GitHub 依赖，如 compose-markdown）
-        maven { url = uri("https://jitpack.io") }
-        
-        // 备用：官方仓库
+        // Official repositories first to avoid mirror TLS issues.
         google()
         mavenCentral()
+        // JitPack is still needed for GitHub-hosted deps.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
 rootProject.name = "AI4Research"
 include(":app")
- 

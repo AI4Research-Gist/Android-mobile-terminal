@@ -28,19 +28,28 @@ class AuthRepository @Inject constructor(
      * @param email 邮箱
      * @param password 密码（明文）
      * @param username 用户名
+     * @param phone 手机号（可选）
      * @return Result<UserEntity>
      */
     suspend fun register(
         email: String,
         password: String,
-        username: String
+        username: String,
+        phone: String? = null
     ): Result<UserEntity> {
         return try {
-            // 1. 哈希密码
+            // 1. 检查用户名是否已存在
+            val usernameExists = checkUsernameExists(username)
+            if (usernameExists) {
+                return Result.failure(Exception("用户名已存在"))
+            }
+            
+            // 2. 哈希密码
             val passwordHash = passwordHasher.hashPassword(password)
             
-            // 2. 创建用户DTO（只包含必要字段）
+            // 3. 创建用户DTO（只包含必要字段）
             val userCreateDto = NocoUserCreateDto(
+                phone = phone,
                 email = email,
                 passwordHash = passwordHash,
                 username = username,
@@ -48,20 +57,21 @@ class AuthRepository @Inject constructor(
                 biometricEnabled = false
             )
             
-            // 3. 调用 NocoDB API 注册
+            // 4. 调用 NocoDB API 注册
             val response = api.registerUser(userCreateDto)
             
-            // 4. 保存到本地数据库
+            // 5. 保存到本地数据库
             val userEntity = UserEntity(
                 id = response.id?.toString() ?: throw Exception("注册失败：未返回用户ID"),
                 email = response.email,
                 username = response.username,
+                phone = response.phone,
                 avatarUrl = response.avatarUrl,
                 biometricEnabled = false
             )
             userDao.insertUser(userEntity)
             
-            // 5. 保存 Token
+            // 6. 保存 Token
             tokenManager.saveAuthToken(userEntity.id)
             tokenManager.saveUserEmail(email)
             
@@ -79,52 +89,95 @@ class AuthRepository @Inject constructor(
     }
     
     /**
+     * 检查用户名是否已存在
+     * @param username 用户名
+     * @return Boolean 是否存在
+     */
+    suspend fun checkUsernameExists(username: String): Boolean {
+        return try {
+            val where = "(username,eq,$username)"
+            val response = api.checkUsernameExists(where)
+            response.list.isNotEmpty()
+        } catch (e: Exception) {
+            android.util.Log.e("AuthRepository", "检查用户名失败: ${e.message}", e)
+            false
+        }
+    }
+    
+    /**
      * 用户登录
-     * @param email 邮箱
+     * @param identifier 用户名、手机号或邮箱
      * @param password 密码（明文）
      * @return Result<UserEntity>
      */
     suspend fun login(
-        email: String,
+        identifier: String,
         password: String
     ): Result<UserEntity> {
         return try {
             // 1. 哈希密码
             val passwordHash = passwordHasher.hashPassword(password)
             
-            // 2. 调用 NocoDB API 查询用户
-            val where = "(email,eq,$email)"
-            val response = api.loginUser(where)
+            // 2. 判断 identifier 类型并构建查询条件
+            // 尝试按用户名、手机号、邮箱查询
+            val whereUsername = "(username,eq,$identifier)"
+            val wherePhone = "(Phonenumber,eq,$identifier)"
+            val whereEmail = "(email,eq,$identifier)"
             
-            // 3. 验证用户是否存在
-            if (response.list.isEmpty()) {
+            // 3. 依次尝试查询用户
+            var user: com.example.ai4research.data.remote.dto.NocoUserDto? = null
+            
+            // 先按用户名查询
+            val usernameResponse = api.loginUser(whereUsername)
+            if (usernameResponse.list.isNotEmpty()) {
+                user = usernameResponse.list.first()
+            }
+            
+            // 如果用户名没找到，按手机号查询
+            if (user == null) {
+                val phoneResponse = api.loginUser(wherePhone)
+                if (phoneResponse.list.isNotEmpty()) {
+                    user = phoneResponse.list.first()
+                }
+            }
+            
+            // 如果手机号也没找到，按邮箱查询
+            if (user == null) {
+                val emailResponse = api.loginUser(whereEmail)
+                if (emailResponse.list.isNotEmpty()) {
+                    user = emailResponse.list.first()
+                }
+            }
+            
+            // 4. 验证用户是否存在
+            if (user == null) {
                 return Result.failure(Exception("用户不存在"))
             }
             
-            val user = response.list.first()
-            
-            // 4. 验证密码
+            // 5. 验证密码
             if (user.passwordHash != passwordHash) {
                 return Result.failure(Exception("密码错误"))
             }
             
-            // 5. 保存到本地数据库
+            // 6. 保存到本地数据库
             val userEntity = UserEntity(
                 id = user.id?.toString() ?: throw Exception("用户ID为空"),
                 email = user.email,
                 username = user.username,
+                phone = user.phone,
                 avatarUrl = user.avatarUrl,
                 biometricEnabled = user.biometricEnabled ?: false
             )
             userDao.insertUser(userEntity)
             
-            // 6. 保存 Token
+            // 7. 保存 Token
             tokenManager.saveAuthToken(userEntity.id)
-            tokenManager.saveUserEmail(email)
+            tokenManager.saveUserEmail(user.email)
             
             Result.success(userEntity)
         } catch (e: Exception) {
-            Result.failure(e)
+            android.util.Log.e("AuthRepository", "登录失败: ${e.message}", e)
+            Result.failure(Exception("登录失败: ${e.message}"))
         }
     }
     
