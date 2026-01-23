@@ -1,6 +1,7 @@
 package com.example.ai4research.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,18 +18,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -36,18 +42,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.domain.model.ItemType
-import dev.jeziellago.compose.markdowntext.MarkdownText
 
+import dev.jeziellago.compose.markdowntext.MarkdownText
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(
@@ -59,6 +69,7 @@ fun DetailScreen(
 
     LaunchedEffect(itemId) {
         viewModel.load(itemId)
+        viewModel.refreshProjects()
     }
 
     val item = uiState.item
@@ -66,6 +77,14 @@ fun DetailScreen(
     val type = item?.type
     val typeName = type?.let { getItemTypeName(it) }.orEmpty()
     val markdownContent = item?.contentMarkdown?.takeIf { it.isNotBlank() } ?: item?.summary.orEmpty()
+    val projectName = item?.projectName?.takeIf { it.isNotBlank() } ?: "未归属"
+    val projects = uiState.projects
+
+    // Edit state
+    var isEditing by remember { mutableStateOf(false) }
+    var editSummary by remember(item) { mutableStateOf(item?.summary ?: "") }
+    var editContent by remember(item) { mutableStateOf(item?.contentMarkdown ?: "") }
+    var projectMenuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -86,6 +105,18 @@ fun DetailScreen(
                     }
                 },
                 actions = {
+                    if (isEditing) {
+                        IconButton(onClick = {
+                            viewModel.saveContent(editSummary, editContent)
+                            isEditing = false
+                        }) {
+                            Icon(Icons.Default.Check, contentDescription = "保存")
+                        }
+                    } else {
+                        IconButton(onClick = { isEditing = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "编辑")
+                        }
+                    }
                     IconButton(onClick = { /* TODO */ }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "更多")
                     }
@@ -111,7 +142,7 @@ fun DetailScreen(
                         Icon(Icons.Default.CheckCircle, contentDescription = "标记已读", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = { /* Chat */ }) {
-                        Icon(Icons.Default.Chat, contentDescription = "AI 对话", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "AI 对话", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = {
                         viewModel.delete()
@@ -178,6 +209,71 @@ fun DetailScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Project selector (auto sync)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable { projectMenuExpanded = true }
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "归属项目",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = projectName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (uiState.isProjectSaving) "同步中..." else "更改",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            DropdownMenu(
+                expanded = projectMenuExpanded,
+                onDismissRequest = { projectMenuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("未归属") },
+                    onClick = {
+                        projectMenuExpanded = false
+                        viewModel.updateProject(null)
+                    }
+                )
+                if (projects.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("暂无项目") },
+                        onClick = { projectMenuExpanded = false },
+                        enabled = false
+                    )
+                } else {
+                    projects.forEach { project ->
+                        DropdownMenuItem(
+                            text = { Text(project.name) },
+                            onClick = {
+                                projectMenuExpanded = false
+                                viewModel.updateProject(project.id)
+                            }
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
             
             // Content Card (Lyrics style)
@@ -190,11 +286,33 @@ fun DetailScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
-                    MarkdownText(
-                        markdown = if (markdownContent.isNotBlank()) markdownContent else "（暂无内容）",
-                        style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 28.sp),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    if (isEditing) {
+                        OutlinedTextField(
+                            value = editSummary,
+                            onValueChange = { editSummary = it },
+                            label = { Text("摘要") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = editContent,
+                            onValueChange = { editContent = it },
+                            label = { Text("详细内容 (Markdown)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 10
+                        )
+                    } else {
+                        MarkdownText(
+                            markdown = if (markdownContent.isNotBlank()) markdownContent else "（暂无内容）",
+                            style = TextStyle(
+                                fontSize = MaterialTheme.typography.bodyLarge.fontSize,
+                                lineHeight = 28.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Start
+                            )
+                        )
+                    }
                 }
             }
             

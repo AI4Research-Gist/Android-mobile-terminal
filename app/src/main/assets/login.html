@@ -427,7 +427,13 @@
                                             <InputGroup icon={<User size={18} />} placeholder="用户名" value={username} onChange={setUsername} />
                                             <InputGroup icon={<Phone size={18} />} placeholder="手机号" value={phone} onChange={setPhone} />
                                             <InputGroup icon={<Mail size={18} />} placeholder="邮箱" value={email} onChange={setEmail} />
-                                            <InputGroup icon={<Lock size={18} />} placeholder="设置密码（至少6位）" type="password" value={password} onChange={setPassword} />
+                                            <InputGroup icon={<Lock size={18} />} placeholder="设置密码（至少6位）" type={showPassword ? "text" : "password"} value={password} onChange={setPassword}
+                                                rightElement={
+                                                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="text-slate-400 hover:text-blue-600">
+                                                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                                    </button>
+                                                }
+                                            />
 
                                             {error && isFlipped && (
                                                 <div className="text-red-500 text-xs text-center px-2 py-1 bg-red-50 rounded-lg">

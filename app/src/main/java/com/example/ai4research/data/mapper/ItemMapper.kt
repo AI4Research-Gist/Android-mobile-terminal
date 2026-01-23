@@ -22,7 +22,11 @@ object ItemMapper {
     /**
      * DTO -> Entity (网络数据转本地存储)
      */
-    fun dtoToEntity(dto: NocoItemDto, projectName: String? = null): ItemEntity {
+    fun dtoToEntity(
+        dto: NocoItemDto,
+        projectId: String? = null,
+        projectName: String? = null
+    ): ItemEntity {
         val createdAt = try {
             dto.createdAt?.let { dateFormat.parse(it)?.time } ?: System.currentTimeMillis()
         } catch (e: Exception) {
@@ -37,11 +41,11 @@ object ItemMapper {
             contentMarkdown = dto.contentMd ?: "",
             originUrl = dto.originUrl,
             audioUrl = dto.audioUrl,
-            status = dto.status ?: "processing",
-            readStatus = dto.readStatus ?: "unread",
-            projectId = dto.projectId,
+            status = dto.status ?: ItemStatus.PROCESSING.toServerString(),
+            readStatus = dto.readStatus ?: ReadStatus.UNREAD.toServerString(),
+            projectId = dto.projectId?.toString() ?: projectId,
             projectName = projectName,
-            metaJson = dto.metaJson,
+            metaJson = dto.metaJson?.toString(),
             createdAt = createdAt,
             syncedAt = System.currentTimeMillis()
         )
@@ -123,7 +127,9 @@ object ItemMapper {
         
         return ProjectEntity(
             id = dto.id ?: UUID.randomUUID().toString(),
-            name = dto.name,
+            name = dto.name?.takeIf { it.isNotBlank() }
+                ?: dto.title?.takeIf { it.isNotBlank() }
+                ?: "未命名项目",
             description = dto.description,
             createdAt = createdAt
         )

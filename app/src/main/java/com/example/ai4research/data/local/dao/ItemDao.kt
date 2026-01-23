@@ -92,7 +92,7 @@ interface ItemDao {
      * 更新项目归属
      */
     @Query("UPDATE items SET project_id = :projectId, project_name = :projectName WHERE id = :id")
-    suspend fun updateProject(id: String, projectId: String, projectName: String)
+    suspend fun updateProject(id: String, projectId: String?, projectName: String?)
     
     /**
      * 删除 Item
@@ -112,4 +112,3 @@ interface ItemDao {
     @Query("DELETE FROM items")
     suspend fun deleteAllItems()
 }
-

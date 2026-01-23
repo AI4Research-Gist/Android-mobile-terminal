@@ -42,17 +42,17 @@ class TokenManager @Inject constructor(
     }
     
     /**
-     * 保存密码哈希（用于生物识别快速登录）
+     * 保存密码（用于生物识别快速登录）
      */
-    fun savePasswordHash(hash: String) {
-        sharedPreferences.edit().putString(KEY_PASSWORD_HASH, hash).apply()
+    fun savePassword(password: String) {
+        sharedPreferences.edit().putString(KEY_PASSWORD, password).apply()
     }
     
     /**
-     * 获取密码哈希
+     * 获取密码
      */
-    fun getPasswordHash(): String? {
-        return sharedPreferences.getString(KEY_PASSWORD_HASH, null)
+    fun getPassword(): String? {
+        return sharedPreferences.getString(KEY_PASSWORD, null)
     }
     
     /**
@@ -73,7 +73,7 @@ class TokenManager @Inject constructor(
      * 检查是否有生物识别凭证
      */
     fun hasBiometricCredentials(): Boolean {
-        return getUserEmail() != null && getPasswordHash() != null
+        return getUserEmail() != null && getPassword() != null
     }
     
     /**
@@ -84,18 +84,32 @@ class TokenManager @Inject constructor(
     }
     
     /**
+     * 清除认证Token
+     */
+    fun clearAuthToken() {
+        sharedPreferences.edit().remove(KEY_AUTH_TOKEN).apply()
+    }
+    
+    /**
+     * 保存生物识别凭证
+     */
+    fun saveBiometricCredentials(userId: String) {
+        sharedPreferences.edit().putString(KEY_AUTH_TOKEN, userId).apply()
+    }
+    
+    /**
      * 清除生物识别凭证
      */
     fun clearBiometricCredentials() {
         sharedPreferences.edit()
-            .remove(KEY_PASSWORD_HASH)
+            .remove(KEY_PASSWORD)
             .apply()
     }
     
     companion object {
         private const val PREFS_NAME = "ai4research_secure_prefs"
         private const val KEY_AUTH_TOKEN = "auth_token"
-        private const val KEY_PASSWORD_HASH = "password_hash"
+        private const val KEY_PASSWORD = "password_plain"
         private const val KEY_USER_EMAIL = "user_email"
     }
 }

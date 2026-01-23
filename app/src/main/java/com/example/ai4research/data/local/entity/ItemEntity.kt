@@ -36,10 +36,10 @@ data class ItemEntity(
     val audioUrl: String?,
     
     @ColumnInfo(name = "status")
-    val status: String,  // processing, done, failed
+    val status: String,  // processing (解析中) / done (完成) / failed (失败)
     
     @ColumnInfo(name = "read_status")
-    val readStatus: String,  // unread, reading, read
+    val readStatus: String,  // unread (未读) / reading (在读) / read (已读)
     
     @ColumnInfo(name = "project_id")
     val projectId: String?,

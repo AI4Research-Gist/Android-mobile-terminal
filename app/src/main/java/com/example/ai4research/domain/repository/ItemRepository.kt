@@ -19,7 +19,8 @@ interface ItemRepository {
     suspend fun createUrlItem(
         url: String,
         title: String? = null,
-        note: String? = null
+        note: String? = null,
+        type: ItemType = ItemType.INSIGHT
     ): Result<ResearchItem>
 
     /**
@@ -42,7 +43,18 @@ interface ItemRepository {
 
     suspend fun updateReadStatus(id: String, readStatus: ReadStatus): Result<Unit>
 
+    suspend fun updateItem(
+        id: String,
+        title: String? = null,
+        summary: String? = null,
+        content: String? = null,
+        tags: List<String>? = null
+    ): Result<Unit>
+
+    /**
+     * 更新条目的项目归属（同时同步远端关联）
+     */
+    suspend fun updateItemProject(id: String, projectId: String?): Result<Unit>
+
     suspend fun deleteItem(id: String): Result<Unit>
 }
-
-

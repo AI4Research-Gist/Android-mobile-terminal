@@ -2,6 +2,7 @@ package com.example.ai4research.data.remote.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /**
  * NocoDB API 响应 DTO
@@ -31,19 +32,24 @@ data class NocoItemDto(
     val audioUrl: String? = null,
     
     @SerialName("status")
-    val status: String? = "processing",
+    val status: String? = "processing (解析中)",
     
     @SerialName("read_status")
-    val readStatus: String? = "unread",
+    val readStatus: String? = "unread (未读)",
 
     @SerialName("tags")
     val tags: String? = null,
-    
+
+    // 关联到 projects 的统计字段（items -> projects 关系的计数）
+    @SerialName("projects_count")
+    val projectsCount: Int? = null,
+
+    // items.project_id 外键（item 属于 project）
     @SerialName("project_id")
-    val projectId: String? = null,
+    val projectId: Int? = null,
     
     @SerialName("meta_json")
-    val metaJson: String? = null,
+    val metaJson: JsonElement? = null,
     
     @SerialName("CreatedAt")
     val createdAt: String? = null,
@@ -91,8 +97,11 @@ data class NocoProjectDto(
     @SerialName("Id")
     val id: String? = null,
     
+    @SerialName("Title")
+    val title: String? = null,
+
     @SerialName("name")
-    val name: String,
+    val name: String? = null,
     
     @SerialName("description")
     val description: String? = null,

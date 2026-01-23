@@ -2,8 +2,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- ???? -->
+    <!-- 网络权限 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    
+    <!-- 悬浮窗权限 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    
+    <!-- 前台服务权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".AI4ResearchApp"
@@ -28,7 +36,19 @@
             </intent-filter>
         </activity>
         
-        <service android:name=".service.FloatingWindowService" android:exported="false" />
+        <service 
+            android:name=".service.FloatingWindowService" 
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+        
+        <activity
+            android:name=".service.ScreenCaptureActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop" />
+        
+        
     </application>
 
 </manifest>

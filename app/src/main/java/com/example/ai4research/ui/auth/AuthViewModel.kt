@@ -42,7 +42,7 @@ class AuthViewModel @Inject constructor(
      */
     private fun checkLoginStatus() {
         viewModelScope.launch {
-            val isLoggedIn = authRepository.isLoggedIn()
+            val isLoggedIn = authRepository.isLoggedInFast()
             if (isLoggedIn) {
                 _currentUser.value = authRepository.getCurrentUser()
             }
@@ -142,7 +142,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
             
-            val result = authRepository.biometricLogin()
+            val result = authRepository.loginWithBiometric()
             
             result.onSuccess { user ->
                 _currentUser.value = user
@@ -156,11 +156,11 @@ class AuthViewModel @Inject constructor(
     /**
      * 启用生物识别
      */
-    fun enableBiometric(password: String) {
+    fun enableBiometric(userId: String) {
         viewModelScope.launch {
             _uiState.value = AuthUiState.Loading
             
-            val result = authRepository.enableBiometric(password)
+            val result = authRepository.enableBiometric(userId)
             
             result.onSuccess {
                 _hasBiometricCredentials.value = true
@@ -174,9 +174,9 @@ class AuthViewModel @Inject constructor(
     /**
      * 禁用生物识别
      */
-    fun disableBiometric() {
+    fun disableBiometric(userId: String) {
         viewModelScope.launch {
-            val result = authRepository.disableBiometric()
+            val result = authRepository.disableBiometric(userId)
             
             result.onSuccess {
                 _hasBiometricCredentials.value = false

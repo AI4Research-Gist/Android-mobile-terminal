@@ -3,6 +3,7 @@ package com.example.ai4research.di
 import com.example.ai4research.core.network.NocoAuthInterceptor
 import com.example.ai4research.core.util.Constants
 import com.example.ai4research.data.remote.api.NocoApiService
+import com.example.ai4research.data.remote.api.SiliconFlowApiService
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import dagger.Module
 import dagger.Provides
@@ -14,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -36,12 +38,12 @@ object NetworkModule {
     }
     
     /**
-     * 提供 OkHttpClient（带拦截器）
+     * 提供 NocoDB OkHttpClient（带拦截器）
      */
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
-        // 日志拦截器
+    @Named("noco")
+    fun provideNocoOkHttpClient(): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
@@ -56,12 +58,32 @@ object NetworkModule {
     }
     
     /**
-     * 提供 Retrofit 实例
+     * 提供 SiliconFlow OkHttpClient（更长超时）
      */
     @Provides
     @Singleton
-    fun provideRetrofit(
-        okHttpClient: OkHttpClient,
+    @Named("siliconflow")
+    fun provideSiliconFlowOkHttpClient(): OkHttpClient {
+        val loggingInterceptor = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+        
+        return OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(60, TimeUnit.SECONDS)  // AI调用需要更长超时
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+    
+    /**
+     * 提供 NocoDB Retrofit 实例
+     */
+    @Provides
+    @Singleton
+    @Named("noco")
+    fun provideNocoRetrofit(
+        @Named("noco") okHttpClient: OkHttpClient,
         json: Json
     ): Retrofit {
         val contentType = "application/json".toMediaType()
@@ -74,12 +96,39 @@ object NetworkModule {
     }
     
     /**
+     * 提供 SiliconFlow Retrofit 实例
+     */
+    @Provides
+    @Singleton
+    @Named("siliconflow")
+    fun provideSiliconFlowRetrofit(
+        @Named("siliconflow") okHttpClient: OkHttpClient,
+        json: Json
+    ): Retrofit {
+        val contentType = "application/json".toMediaType()
+        
+        return Retrofit.Builder()
+            .baseUrl(SiliconFlowApiService.BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(json.asConverterFactory(contentType))
+            .build()
+    }
+    
+    /**
      * 提供 NocoApiService
      */
     @Provides
     @Singleton
-    fun provideNocoApiService(retrofit: Retrofit): NocoApiService {
+    fun provideNocoApiService(@Named("noco") retrofit: Retrofit): NocoApiService {
         return retrofit.create(NocoApiService::class.java)
     }
+    
+    /**
+     * 提供 SiliconFlowApiService
+     */
+    @Provides
+    @Singleton
+    fun provideSiliconFlowApiService(@Named("siliconflow") retrofit: Retrofit): SiliconFlowApiService {
+        return retrofit.create(SiliconFlowApiService::class.java)
+    }
 }
-

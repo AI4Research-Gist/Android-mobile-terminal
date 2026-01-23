@@ -15,9 +15,9 @@ import retrofit2.http.*
 interface NocoApiService {
     /**
      * 获取所有 Items
-     * GET /items
+     * GET /mez4qicxcudfwnc
      */
-    @GET("items")
+    @GET("mez4qicxcudfwnc")
     suspend fun getItems(
         @Query("limit") limit: Int? = 100,
         @Query("offset") offset: Int? = 0,
@@ -26,9 +26,9 @@ interface NocoApiService {
     
     /**
      * 根据类型获取 Items
-     * GET /items?where=(type,eq,paper)
+     * GET /mez4qicxcudfwnc?where=(type,eq,paper)
      */
-    @GET("items")
+    @GET("mez4qicxcudfwnc")
     suspend fun getItemsByType(
         @Query("where") where: String,  // 格式：(type,eq,paper)
         @Query("limit") limit: Int? = 100
@@ -36,27 +36,27 @@ interface NocoApiService {
     
     /**
      * 获取单个 Item
-     * GET /items/{id}
+     * GET /mez4qicxcudfwnc/{id}
      */
-    @GET("items/{id}")
+    @GET("mez4qicxcudfwnc/{id}")
     suspend fun getItemById(
         @Path("id") id: String
     ): NocoItemDto
     
     /**
      * 创建新 Item
-     * POST /items
+     * POST /mez4qicxcudfwnc
      */
-    @POST("items")
+    @POST("mez4qicxcudfwnc")
     suspend fun createItem(
         @Body item: NocoItemDto
     ): NocoItemDto
     
     /**
      * 更新 Item
-     * PATCH /items/{id}
+     * PATCH /mez4qicxcudfwnc/{id}
      */
-    @PATCH("items/{id}")
+    @PATCH("mez4qicxcudfwnc/{id}")
     suspend fun updateItem(
         @Path("id") id: String,
         @Body item: NocoItemDto
@@ -64,9 +64,9 @@ interface NocoApiService {
     
     /**
      * 删除 Item
-     * DELETE /items/{id}
+     * DELETE /mez4qicxcudfwnc/{id}
      */
-    @DELETE("items/{id}")
+    @DELETE("mez4qicxcudfwnc/{id}")
     suspend fun deleteItem(
         @Path("id") id: String
     ): Unit
@@ -75,74 +75,75 @@ interface NocoApiService {
     
     /**
      * 获取所有项目
-     * GET /projects
+     * GET /m14rejhia8w9cf7
      */
-    @GET("projects")
+    @GET("m14rejhia8w9cf7")
     suspend fun getProjects(
         @Query("limit") limit: Int? = 100
     ): NocoListResponse<NocoProjectDto>
     
     /**
      * 获取单个项目
-     * GET /projects/{id}
+     * GET /m14rejhia8w9cf7/{id}
      */
-    @GET("projects/{id}")
+    @GET("m14rejhia8w9cf7/{id}")
     suspend fun getProjectById(
         @Path("id") id: String
     ): NocoProjectDto
     
     /**
      * 创建项目
-     * POST /projects
+     * POST /m14rejhia8w9cf7
      */
-    @POST("projects")
+    @POST("m14rejhia8w9cf7")
     suspend fun createProject(
         @Body project: NocoProjectDto
     ): NocoProjectDto
+
     
     // ==================== Authentication API ====================
     
     /**
      * 用户注册
-     * POST /users
+     * POST /m1j18kc9fkjhcio
      */
-    @POST("users")
+    @POST("m1j18kc9fkjhcio")
     suspend fun registerUser(
         @Body user: NocoUserCreateDto
     ): NocoUserDto
     
     /**
      * 用户登录（通过邮箱/用户名/手机号查询）
-     * GET /users?where=...
+     * GET /m1j18kc9fkjhcio?where=...
      */
-    @GET("users")
+    @GET("m1j18kc9fkjhcio")
     suspend fun loginUser(
         @Query("where") where: String  // 支持多种查询条件
     ): NocoUserListResponse
     
     /**
      * 检查用户名是否已存在
-     * GET /users?where=(username,eq,{username})
+     * GET /m1j18kc9fkjhcio?where=(username,eq,{username})
      */
-    @GET("users")
+    @GET("m1j18kc9fkjhcio")
     suspend fun checkUsernameExists(
         @Query("where") where: String
     ): NocoUserListResponse
     
     /**
      * 获取用户信息
-     * GET /users/{id}
+     * GET /m1j18kc9fkjhcio/{id}
      */
-    @GET("users/{id}")
+    @GET("m1j18kc9fkjhcio/{id}")
     suspend fun getUserById(
         @Path("id") id: String
     ): NocoUserDto
     
     /**
      * 更新用户信息
-     * PATCH /users/{id}
+     * PATCH /m1j18kc9fkjhcio/{id}
      */
-    @PATCH("users/{id}")
+    @PATCH("m1j18kc9fkjhcio/{id}")
     suspend fun updateUser(
         @Path("id") id: String,
         @Body user: NocoUserDto

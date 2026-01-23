@@ -18,8 +18,8 @@ data class NocoUserDto(
     @SerialName("email")
     val email: String,
     
-    @SerialName("password_hash")
-    val passwordHash: String,
+    @SerialName("password")
+    val password: String,
     
     @SerialName("username")
     val username: String,
@@ -48,8 +48,8 @@ data class NocoUserCreateDto(
     @SerialName("email")
     val email: String,
     
-    @SerialName("password_hash")
-    val passwordHash: String,
+    @SerialName("password")
+    val password: String,
     
     @SerialName("username")
     val username: String,

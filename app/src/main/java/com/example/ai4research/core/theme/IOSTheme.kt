@@ -128,7 +128,11 @@ fun AI4ResearchTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
+            // window.statusBarColor and navigationBarColor setters are deprecated but still functional
+            // Suppress warning or use WindowCompat if possible, but color setting is still done via these properties or standard window APIs
+            @Suppress("DEPRECATION")
             window.statusBarColor = colorScheme.background.toArgb()
+            @Suppress("DEPRECATION")
             window.navigationBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme

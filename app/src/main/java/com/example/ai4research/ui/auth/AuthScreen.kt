@@ -1,73 +1,51 @@
 package com.example.ai4research.ui.auth
 
-import android.annotation.SuppressLint
-import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.ai4research.core.security.BiometricHelper
+import com.example.ai4research.core.util.LocalWebViewCache
 
 @Composable
 fun AuthScreen(
-    initialAuthMode: Int = 0,
     onLoginSuccess: () -> Unit,
     onRegisterSuccess: () -> Unit,
-    viewModel: AuthViewModel = hiltViewModel(),
-    biometricHelper: BiometricHelper = BiometricHelper()
+    viewModel: AuthViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val webViewCache = LocalWebViewCache.current
+    val loginUrl = "file:///android_asset/login.html"
     
-    // WebView 引用，用于调用 JavaScript
-    var webViewRef: WebView? = null
+    // WebView reference for calling JavaScript
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val webView = remember { webViewCache.acquireLogin(context) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewCache.releaseLogin(webView)
+        }
+    }
     
-    // WebApp Interface Class
-    class WebAppInterface {
-        @JavascriptInterface
-        fun login(identifier: String, password: String) {
-            // 调用 ViewModel 登录逻辑
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                viewModel.login(identifier, password)
-            }
-        }
-
-        @JavascriptInterface
-        fun register(username: String, email: String, password: String, phone: String?) {
-            // 调用 ViewModel 注册逻辑
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                viewModel.register(username, email, password, phone)
-            }
-        }
-
-        @JavascriptInterface
-        fun socialLogin(type: String) {
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                if (type == "mobile") {
-                    // Trigger One-Click Login SDK
-                }
-                // 其他社交登录逻辑
-            }
-        }
-        
-        @JavascriptInterface
-        fun checkUsername(username: String): Boolean {
-            // 注意：这是同步调用，在 WebView JS 线程执行
-            // 对于异步检查，需要使用回调机制
-            return false // 默认返回 false，实际检查在注册时进行
-        }
+    // WebApp Interface
+    val webAppInterface = remember(viewModel) {
+        WebAppInterface(viewModel)
     }
 
     // Fullscreen WebView
     AndroidView(
         modifier = Modifier.fillMaxSize(),
-        factory = { ctx ->
-            WebView(ctx).apply {
+        factory = {
+            webView.apply {
                 layoutParams = android.view.ViewGroup.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -77,49 +55,64 @@ fun AuthScreen(
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     cacheMode = WebSettings.LOAD_DEFAULT
-                    // Enable hardware acceleration
-                    setRenderPriority(WebSettings.RenderPriority.HIGH)
                 }
 
                 // Transparent background to let Compose background show if needed, 
                 // but our HTML has its own background.
                 // setBackgroundColor(0) 
 
-                webViewClient = WebViewClient()
+                webViewClient = object : WebViewClient() {
+                    override fun onPageCommitVisible(view: WebView?, url: String?) {
+                        webViewCache.markLoginLoaded()
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        webViewCache.markLoginLoaded()
+                    }
+                }
                 
                 // Add JS Interface
-                addJavascriptInterface(WebAppInterface(), "AndroidInterface")
+                removeJavascriptInterface("AndroidInterface")
+                addJavascriptInterface(webAppInterface, "AndroidInterface")
 
                 // Load the asset file
-                loadUrl("file:///android_asset/login.html")
+                if (url.isNullOrBlank() || url == "about:blank" || url != loginUrl) {
+                    loadUrl(loginUrl)
+                } else {
+                    // If this WebView was preloaded before the JS interface was attached,
+                    // the page won't see window.AndroidInterface. Detect and reload once.
+                    evaluateJavascript("typeof window.AndroidInterface !== 'undefined'") { result ->
+                        val normalized = result.trim('"')
+                        if (normalized != "true") {
+                            loadUrl(loginUrl)
+                        }
+                    }
+                }
                 
-                // 保存引用
+                // Save reference
                 webViewRef = this
             }
         },
-        update = { webView ->
+        update = { view ->
             // You can update WebView state here if needed
-            webViewRef = webView
+            webViewRef = view
         }
     )
     
-    // Observe ViewModel state to trigger navigation or show errors
-    val uiState = viewModel.uiState.collectAsState()
-    
-    // 使用 LaunchedEffect(Unit) 配合状态检查，避免重复触发
+    // Use LaunchedEffect(Unit) with state check to avoid repeated triggers
     androidx.compose.runtime.LaunchedEffect(Unit) {
         viewModel.uiState.collect { state ->
             when (state) {
                 is AuthUiState.LoginSuccess -> {
                     onLoginSuccess()
-                    viewModel.resetUiState() // 重置状态防止重复触发
+                    viewModel.resetUiState() // Reset state to prevent repeated triggers
                 }
                 is AuthUiState.RegisterSuccess -> {
                     onRegisterSuccess()
-                    viewModel.resetUiState() // 重置状态防止重复触发
+                    viewModel.resetUiState() // Reset state to prevent repeated triggers
                 }
                 is AuthUiState.Error -> {
-                    // 将错误信息传递给前端显示
+                    // Pass error message to frontend for display
                     val errorMessage = state.message
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         webViewRef?.evaluateJavascript(

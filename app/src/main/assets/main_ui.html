@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 
 <head>
   <meta charset="UTF-8">
@@ -140,50 +140,74 @@
       Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut
     } = LucideReact;
 
-    // --- 数据模拟 ---
-    const PAPERS = [
-      {
-        id: 1,
-        title: "Low-Rank Adaptation of Large Language Models",
-        author: "Edward Hu et al.",
-        source: "ICLR 2022",
-        summary: "提出了一种冻结预训练模型权重，并在Transformer层中注入可训练秩分解矩阵的方法，大大减少了下游任务的参数量。",
-        tags: ["LoRA", "LLM", "Fine-tuning"],
-        status: "reading",
-        timestamp: "10 min ago"
-      },
-      {
-        id: 2,
-        title: "QLoRA: Efficient Finetuning of Quantized LLMs",
-        author: "Tim Dettmers et al.",
-        source: "NeurIPS 2023",
-        summary: "引入了4位量化、双量化和分页优化器，使得在单张48GB GPU上微调65B参数模型成为可能。",
-        tags: ["Quantization", "Efficiency"],
-        status: "unread",
-        timestamp: "2 hours ago"
-      }
-    ];
+    // --- 数据接收桥接 ---
+    window.receivePapers = (jsonStr) => {
+      try {
+        const data = JSON.parse(jsonStr);
+        const mapped = data.map(item => {
+          let meta = {};
+          try {
+            if (typeof item.meta_json === 'string') {
+              meta = JSON.parse(item.meta_json || '{}');
+            } else if (item.meta_json && typeof item.meta_json === 'object') {
+              meta = item.meta_json;
+            }
+          } catch (e) { }
 
-    const COMPETITIONS = [
-      {
-        id: 101,
-        title: "ICCV 2025: AI 创新挑战赛",
-        organizer: "Computer Vision Foundation",
-        deadline: "2025-10-15",
-        daysLeft: 12,
-        status: "registered",
-        tags: ["CV", "Multimodal"]
-      },
-      {
-        id: 102,
-        title: "Kaggle: LLM Science Exam",
-        organizer: "Kaggle / Google",
-        deadline: "2025-11-01",
-        daysLeft: 28,
-        status: "watching",
-        tags: ["NLP", "Reasoning"]
-      }
-    ];
+          let authors = "未知作者";
+          if (meta.authors && Array.isArray(meta.authors) && meta.authors.length > 0) {
+            authors = meta.authors[0] + (meta.authors.length > 1 ? " 等" : "");
+          } else if (meta.authors) {
+            authors = meta.authors;
+          }
+
+          return {
+            id: item.Id || item.id,
+            title: item.title,
+            author: authors,
+            source: (meta.conference || "") + (meta.year ? " " + meta.year : ""),
+            summary: item.summary || "暂无摘要",
+            tags: item.tags ? item.tags.split(/[,，]/) : [],
+            status: item.read_status || 'unread',
+            timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚"
+          };
+        });
+        window.dispatchEvent(new CustomEvent('papers-updated', { detail: mapped }));
+      } catch (e) { console.error("Error parsing papers", e); }
+    };
+
+    window.receiveCompetitions = (jsonStr) => {
+      try {
+        const data = JSON.parse(jsonStr);
+        const mapped = data.map(item => {
+          let meta = {};
+          try {
+            if (typeof item.meta_json === 'string') {
+              meta = JSON.parse(item.meta_json || '{}');
+            } else if (item.meta_json && typeof item.meta_json === 'object') {
+              meta = item.meta_json;
+            }
+          } catch (e) { }
+
+          let daysLeft = 0;
+          if (meta.deadline) {
+            const diff = new Date(meta.deadline) - new Date();
+            daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+          }
+
+          return {
+            id: item.Id || item.id,
+            title: item.title,
+            organizer: meta.organizer || "主办方未知",
+            deadline: meta.deadline,
+            daysLeft: daysLeft,
+            status: daysLeft > 0 ? "registered" : "ended",
+            tags: item.tags ? item.tags.split(/[,，]/) : []
+          };
+        });
+        window.dispatchEvent(new CustomEvent('competitions-updated', { detail: mapped }));
+      } catch (e) { console.error("Error parsing comps", e); }
+    };
 
     // --- 主题上下文配置 ---
     const ThemeContext = createContext({ isDark: true, toggleTheme: () => { } });
@@ -266,8 +290,14 @@
 
     // --- 页面视图 ---
 
-    const HomeView = () => {
+    const HomeView = ({ papers, competitions }) => {
       const { isDark } = useContext(ThemeContext);
+
+      // Use the first paper as "Recently Captured" if available
+      const recentPaper = papers.length > 0 ? papers[0] : null;
+
+      const today = new Date();
+      const dateStr = today.toLocaleDateString('zh-CN', { weekday: 'long', month: 'long', day: 'numeric' });
 
       return (
         <div className="space-y-2 pb-28">
@@ -275,10 +305,10 @@
           <div className="flex justify-between items-center px-2 mb-6">
             <div>
               <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                Today
+                今日动态
               </h1>
               <p className={`text-xs font-medium mt-1 transition-colors duration-500 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-                Monday, October 24
+                {dateStr}
               </p>
             </div>
 
@@ -291,95 +321,137 @@
           </div>
 
           {/* Priority Section */}
-          <SectionHeader icon={Sparkles} title="Recently Captured" colorClass="text-amber-400" />
+          <SectionHeader icon={Sparkles} title="最近捕获" colorClass="text-amber-400" />
 
-          <GlassCard className="group">
-            <div className={`absolute top-0 right-0 p-4 transition-opacity duration-500 ${isDark ? 'opacity-50' : 'opacity-100'}`}>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-bold tracking-wider uppercase ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Processing Complete</span>
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34D399]" />
+          {recentPaper ? (
+            <GlassCard className="group" onClick={() => {
+              if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
+                window.AndroidInterface.navigateToDetail(String(recentPaper.id));
+              }
+            }}>
+              <div className={`absolute top-0 right-0 p-4 transition-opacity duration-500 ${isDark ? 'opacity-50' : 'opacity-100'}`}>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold tracking-wider uppercase ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>已解析完成</span>
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34D399]" />
+                </div>
               </div>
-            </div>
 
-            <div className="flex items-start gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 bg-gradient-to-br from-emerald-600 to-teal-600`}>
-                <BookOpen className="w-6 h-6" />
+              <div className="flex items-start gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 bg-gradient-to-br from-emerald-600 to-teal-600`}>
+                  <BookOpen className="w-6 h-6" />
+                </div>
+                <div className="flex-1 pt-1">
+                  <h3 className={`text-lg font-bold leading-tight mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {recentPaper.title}
+                  </h3>
+                  <p className={`text-sm transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                    来源: 微信/Web
+                  </p>
+                </div>
               </div>
-              <div className="flex-1 pt-1">
-                <h3 className={`text-lg font-bold leading-tight mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  Low-Rank Adaptation
-                </h3>
-                <p className={`text-sm transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                  Imported from WeChat
+
+              {/* AI Summary Block */}
+              <div className={`p-4 rounded-xl border transition-all duration-500 ${isDark
+                ? 'bg-emerald-900/20 border-emerald-500/10'
+                : 'bg-emerald-50/50 border-emerald-100'
+                }`}>
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-500 mb-2">
+                  <Sparkles className="w-3 h-3" />
+                  <span>AI 核心摘要</span>
+                </div>
+                <p className={`text-sm leading-relaxed transition-colors duration-500 ${isDark ? 'text-emerald-100/90' : 'text-slate-700'}`}>
+                  "{recentPaper.summary}"
                 </p>
               </div>
-            </div>
 
-            {/* AI Summary Block */}
-            <div className={`p-4 rounded-xl border transition-all duration-500 ${isDark
-              ? 'bg-emerald-900/20 border-emerald-500/10'
-              : 'bg-emerald-50/50 border-emerald-100'
-              }`}>
-              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-500 mb-2">
-                <Sparkles className="w-3 h-3" />
-                <span>AI KEY TAKEAWAY</span>
+              <div className="flex gap-2 mt-4">
+                {recentPaper.tags.map(tag => <TagBadge key={tag} text={tag} color="blue" />)}
               </div>
-              <p className={`text-sm leading-relaxed transition-colors duration-500 ${isDark ? 'text-emerald-100/90' : 'text-slate-700'}`}>
-                "这篇论文提出了LoRA，核心通过冻结预训练权重并注入低秩矩阵来减少显存占用，非常适合你目前的<span className="font-bold border-b border-emerald-400/50">移动端部署项目</span>。"
-              </p>
-            </div>
-
-            <div className="flex gap-2 mt-4">
-              <TagBadge text="LoRA" color="blue" />
-              <TagBadge text="NLP" color="purple" />
-            </div>
-          </GlassCard>
+            </GlassCard>
+          ) : (
+            <GlassCard><p className={`text-center opacity-50 ${isDark ? 'text-white' : 'text-slate-500'}`}>暂无最近捕获内容</p></GlassCard>
+          )}
 
           {/* Competitions Section */}
-          <SectionHeader icon={Trophy} title="Deadlines" colorClass="text-rose-400" />
+          <SectionHeader icon={Trophy} title="即将截止" colorClass="text-rose-400" />
 
-          <div className="flex gap-4 overflow-x-auto pb-6 -mx-6 px-6 scrollbar-hide">
-            {COMPETITIONS.map((comp, idx) => (
-              <GlassCard key={comp.id} delay={0.1 * idx} className="min-w-[280px]">
-                <div className="flex justify-between items-start mb-3">
-                  <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
-                    }`}>
-                    {comp.daysLeft} DAYS LEFT
-                  </span>
-                  <div className={`w-2 h-2 rounded-full ${comp.status === 'registered' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-slate-300'}`} />
-                </div>
+          {competitions.length > 0 ? (
+            <div className="flex gap-4 overflow-x-auto pb-6 -mx-6 px-6 scrollbar-hide">
+              {competitions.map((comp, idx) => (
+                <GlassCard key={comp.id} delay={0.1 * idx} className="min-w-[280px]">
+                  <div className="flex justify-between items-start mb-3">
+                    <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
+                      }`}>
+                      剩余 {comp.daysLeft} 天
+                    </span>
+                    <div className={`w-2 h-2 rounded-full ${comp.status === 'registered' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-slate-300'}`} />
+                  </div>
 
-                <h3 className={`text-base font-bold mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  {comp.title}
-                </h3>
-                <p className={`text-xs mb-4 transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                  {comp.organizer}
-                </p>
+                  <h3 className={`text-base font-bold mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {comp.title}
+                  </h3>
+                  <p className={`text-xs mb-4 transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                    {comp.organizer}
+                  </p>
 
-                <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
-                  <div className="bg-gradient-to-r from-rose-500 to-orange-500 h-full w-[70%] rounded-full" />
-                </div>
-              </GlassCard>
-            ))}
-          </div>
+                  <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
+                    <div className="bg-gradient-to-r from-rose-500 to-orange-500 h-full w-[70%] rounded-full" />
+                  </div>
+                </GlassCard>
+              ))}
+            </div>
+          ) : (
+            <div className={`text-center py-4 text-xs ${isDark ? 'text-white/30' : 'text-slate-400'}`}>暂无即将截止的比赛</div>
+          )}
         </div>
       );
     };
 
-    const PapersView = () => {
+    const PapersView = ({ papers }) => {
       const { isDark } = useContext(ThemeContext);
+      const [showSearch, setShowSearch] = useState(false);
+      const [searchQuery, setSearchQuery] = useState("");
+
+      const handleSearch = (e) => {
+        const query = e.target.value;
+        setSearchQuery(query);
+        if (window.AndroidInterface && window.AndroidInterface.search) {
+          window.AndroidInterface.search(query);
+        }
+      };
 
       return (
         <div className="space-y-4 pb-28">
           <div className="flex justify-between items-end mb-2 px-2">
-            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>Papers</h1>
-            <button className={`p-2.5 rounded-full transition-colors duration-500 ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50'}`}>
+            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>论文库</h1>
+            <button
+              onClick={() => setShowSearch(!showSearch)}
+              className={`p-2.5 rounded-full transition-colors duration-500 ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50'}`}>
               <Search className="w-5 h-5" />
             </button>
           </div>
 
+          <AnimatePresence>
+            {showSearch && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden px-1 mb-2"
+              >
+                <input
+                  type="text"
+                  placeholder="搜索论文标题、摘要或标签..."
+                  value={searchQuery}
+                  onChange={handleSearch}
+                  className={`w-full p-3 rounded-xl outline-none border ${isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/30' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
-            {["All", "Unread", "Star", "Project A", "Project B"].map((filter, i) => (
+            {["全部", "未读", "标星", "Project A", "Project B"].map((filter, i) => (
               <button key={filter} className={`
                     px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap backdrop-blur-md transition-all duration-300
                     ${i === 0
@@ -392,52 +464,131 @@
             ))}
           </div>
 
-          {PAPERS.map((paper, idx) => (
-            <GlassCard
-              key={paper.id}
-              delay={0.05 * idx}
-              className="flex flex-col gap-3"
-              onClick={() => {
-                if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
-                  window.AndroidInterface.navigateToDetail(String(paper.id));
-                }
-              }}
-            >
-              <div className="flex justify-between items-start">
-                <div className="flex-1 pr-4">
-                  <h3 className={`text-lg font-bold leading-snug mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    {paper.title}
+          {papers.length === 0 ? (
+            <div className={`text-center py-20 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
+              <p>没有找到相关论文</p>
+            </div>
+          ) : (
+            papers.map((paper, idx) => (
+              <GlassCard
+                key={paper.id}
+                delay={0.05 * idx}
+                className="flex flex-col gap-3"
+                onClick={() => {
+                  if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
+                    window.AndroidInterface.navigateToDetail(String(paper.id));
+                  }
+                }}
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1 pr-4">
+                    <h3 className={`text-lg font-bold leading-snug mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {paper.title}
+                    </h3>
+                    <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                      {paper.author} · {paper.source}
+                    </p>
+                  </div>
+                  <button className={`transition-colors duration-500 ${isDark ? 'text-white/30 hover:text-white' : 'text-slate-400 hover:text-slate-700'}`}>
+                    <MoreHorizontal className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                  {paper.summary}
+                </p>
+
+                <div className="flex items-center justify-between pt-2 border-t border-dashed border-white/10">
+                  <div className="flex gap-2">
+                    {paper.tags.map(tag => <TagBadge key={tag} text={tag} color="purple" />)}
+                  </div>
+                  <div className={`flex items-center gap-1.5 text-xs font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
+                    <Clock className="w-3.5 h-3.5" />
+                    {paper.timestamp}
+                  </div>
+                </div>
+              </GlassCard>
+            ))
+          )}
+        </div>
+      );
+    };
+
+    const CompetitionsView = ({ competitions }) => {
+      const { isDark } = useContext(ThemeContext);
+
+      return (
+        <div className="space-y-4 pb-28">
+          <div className="flex justify-between items-end mb-6 px-2">
+            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>竞赛活动</h1>
+          </div>
+
+          {competitions.length === 0 ? (
+            <div className={`text-center py-20 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
+              <p>暂无竞赛信息</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {competitions.map((comp, idx) => (
+                <GlassCard key={comp.id} delay={0.1 * idx}>
+                  <div className="flex justify-between items-start mb-3">
+                    <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
+                      }`}>
+                      剩余 {comp.daysLeft} 天
+                    </span>
+                    <div className={`w-2 h-2 rounded-full ${comp.status === 'registered' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-slate-300'}`} />
+                  </div>
+
+                  <h3 className={`text-xl font-bold mb-2 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {comp.title}
                   </h3>
-                  <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                    {paper.author} · {paper.source}
+                  <p className={`text-sm mb-4 transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                    {comp.organizer}
                   </p>
-                </div>
-                <button className={`transition-colors duration-500 ${isDark ? 'text-white/30 hover:text-white' : 'text-slate-400 hover:text-slate-700'}`}>
-                  <MoreHorizontal className="w-5 h-5" />
-                </button>
-              </div>
 
-              <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
-                {paper.summary}
-              </p>
-
-              <div className="flex items-center justify-between pt-2 border-t border-dashed border-white/10">
-                <div className="flex gap-2">
-                  {paper.tags.map(tag => <TagBadge key={tag} text={tag} color="purple" />)}
-                </div>
-                <div className={`flex items-center gap-1.5 text-xs font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
-                  <Clock className="w-3.5 h-3.5" />
-                  {paper.timestamp}
-                </div>
-              </div>
-            </GlassCard>
-          ))}
+                  <div className="flex gap-2">
+                    {comp.tags.map(tag => <TagBadge key={tag} text={tag} color="emerald" />)}
+                  </div>
+                </GlassCard>
+              ))}
+            </div>
+          )}
         </div>
       );
     };
 
     const SettingsView = () => {
       const { isDark, toggleTheme } = useContext(ThemeContext);
+      const [floatingEnabled, setFloatingEnabled] = useState(false);
+      const [hasFloatingPermission, setHasFloatingPermission] = useState(false);
+
+      // 检查悬浮窗状态
+      useEffect(() => {
+        if (window.AndroidInterface && window.AndroidInterface.checkFloatingWindowStatus) {
+          const status = window.AndroidInterface.checkFloatingWindowStatus();
+          try {
+            const parsed = JSON.parse(status);
+            setFloatingEnabled(parsed.enabled);
+            setHasFloatingPermission(parsed.hasPermission);
+          } catch (e) { }
+        }
+      }, []);
+
+      const handleFloatingToggle = () => {
+        if (!hasFloatingPermission) {
+          // 没有权限，跳转到系统设置
+          if (window.AndroidInterface && window.AndroidInterface.requestFloatingWindowPermission) {
+            window.AndroidInterface.requestFloatingWindowPermission();
+          }
+        } else {
+          // 切换开关
+          const newState = !floatingEnabled;
+          setFloatingEnabled(newState);
+          if (window.AndroidInterface && window.AndroidInterface.setFloatingWindowEnabled) {
+            window.AndroidInterface.setFloatingWindowEnabled(newState);
+          }
+        }
+      };
 
       const handleLogout = () => {
         if (window.AndroidInterface && window.AndroidInterface.logout) {
@@ -450,16 +601,47 @@
       return (
         <div className="space-y-4 pb-28">
           <div className="flex justify-between items-end mb-6 px-2">
-            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>Settings</h1>
+            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>设置</h1>
           </div>
 
+          {/* 悬浮窗设置 */}
           <GlassCard>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full bg-gradient-to-br from-cyan-500 to-emerald-500`}>
+                  <Zap className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <span className={`font-medium block ${isDark ? 'text-white' : 'text-slate-900'}`}>悬浮窗助手</span>
+                  <span className={`text-xs ${hasFloatingPermission ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-amber-400' : 'text-amber-600')}`}>
+                    {hasFloatingPermission ? '已授权' : '点击授权权限'}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={handleFloatingToggle}
+                className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${floatingEnabled && hasFloatingPermission ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              >
+                <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${floatingEnabled && hasFloatingPermission ? 'translate-x-6' : 'translate-x-0'}`} />
+              </button>
+            </div>
+            {floatingEnabled && hasFloatingPermission && (
+              <div className={`mt-3 pt-3 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                  退出应用后悬浮球将自动显示，支持截图、区域选择、链接识别等功能
+                </p>
+              </div>
+            )}
+          </GlassCard>
+
+          {/* 深色模式 */}
+          <GlassCard>
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-full ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
                   {isDark ? <Moon className="w-5 h-5 text-white" /> : <Sun className="w-5 h-5 text-amber-500" />}
                 </div>
-                <span className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>Dark Mode</span>
+                <span className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>深色模式</span>
               </div>
               <button
                 onClick={toggleTheme}
@@ -473,7 +655,7 @@
           <GlassCard>
             <button onClick={handleLogout} className="w-full flex items-center gap-3 p-2 text-red-500 font-medium">
               <LogOut className="w-5 h-5" />
-              Logout
+              退出登录
             </button>
           </GlassCard>
         </div>
@@ -514,14 +696,14 @@
             <div className={`w-12 h-1.5 rounded-full mx-auto mb-8 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
 
             <h3 className={`text-xl font-bold mb-8 text-center transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              Capture to Gist
+              快速采集
             </h3>
 
             <div className="grid grid-cols-3 gap-6">
               {[
-                { icon: LinkIcon, label: "Link", color: "from-cyan-400 to-cyan-600" },
-                { icon: ImageIcon, label: "Scan", color: "from-emerald-500 to-teal-500" },
-                { icon: Mic, label: "Voice", color: "from-orange-500 to-red-500" },
+                { icon: LinkIcon, label: "链接", color: "from-cyan-400 to-cyan-600" },
+                { icon: ImageIcon, label: "扫描", color: "from-emerald-500 to-teal-500" },
+                { icon: Mic, label: "语音", color: "from-orange-500 to-red-500" },
               ].map((item, idx) => (
                 <button key={idx} className="flex flex-col items-center gap-4 group">
                   <div className={`
@@ -547,10 +729,10 @@
                 <Zap className="w-4 h-4 text-emerald-500" fill="currentColor" />
               </div>
               <div className="flex-1">
-                <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Clipboard Detected</p>
+                <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>检测到剪贴板内容</p>
                 <p className={`text-[10px] ${isDark ? 'text-white/50' : 'text-slate-500'}`}>"https://arxiv.org/abs/2106.09685"</p>
               </div>
-              <button className="text-xs font-bold text-blue-500 bg-blue-500/10 px-3 py-1.5 rounded-lg">Add</button>
+              <button className="text-xs font-bold text-blue-500 bg-blue-500/10 px-3 py-1.5 rounded-lg">添加</button>
             </div>
           </motion.div>
         </motion.div>
@@ -573,6 +755,7 @@
               }`}>
               <Icon className="w-6 h-6" strokeWidth={isActive ? 2.5 : 2} />
             </div>
+            <span className={`text-[10px] transition-colors duration-300 ${isActive ? (isDark ? 'text-white' : 'text-slate-900') : 'text-transparent'}`}>{label}</span>
           </button>
         );
       };
@@ -592,8 +775,8 @@
             }
               `}>
             <div className="flex flex-1 justify-around">
-              <NavButton id="home" icon={Home} label="Home" />
-              <NavButton id="papers" icon={BookOpen} label="Papers" />
+              <NavButton id="home" icon={Home} label="首页" />
+              <NavButton id="papers" icon={BookOpen} label="论文" />
             </div>
 
             {/* Central FAB */}
@@ -617,8 +800,8 @@
             </div>
 
             <div className="flex flex-1 justify-around">
-              <NavButton id="competitions" icon={Trophy} label="Events" />
-              <NavButton id="settings" icon={Settings} label="Settings" />
+              <NavButton id="competitions" icon={Trophy} label="竞赛" />
+              <NavButton id="settings" icon={Settings} label="设置" />
             </div>
           </div>
         </div>
@@ -631,8 +814,29 @@
       const [activeTab, setActiveTab] = useState('home');
       const [isCaptureOpen, setIsCaptureOpen] = useState(false);
       const [isDark, setIsDark] = useState(false); // Default to Light Mode per requirement
+      const [papers, setPapers] = useState([]);
+      const [competitions, setCompetitions] = useState([]);
 
       const toggleTheme = () => setIsDark(!isDark);
+
+      // Data Listeners
+      useEffect(() => {
+        const handlePapers = (e) => setPapers(e.detail);
+        const handleCompetitions = (e) => setCompetitions(e.detail);
+
+        window.addEventListener('papers-updated', handlePapers);
+        window.addEventListener('competitions-updated', handleCompetitions);
+
+        // Request initial data
+        if (window.AndroidInterface && window.AndroidInterface.requestData) {
+          window.AndroidInterface.requestData();
+        }
+
+        return () => {
+          window.removeEventListener('papers-updated', handlePapers);
+          window.removeEventListener('competitions-updated', handleCompetitions);
+        };
+      }, []);
 
       // Status Bar
       const StatusBar = () => (
@@ -700,7 +904,7 @@
                       exit={{ opacity: 0, scale: 1.05 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <HomeView />
+                      <HomeView papers={papers} competitions={competitions} />
                     </motion.div>
                   )}
                   {activeTab === 'papers' && (
@@ -711,7 +915,7 @@
                       exit={{ opacity: 0, x: -20 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <PapersView />
+                      <PapersView papers={papers} />
                     </motion.div>
                   )}
                   {activeTab === 'settings' && (
@@ -730,10 +934,10 @@
                       key="competitions"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="flex flex-col items-center justify-center h-[60vh]"
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3 }}
                     >
-                      <Sparkles className={`w-12 h-12 mb-4 opacity-50 ${isDark ? 'text-white' : 'text-slate-400'}`} />
-                      <p className={`font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>Competitions Module Loading...</p>
+                      <CompetitionsView competitions={competitions} />
                     </motion.div>
                   )}
                 </AnimatePresence>

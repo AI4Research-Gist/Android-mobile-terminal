@@ -60,7 +60,6 @@ fun NavigationGraph(
         // 登录页面
         composable(Screen.Login.route) {
             AuthScreen(
-                initialAuthMode = 0,
                 onLoginSuccess = {
                     navController.navigate(Screen.Main.route) {
                         popUpTo(0) { inclusive = true }
@@ -78,7 +77,6 @@ fun NavigationGraph(
         // 注册页面
         composable(Screen.Register.route) {
             AuthScreen(
-                initialAuthMode = 1,
                 onLoginSuccess = {
                     navController.navigate(Screen.Main.route) {
                         popUpTo(0) { inclusive = true }

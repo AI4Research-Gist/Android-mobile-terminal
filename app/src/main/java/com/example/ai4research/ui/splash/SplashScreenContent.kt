@@ -16,12 +16,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -33,7 +31,7 @@ fun SplashScreenContent(onAnimationFinished: () -> Unit) {
         progress.animateTo(
             targetValue = 1f,
             animationSpec = tween(
-                durationMillis = 2500, // Slightly slower for better effect
+                durationMillis = 2000, // Reduced to 2s for snappier feel
                 easing = FastOutLinearInEasing
             )
         )
@@ -49,8 +47,6 @@ fun SplashScreenContent(onAnimationFinished: () -> Unit) {
         val primaryColor = MaterialTheme.colorScheme.primary
         
         // The formula to draw
-        // Using a slightly simplified textual representation that looks like math
-        // ideally we would use SVG paths, but getting text path is a robust dynamic way
         val formulaText = "Attention(Q,K,V) = softmax(QKᵀ/√d_k)V"
         
         // Create the Path for the text

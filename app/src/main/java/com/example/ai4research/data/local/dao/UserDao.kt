@@ -28,6 +28,18 @@ interface UserDao {
     fun getCurrentUserFlow(): Flow<UserEntity?>
     
     /**
+     * 根据ID获取用户
+     */
+    @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
+    suspend fun getUserById(userId: String): UserEntity?
+    
+    /**
+     * 根据ID观察用户
+     */
+    @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
+    fun observeUserById(userId: String): Flow<UserEntity?>
+    
+    /**
      * 根据邮箱获取用户
      */
     @Query("SELECT * FROM users WHERE email = :email LIMIT 1")

@@ -1,37 +1,34 @@
 package com.example.ai4research
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.lifecycleScope
 import com.example.ai4research.core.theme.AI4ResearchTheme
 import com.example.ai4research.core.theme.ThemeManager
 import com.example.ai4research.core.theme.ThemeMode
+import com.example.ai4research.core.util.LocalWebViewCache
+import com.example.ai4research.core.util.WebViewCache
 import com.example.ai4research.data.repository.AuthRepository
 import com.example.ai4research.navigation.NavigationGraph
 import com.example.ai4research.navigation.Screen
-import com.example.ai4research.service.FloatingWindowService
+import com.example.ai4research.service.FloatingWindowManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -49,6 +46,9 @@ class MainActivity : ComponentActivity() {
     
     @Inject
     lateinit var themeManager: ThemeManager
+
+    @Inject
+    lateinit var floatingWindowManager: FloatingWindowManager
     
     private var isInitializing by mutableStateOf(true)
     private var isAnimationFinished by mutableStateOf(false)
@@ -57,11 +57,7 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         
-        // Keep splash screen visible only while strictly initializing (optional),
-        // but we want to show our Compose Splash Content immediately.
-        // So we return false (or true strictly for data load, but NOT for animation).
-        // Since we handle "isInitializing" in the UI (AppNavigation/SplashScreenContent),
-        // we can just let the system splash go away as soon as the app draws.
+        // System splash screen: immediately hide it because we have our own Compose splash
         splashScreen.setKeepOnScreenCondition { false }
         
         enableEdgeToEdge()
@@ -70,6 +66,14 @@ class MainActivity : ComponentActivity() {
             // Collect theme mode
             val themeMode by themeManager.themeModeFlow.collectAsState(initial = ThemeMode.SYSTEM)
             val systemInDarkTheme = isSystemInDarkTheme()
+            val context = LocalContext.current
+            val webViewCache = remember { WebViewCache() }
+
+            DisposableEffect(Unit) {
+                onDispose {
+                    webViewCache.clear()
+                }
+            }
             
             // Decide dark theme
             val darkTheme = when (themeMode) {
@@ -78,95 +82,65 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.SYSTEM -> systemInDarkTheme
             }
             
+            // Start initialization immediately
+            LaunchedEffect(Unit) {
+                // Warm up WebView engine and preload login page while splash runs
+                launch { webViewCache.warmUp(context) }
+                launch { webViewCache.preloadLogin(context) }
+
+                // Perform data loading in parallel off the main thread
+                val isLoggedIn = withContext(Dispatchers.IO) { authRepository.isLoggedInFast() }
+                startDestination = if (isLoggedIn) {
+                    Screen.Main.route
+                } else {
+                    Screen.Login.route
+                }
+                if (isLoggedIn) {
+                    webViewCache.preloadMain(context)
+                }
+                isInitializing = false
+            }
+            
             // Use the new UI Theme
             AI4ResearchTheme(darkTheme = darkTheme) {
-                // Show splash animation first, then transition to app content
-                if (!isAnimationFinished || isInitializing) {
+                // Show splash animation if animation is not finished OR data is not ready
+                // BUT: If animation finishes and data is NOT ready, we keep showing splash (maybe with loading indicator)
+                // If data is ready but animation NOT finished, we wait for animation.
+                
+                val showSplash = !isAnimationFinished || isInitializing
+                
+                if (showSplash) {
                     // Show splash screen with animation
                     SplashScreenContent(
                         onAnimationFinished = {
                             isAnimationFinished = true
                         }
                     )
-                    
-                    // Start initialization in background while animation plays
-                    LaunchedEffect(Unit) {
-                        val isLoggedIn = authRepository.isLoggedIn()
-                        startDestination = if (isLoggedIn) {
-                            Screen.Main.route
-                        } else {
-                            Screen.Login.route
-                        }
-                        isInitializing = false
-                    }
                 } else {
-                    // Both animation finished and initialization done - show app
+                    // Both animation finished and initialization done - transition to app
                     val navController = rememberNavController()
-                    NavigationGraph(
-                        navController = navController,
-                        startDestination = startDestination
-                    )
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        LocalWebViewCache provides webViewCache
+                    ) {
+                        NavigationGraph(
+                            navController = navController,
+                            startDestination = startDestination
+                        )
+                    }
                 }
             }
         }
     }
     
-    private fun checkOverlayPermission() {
-        if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            // In a real app, use registerForActivityResult
-            startActivity(intent) 
-        } else {
-            startService(Intent(this, FloatingWindowService::class.java))
-        }
-    }
-
     override fun onResume() {
         super.onResume()
-        if (Settings.canDrawOverlays(this)) {
-            startService(Intent(this, FloatingWindowService::class.java))
+        lifecycleScope.launch {
+            val enabled = floatingWindowManager.isFloatingWindowEnabled.first()
+            if (!enabled) {
+                floatingWindowManager.stopFloatingWindowService()
+            }
         }
     }
     
     private var startDestination by mutableStateOf(Screen.Login.route)
-}
-
-/**
- * App Navigation Entry
- * Checks login status and decides start destination
- */
-@Composable
-fun AppNavigation(
-    authRepository: AuthRepository,
-    onInitialized: () -> Unit
-) {
-    val navController = rememberNavController()
-    var isLoading by remember { mutableStateOf(true) }
-    var startDestination by remember { mutableStateOf(Screen.Login.route) }
-    val coroutineScope = rememberCoroutineScope()
-    
-    // Check Login Status
-    LaunchedEffect(Unit) {
-        coroutineScope.launch {
-            val isLoggedIn = authRepository.isLoggedIn()
-            startDestination = if (isLoggedIn) {
-                Screen.Main.route
-            } else {
-                Screen.Login.route
-            }
-            isLoading = false
-            onInitialized()
-        }
-    }
-    
-    if (!isLoading) {
-        // Show Nav Graph
-        NavigationGraph(
-            navController = navController,
-            startDestination = startDestination
-        )
-    }
 }

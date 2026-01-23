@@ -58,17 +58,22 @@ enum class ItemStatus {
     
     companion object {
         fun fromString(value: String): ItemStatus {
-            return when (value.lowercase()) {
-                "processing" -> PROCESSING
-                "done" -> DONE
-                "failed" -> FAILED
+            val normalized = value.trim().lowercase()
+            return when {
+                normalized.startsWith("processing") -> PROCESSING
+                normalized.startsWith("done") -> DONE
+                normalized.startsWith("failed") -> FAILED
                 else -> PROCESSING
             }
         }
     }
     
     fun toServerString(): String {
-        return this.name.lowercase()
+        return when (this) {
+            PROCESSING -> "processing (解析中)"
+            DONE -> "done (完成)"
+            FAILED -> "failed (失败)"
+        }
     }
 }
 
@@ -82,17 +87,22 @@ enum class ReadStatus {
     
     companion object {
         fun fromString(value: String): ReadStatus {
-            return when (value.lowercase()) {
-                "unread" -> UNREAD
-                "reading" -> READING
-                "read" -> READ
+            val normalized = value.trim().lowercase()
+            return when {
+                normalized.startsWith("unread") -> UNREAD
+                normalized.startsWith("reading") -> READING
+                normalized.startsWith("read") -> READ
                 else -> UNREAD
             }
         }
     }
     
     fun toServerString(): String {
-        return this.name.lowercase()
+        return when (this) {
+            UNREAD -> "unread (未读)"
+            READING -> "reading (在读)"
+            READ -> "read (已读)"
+        }
     }
 }
 

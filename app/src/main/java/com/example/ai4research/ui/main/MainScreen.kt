@@ -10,19 +10,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.ai4research.data.remote.dto.NocoItemDto
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import com.example.ai4research.core.util.LocalWebViewCache
+import com.example.ai4research.service.FloatingWindowManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * Main Screen Refactored with WebView
@@ -34,35 +39,42 @@ fun MainScreen(
     onNavigateToDetail: (String) -> Unit,
     viewModel: MainViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
+    val webViewCache = LocalWebViewCache.current
+
     // Track loading state
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(!webViewCache.isMainLoaded()) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val webView = remember { webViewCache.acquireMain(context) }
     
     val papers by viewModel.papers.collectAsState()
     val competitions by viewModel.competitions.collectAsState()
+    
+    val coroutineScope = rememberCoroutineScope()
+    val floatingWindowManager = viewModel.floatingWindowManager
 
-    // Interface for Main UI
-    class MainAppInterface {
-        @JavascriptInterface
-        fun logout() {
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                onLogout()
-            }
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewCache.releaseMain(webView)
         }
-        
-        @JavascriptInterface
-        fun navigateToDetail(itemId: String) {
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                onNavigateToDetail(itemId)
-            }
-        }
+    }
 
-        @JavascriptInterface
-        fun requestData() {
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                 viewModel.fetchData()
-            }
+    LaunchedEffect(Unit) {
+        if (webViewCache.isMainLoaded()) {
+            isLoading = false
         }
+    }
+
+    // Interface for Main UI - moved outside composable for better structure
+    val mainAppInterface = remember(context, floatingWindowManager, coroutineScope) {
+        MainAppInterface(
+            context = context,
+            floatingWindowManager = floatingWindowManager,
+            coroutineScope = coroutineScope,
+            viewModel = viewModel,
+            onLogout = onLogout,
+            onNavigateToDetail = onNavigateToDetail
+        )
     }
 
     // Sync data to WebView when it changes
@@ -87,8 +99,8 @@ fun MainScreen(
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                WebView(context).apply {
+            factory = {
+                webView.apply {
                     layoutParams = android.view.ViewGroup.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -109,16 +121,29 @@ fun MainScreen(
                     WebView.setWebContentsDebuggingEnabled(true)
                     
                     webViewClient = object : WebViewClient() {
+                        override fun onPageCommitVisible(view: WebView?, url: String?) {
+                            if (isLoading) {
+                                isLoading = false
+                            }
+                            webViewCache.markMainLoaded()
+                        }
+
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
-                            isLoading = false
+                            if (isLoading) {
+                                isLoading = false
+                            }
+                            webViewCache.markMainLoaded()
                             // Initial data sync
                             viewModel.fetchData()
                         }
                     }
-                    addJavascriptInterface(MainAppInterface(), "AndroidInterface")
+                    removeJavascriptInterface("AndroidInterface")
+                    addJavascriptInterface(mainAppInterface, "AndroidInterface")
                     
-                    loadUrl("file:///android_asset/main_ui.html")
+                    if (url.isNullOrBlank() || url == "about:blank") {
+                        loadUrl("file:///android_asset/main_ui.html")
+                    }
                     webViewRef = this
                 }
             }
@@ -136,6 +161,69 @@ fun MainScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+        }
+    }
+}
+
+/**
+ * JavaScript Interface for WebView communication
+ */
+class MainAppInterface(
+    private val context: android.content.Context,
+    private val floatingWindowManager: FloatingWindowManager,
+    private val coroutineScope: CoroutineScope,
+    private val viewModel: MainViewModel,
+    private val onLogout: () -> Unit,
+    private val onNavigateToDetail: (String) -> Unit
+) {
+    @JavascriptInterface
+    fun logout() {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onLogout()
+        }
+    }
+    
+    @JavascriptInterface
+    fun navigateToDetail(itemId: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onNavigateToDetail(itemId)
+        }
+    }
+
+    @JavascriptInterface
+    fun requestData() {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+             viewModel.fetchData()
+        }
+    }
+    
+    @JavascriptInterface
+    fun checkFloatingWindowStatus(): String {
+        val hasPermission = android.provider.Settings.canDrawOverlays(context)
+        var isEnabled = false
+        // 浣跨敤 runBlocking 鑾峰彇褰撳墠璁剧疆鐘舵€?(浠呯敤浜庡悓姝avaScript璋冪敤)
+        kotlinx.coroutines.runBlocking {
+            isEnabled = floatingWindowManager.isFloatingWindowEnabled.first()
+        }
+        return """{"hasPermission": $hasPermission, "enabled": $isEnabled}"""
+    }
+    
+    @JavascriptInterface
+    fun requestFloatingWindowPermission() {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${context.packageName}")
+            )
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    }
+    
+    @JavascriptInterface
+    fun setFloatingWindowEnabled(enabled: Boolean) {
+        coroutineScope.launch {
+            floatingWindowManager.setFloatingWindowEnabled(enabled)
         }
     }
 }

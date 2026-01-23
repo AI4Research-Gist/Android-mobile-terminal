@@ -20,7 +20,7 @@
 
 ## 📖 项目简介
 
-**AI4Research** 是一款专为 AI 研究人员设计的移动端助手应用，旨在帮助用户高效管理论文、追踪前沿竞赛并记录灵感。
+**AI4Research** 是一款专为 AI 研究人员设计的移动端助手应用，旨在帮助用户高效管理论文、追踪前沿竞赛并记录灵感。它通过 **"三端一体化"** 的理念（手机采集、云端分析、PC 整合），解决了科研信息入口分散、整理困难的痛点。
 
 本项目采用 **"UI/UX Pro Max"** 设计理念，结合 **Hybrid 混合开发架构**，在 Android 原生应用中无缝集成了 React + Tailwind CSS 的现代化 Web 界面，实现了极致丝滑的视觉体验与原生性能的完美平衡。
 
@@ -36,12 +36,17 @@
 - **🚀 混合架构 (Hybrid Architecture)**
   - **主界面 (Main Stream)**: 采用 React + Tailwind + Framer Motion 构建，运行于高性能 WebView 中，实现复杂的玻璃拟态 (Glassmorphism) 和流体动画。
   - **详情页 (Native Detail)**: 采用 Jetpack Compose 原生开发，确保沉浸式阅读体验和高性能 Markdown 渲染。
-  - **无缝交互**: 通过 `AndroidInterface` 桥接层，实现 Web 与 Native 的双向通信（跳转、状态同步、原生能力调用）。
+  - **无缝交互**: 通过 `WebAppInterface` 桥接层，实现 Web 与 Native 的双向通信（跳转、状态同步、原生能力调用）。
 
-- **🧠 智能功能**
-  - **论文追踪 (Papers)**: 聚合 LoRA、LLM 等前沿论文，支持状态管理（未读/在读/星标）。
-  - **竞赛日历 (Events)**: 直观的时间轴展示 ICCV、Kaggle 等重要比赛截止日期 (DDL)。
-  - **一键采集 (Capture)**: 底部中央悬浮按钮，支持剪贴板智能检测、链接采集等功能。
+- **🧠 智能科研助手**
+  - **全能采集 (Capture)**:
+    - **链接剪藏**: 从微信/浏览器一键分享，自动解析论文/博客。
+    - **悬浮窗工具**: 全局悬浮球，支持**截屏识别**、**区域选择**和**快速链接输入**，不打断当前工作流。
+    - **语音灵感**: 随时录制想法，AI 自动整理成 Bullet Points (规划中)。
+  - **深度分析 (Analysis)**:
+    - **五点法摘要**: 自动生成研究问题、方法、创新点、局限性与启发。
+    - **竞赛日历**: 自动提取比赛 DDL 并生成时间轴。
+  - **项目管理 (Projects)**: 智能推荐文献归属项目，支持精读/略读状态管理。
 
 ---
 
@@ -58,6 +63,7 @@
 | **本地存储** | Room (SQLite) + DataStore |
 | **安全存储** | EncryptedSharedPreferences |
 | **Markdown** | compose-markdown |
+| **AI 服务** | SiliconFlow API (Qwen2.5/VL) |
 
 ### Hybrid Web Frontend
 | 模块 | 技术选型 |
@@ -67,6 +73,13 @@
 | **动画** | Framer Motion |
 | **图标** | Lucide React |
 | **构建方式** | Runtime ESM Import (无需 Node.js 构建步骤) |
+
+### Backend & Data
+| 模块 | 技术选型 |
+|------|----------|
+| **Headless CMS** | NocoDB (Self-hosted) |
+| **Database** | MySQL/PostgreSQL (via NocoDB) |
+| **Auth** | NocoDB Auth API |
 
 ---
 
@@ -93,7 +106,9 @@ app/src/main/
 │   ├── ui/                    # 表现层 (Presentation Layer)
 │   │   ├── main/              # 主界面容器 (WebView Wrapper)
 │   │   ├── detail/            # 详情页 (Native Compose)
-│   │   └── auth/              # 认证页容器
+│   │   ├── auth/              # 认证页容器
+│   │   └── floating/          # 悬浮窗 UI 组件
+│   ├── service/               # 后台服务 (悬浮窗, AI服务)
 │   ├── navigation/            # 导航图配置
 │   ├── MainActivity.kt        # 应用入口
 │   └── AI4ResearchApp.kt      # Application 类
@@ -122,6 +137,7 @@ app/src/main/
 ### 注意事项
 - 由于 Web 界面使用了 ESM 模块加载 (`esm.sh`) 和 CDN 资源，**运行应用时需要保持网络连接**。
 - 首次加载 WebView 可能需要几秒钟下载 React 依赖。
+- 悬浮窗功能需要授予“显示在其他应用上层”权限。
 
 ---
 
@@ -129,8 +145,10 @@ app/src/main/
 
 | 权限 | 用途 |
 |------|------|
-| `INTERNET` | 加载 Web 资源、同步数据 |
+| `INTERNET` | 加载 Web 资源、同步数据、AI 服务调用 |
 | `ACCESS_NETWORK_STATE` | 检查网络连接状态 |
+| `SYSTEM_ALERT_WINDOW` | 显示全局悬浮窗工具 |
+| `FOREGROUND_SERVICE` | 维持悬浮窗服务运行 |
 | `USE_BIOMETRIC` | 生物识别登录（可选） |
 
 ---
