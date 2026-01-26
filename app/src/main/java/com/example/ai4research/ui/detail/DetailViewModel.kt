@@ -82,6 +82,14 @@ class DetailViewModel @Inject constructor(
             load(item.id)
         }
     }
+    
+    fun toggleStar() {
+        val item = _uiState.value.item ?: return
+        viewModelScope.launch {
+            itemRepository.updateStarred(item.id, !item.isStarred)
+            load(item.id)
+        }
+    }
 
     fun delete() {
         val item = _uiState.value.item ?: return

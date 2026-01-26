@@ -47,6 +47,9 @@ data class ItemEntity(
     @ColumnInfo(name = "project_name")
     val projectName: String?,
     
+    @ColumnInfo(name = "is_starred", defaultValue = "0")
+    val isStarred: Boolean = false,
+    
     @ColumnInfo(name = "meta_json")
     val metaJson: String?,  // JSON 字符串，存储动态结构
     

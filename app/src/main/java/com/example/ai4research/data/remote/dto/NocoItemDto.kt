@@ -11,13 +11,13 @@ import kotlinx.serialization.json.JsonElement
 @Serializable
 data class NocoItemDto(
     @SerialName("Id")
-    val id: String? = null,
+    val id: Int? = null,  // NocoDB 返回的是整数 ID
     
     @SerialName("title")
-    val title: String,
+    val title: String? = null,  // 可能为 null
     
     @SerialName("type")
-    val type: String,
+    val type: String? = null,  // 可能为 null
     
     @SerialName("summary")
     val summary: String? = null,
@@ -95,7 +95,7 @@ data class PageInfo(
 @Serializable
 data class NocoProjectDto(
     @SerialName("Id")
-    val id: String? = null,
+    val id: Int? = null,  // NocoDB 返回的是整数 ID
     
     @SerialName("Title")
     val title: String? = null,

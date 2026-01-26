@@ -33,10 +33,14 @@ object ItemMapper {
             System.currentTimeMillis()
         }
         
+        // 标准化 type 值为小写，确保与查询匹配
+        val normalizedType = (dto.type ?: "insight").trim().lowercase()
+        android.util.Log.d("ItemMapper", "Mapping item: id=${dto.id}, originalType=${dto.type}, normalizedType=$normalizedType, projectId=${dto.projectId}")
+        
         return ItemEntity(
-            id = dto.id ?: UUID.randomUUID().toString(),
-            type = dto.type,
-            title = dto.title,
+            id = dto.id?.toString() ?: UUID.randomUUID().toString(),  // 将 Int ID 转为 String
+            type = normalizedType,
+            title = dto.title ?: "未命名",
             summary = dto.summary ?: "",
             contentMarkdown = dto.contentMd ?: "",
             originUrl = dto.originUrl,
@@ -45,6 +49,7 @@ object ItemMapper {
             readStatus = dto.readStatus ?: ReadStatus.UNREAD.toServerString(),
             projectId = dto.projectId?.toString() ?: projectId,
             projectName = projectName,
+            isStarred = false,  // 默认未标星
             metaJson = dto.metaJson?.toString(),
             createdAt = createdAt,
             syncedAt = System.currentTimeMillis()
@@ -65,6 +70,7 @@ object ItemMapper {
             audioUrl = entity.audioUrl,
             status = ItemStatus.fromString(entity.status),
             readStatus = ReadStatus.fromString(entity.readStatus),
+            isStarred = entity.isStarred,
             projectId = entity.projectId,
             projectName = entity.projectName,
             metaData = parseMetaData(entity.metaJson, entity.type),
@@ -88,6 +94,7 @@ object ItemMapper {
             readStatus = item.readStatus.toServerString(),
             projectId = item.projectId,
             projectName = item.projectName,
+            isStarred = item.isStarred,
             metaJson = item.metaData?.let { gson.toJson(it) },
             createdAt = item.createdAt.time,
             syncedAt = System.currentTimeMillis()
@@ -126,7 +133,7 @@ object ItemMapper {
         }
         
         return ProjectEntity(
-            id = dto.id ?: UUID.randomUUID().toString(),
+            id = dto.id?.toString() ?: UUID.randomUUID().toString(),  // 将 Int ID 转为 String
             name = dto.name?.takeIf { it.isNotBlank() }
                 ?: dto.title?.takeIf { it.isNotBlank() }
                 ?: "未命名项目",

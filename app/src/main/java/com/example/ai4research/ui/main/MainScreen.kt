@@ -45,10 +45,12 @@ fun MainScreen(
     // Track loading state
     var isLoading by remember { mutableStateOf(!webViewCache.isMainLoaded()) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var isPageReady by remember { mutableStateOf(false) }  // 跟踪页面是否已加载完成
     val webView = remember { webViewCache.acquireMain(context) }
     
     val papers by viewModel.papers.collectAsState()
     val competitions by viewModel.competitions.collectAsState()
+    val insights by viewModel.insights.collectAsState()
     
     val coroutineScope = rememberCoroutineScope()
     val floatingWindowManager = viewModel.floatingWindowManager
@@ -76,19 +78,47 @@ fun MainScreen(
             onNavigateToDetail = onNavigateToDetail
         )
     }
+    
+    val projectsState by viewModel.projects.collectAsState()
 
-    // Sync data to WebView when it changes
-    LaunchedEffect(papers) {
-        if (papers.isNotEmpty()) {
-            val jsonStr = viewModel.getPapersJson()
-            webViewRef?.evaluateJavascript("window.receivePapers($jsonStr)", null)
+    // Sync data to WebView when it changes - 只在页面准备好后才推送
+    LaunchedEffect(papers, webViewRef, isPageReady) {
+        if (isPageReady) {
+            webViewRef?.let { wv ->
+                val jsonStr = viewModel.getPapersJson()
+                android.util.Log.d("MainScreen", "Syncing papers to WebView: ${papers.size} items")
+                wv.evaluateJavascript("if(window.receivePapers) window.receivePapers($jsonStr)", null)
+            }
         }
     }
 
-    LaunchedEffect(competitions) {
-        if (competitions.isNotEmpty()) {
-            val jsonStr = viewModel.getCompetitionsJson()
-            webViewRef?.evaluateJavascript("window.receiveCompetitions($jsonStr)", null)
+    LaunchedEffect(competitions, webViewRef, isPageReady) {
+        if (isPageReady) {
+            webViewRef?.let { wv ->
+                val jsonStr = viewModel.getCompetitionsJson()
+                android.util.Log.d("MainScreen", "Syncing competitions to WebView: ${competitions.size} items")
+                wv.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($jsonStr)", null)
+            }
+        }
+    }
+    
+    LaunchedEffect(insights, webViewRef, isPageReady) {
+        if (isPageReady) {
+            webViewRef?.let { wv ->
+                val jsonStr = viewModel.getInsightsJson()
+                android.util.Log.d("MainScreen", "Syncing insights to WebView: ${insights.size} items")
+                wv.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($jsonStr)", null)
+            }
+        }
+    }
+    
+    LaunchedEffect(projectsState, webViewRef, isPageReady) {
+        if (isPageReady) {
+            webViewRef?.let { wv ->
+                val jsonStr = viewModel.getProjectsJson()
+                android.util.Log.d("MainScreen", "Syncing projects to WebView: ${projectsState.size} items")
+                wv.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($jsonStr)", null)
+            }
         }
     }
 
@@ -101,6 +131,9 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize(),
             factory = {
                 webView.apply {
+                    // 先设置 webViewRef，确保后续回调能访问到
+                    webViewRef = this
+                    
                     layoutParams = android.view.ViewGroup.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -114,7 +147,6 @@ fun MainScreen(
                         domStorageEnabled = true
                         cacheMode = WebSettings.LOAD_DEFAULT
                         // Enable hardware acceleration and smooth scrolling
-                        setRenderPriority(WebSettings.RenderPriority.HIGH)
                     }
                     
                     // Allow debugging in development
@@ -122,29 +154,70 @@ fun MainScreen(
                     
                     webViewClient = object : WebViewClient() {
                         override fun onPageCommitVisible(view: WebView?, url: String?) {
+                            android.util.Log.d("MainScreen", "onPageCommitVisible called")
                             if (isLoading) {
                                 isLoading = false
                             }
                             webViewCache.markMainLoaded()
+                            webViewCache.markMainInterfaceInjected()
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
+                            android.util.Log.d("MainScreen", "onPageFinished called, url=$url")
                             if (isLoading) {
                                 isLoading = false
                             }
                             webViewCache.markMainLoaded()
-                            // Initial data sync
-                            viewModel.fetchData()
+                            webViewCache.markMainInterfaceInjected()
+                            
+                            // 延迟一小段时间确保 React 组件已初始化
+                            view?.postDelayed({
+                                isPageReady = true
+                                
+                                // 直接推送当前数据到 WebView
+                                val papersJson = viewModel.getPapersJson()
+                                val competitionsJson = viewModel.getCompetitionsJson()
+                                val insightsJson = viewModel.getInsightsJson()
+                                val projectsJson = viewModel.getProjectsJson()
+                                android.util.Log.d("MainScreen", "Pushing initial data to WebView: papers=${viewModel.papers.value.size}, competitions=${viewModel.competitions.value.size}, insights=${viewModel.insights.value.size}")
+                                view.evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
+                                view.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
+                                view.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
+                                view.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
+                                
+                                // 同时触发刷新以获取最新数据
+                                viewModel.fetchData()
+                            }, 500)
                         }
                     }
+                    
+                    // 检查接口是否已注入，避免重复加载页面
+                    val needsReload = !webViewCache.isMainInterfaceInjected()
+                    
                     removeJavascriptInterface("AndroidInterface")
                     addJavascriptInterface(mainAppInterface, "AndroidInterface")
                     
-                    if (url.isNullOrBlank() || url == "about:blank") {
+                    if (needsReload) {
+                        // 首次加载或接口未注入，需要加载页面
+                        android.util.Log.d("MainScreen", "Loading page (interface not injected)")
                         loadUrl("file:///android_asset/main_ui.html")
+                    } else {
+                        // 页面已加载且接口已注入，直接使用缓存，但需要推送数据
+                        android.util.Log.d("MainScreen", "Using cached page, pushing data")
+                        isLoading = false
+                        isPageReady = true
+                        
+                        // 立即推送当前数据
+                        val papersJson = viewModel.getPapersJson()
+                        val competitionsJson = viewModel.getCompetitionsJson()
+                        val insightsJson = viewModel.getInsightsJson()
+                        val projectsJson = viewModel.getProjectsJson()
+                        evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
+                        evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
+                        evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
+                        evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
                     }
-                    webViewRef = this
                 }
             }
         )
@@ -185,7 +258,9 @@ class MainAppInterface(
     
     @JavascriptInterface
     fun navigateToDetail(itemId: String) {
+        android.util.Log.d("MainAppInterface", "navigateToDetail called with itemId: $itemId")
         android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.util.Log.d("MainAppInterface", "Executing navigation to detail: $itemId")
             onNavigateToDetail(itemId)
         }
     }
@@ -195,6 +270,41 @@ class MainAppInterface(
         android.os.Handler(android.os.Looper.getMainLooper()).post {
              viewModel.fetchData()
         }
+    }
+    
+    @JavascriptInterface
+    fun search(query: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            viewModel.search(query)
+        }
+    }
+    
+    @JavascriptInterface
+    fun applyFilter(filterType: String, projectId: String?) {
+        android.util.Log.d("MainAppInterface", "applyFilter called: type=$filterType, projectId=$projectId")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.util.Log.d("MainAppInterface", "Executing filter: type=$filterType, projectId=$projectId")
+            val filter = when (filterType.lowercase()) {
+                "all" -> FilterType.ALL
+                "unread" -> FilterType.UNREAD
+                "starred" -> FilterType.STARRED
+                "project" -> FilterType.PROJECT
+                else -> FilterType.ALL
+            }
+            viewModel.applyFilter(filter, projectId)
+        }
+    }
+    
+    @JavascriptInterface
+    fun deleteItem(itemId: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            viewModel.deleteItem(itemId)
+        }
+    }
+    
+    @JavascriptInterface
+    fun getProjects(): String {
+        return viewModel.getProjectsJson()
     }
     
     @JavascriptInterface

@@ -11,6 +11,21 @@ import kotlinx.coroutines.flow.Flow
  */
 interface ItemRepository {
     fun observeItems(type: ItemType? = null, query: String? = null): Flow<List<ResearchItem>>
+    
+    /**
+     * 按类型和阅读状态筛选
+     */
+    fun observeItemsByReadStatus(type: ItemType, readStatus: ReadStatus): Flow<List<ResearchItem>>
+    
+    /**
+     * 按类型和项目筛选
+     */
+    fun observeItemsByProject(type: ItemType, projectId: String): Flow<List<ResearchItem>>
+    
+    /**
+     * 按类型查询标星条目
+     */
+    fun observeStarredItems(type: ItemType): Flow<List<ResearchItem>>
 
     suspend fun refreshItems(): Result<Unit>
 
@@ -42,6 +57,8 @@ interface ItemRepository {
     ): Result<ResearchItem>
 
     suspend fun updateReadStatus(id: String, readStatus: ReadStatus): Result<Unit>
+    
+    suspend fun updateStarred(id: String, isStarred: Boolean): Result<Unit>
 
     suspend fun updateItem(
         id: String,

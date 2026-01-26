@@ -16,6 +16,7 @@ data class ResearchItem(
     val audioUrl: String?,
     val status: ItemStatus,
     val readStatus: ReadStatus,
+    val isStarred: Boolean = false,
     val projectId: String?,
     val projectName: String?,
     val metaData: ItemMetaData?,
@@ -124,9 +125,9 @@ sealed class ItemMetaData {
      * 比赛元数据（时间线）
      */
     data class CompetitionMeta(
-        val timeline: List<TimelineEvent>,
-        val prizePool: String?,
-        val organizer: String?
+        val timeline: List<TimelineEvent>? = null,
+        val prizePool: String? = null,
+        val organizer: String? = null
     ) : ItemMetaData()
     
     /**

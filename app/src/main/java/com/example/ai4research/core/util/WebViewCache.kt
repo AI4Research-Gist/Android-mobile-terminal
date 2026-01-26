@@ -15,6 +15,7 @@ class WebViewCache {
     private var loginWebView: WebView? = null
     private var mainLoaded = false
     private var loginLoaded = false
+    private var mainInterfaceInjected = false  // 跟踪接口是否已注入
 
     fun warmUp(context: Context) {
         if (mainWebView != null || loginWebView != null) return
@@ -88,6 +89,12 @@ class WebViewCache {
     fun markLoginLoaded() {
         loginLoaded = true
     }
+    
+    fun isMainInterfaceInjected(): Boolean = mainInterfaceInjected
+    
+    fun markMainInterfaceInjected() {
+        mainInterfaceInjected = true
+    }
 
     fun clear() {
         mainWebView?.destroy()
@@ -96,6 +103,7 @@ class WebViewCache {
         loginWebView = null
         mainLoaded = false
         loginLoaded = false
+        mainInterfaceInjected = false
     }
 
     private fun createBaseWebView(context: Context): WebView {

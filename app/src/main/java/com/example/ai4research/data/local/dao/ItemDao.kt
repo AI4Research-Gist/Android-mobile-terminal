@@ -41,6 +41,30 @@ interface ItemDao {
     fun observeItemsByProject(projectId: String): Flow<List<ItemEntity>>
     
     /**
+     * 根据类型和阅读状态过滤
+     */
+    @Query("SELECT * FROM items WHERE type = :type AND read_status LIKE :readStatus || '%' ORDER BY created_at DESC")
+    fun observeItemsByTypeAndReadStatus(type: String, readStatus: String): Flow<List<ItemEntity>>
+    
+    /**
+     * 根据类型和项目过滤
+     */
+    @Query("SELECT * FROM items WHERE type = :type AND project_id = :projectId ORDER BY created_at DESC")
+    fun observeItemsByTypeAndProject(type: String, projectId: String): Flow<List<ItemEntity>>
+    
+    /**
+     * 根据类型查询标星条目
+     */
+    @Query("SELECT * FROM items WHERE type = :type AND is_starred = 1 ORDER BY created_at DESC")
+    fun observeStarredItemsByType(type: String): Flow<List<ItemEntity>>
+    
+    /**
+     * 更新标星状态
+     */
+    @Query("UPDATE items SET is_starred = :isStarred WHERE id = :id")
+    suspend fun updateStarred(id: String, isStarred: Boolean)
+
+    /**
      * 获取单个 Item
      */
     @Query("SELECT * FROM items WHERE id = :id")

@@ -1,6 +1,7 @@
 package com.example.ai4research.ui.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
@@ -24,6 +26,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -47,7 +51,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -127,19 +134,45 @@ fun DetailScreen(
             )
         },
         bottomBar = {
-            // Simulated iOS Bottom Toolbar (Glassy/Clean)
+            // Simulated iOS Bottom Toolbar (Liquid Glass Effect)
+            val isStarred = item?.isStarred == true
+            val isDark = isSystemInDarkTheme()
+            // More transparent liquid glass effect
+            val glassBackground = if (isDark) {
+                Color.White.copy(alpha = 0.03f)
+            } else {
+                Color.White.copy(alpha = 0.12f)
+            }
+            val glassBorder = if (isDark) {
+                Color.White.copy(alpha = 0.06f)
+            } else {
+                Color.White.copy(alpha = 0.3f)
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .background(glassBackground)
+                    .border(
+                        width = 1.dp,
+                        color = glassBorder,
+                        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                    )
                     .padding(16.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                    IconButton(onClick = { viewModel.markAsRead() }) {
                         Icon(Icons.Default.CheckCircle, contentDescription = "标记已读", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = { viewModel.toggleStar() }) {
+                        Icon(
+                            imageVector = if (isStarred) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = if (isStarred) "取消标星" else "标星",
+                            tint = if (isStarred) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
                     }
                     IconButton(onClick = { /* Chat */ }) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "AI 对话", tint = MaterialTheme.colorScheme.primary)
@@ -211,12 +244,28 @@ fun DetailScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Project selector (auto sync)
+            // Project selector (auto sync) - Liquid Glass Effect
+            val isDarkTheme = isSystemInDarkTheme()
+            val selectorBackground = if (isDarkTheme) {
+                Color.White.copy(alpha = 0.03f)
+            } else {
+                Color.White.copy(alpha = 0.12f)
+            }
+            val selectorBorder = if (isDarkTheme) {
+                Color.White.copy(alpha = 0.06f)
+            } else {
+                Color.White.copy(alpha = 0.3f)
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface)
+                    .background(selectorBackground)
+                    .border(
+                        width = 1.dp,
+                        color = selectorBorder,
+                        shape = RoundedCornerShape(16.dp)
+                    )
                     .clickable { projectMenuExpanded = true }
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
@@ -276,14 +325,27 @@ fun DetailScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
             
-            // Content Card (Lyrics style)
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.fillMaxWidth()
+            // Content Card (Lyrics style) - Liquid Glass Effect
+            val cardBackground = if (isDarkTheme) {
+                Color.White.copy(alpha = 0.03f)
+            } else {
+                Color.White.copy(alpha = 0.12f)
+            }
+            val cardBorder = if (isDarkTheme) {
+                Color.White.copy(alpha = 0.06f)
+            } else {
+                Color.White.copy(alpha = 0.3f)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(cardBackground)
+                    .border(
+                        width = 1.dp,
+                        color = cardBorder,
+                        shape = RoundedCornerShape(24.dp)
+                    )
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
                     if (isEditing) {

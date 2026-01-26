@@ -48,19 +48,62 @@ class ItemRepositoryImpl @Inject constructor(
 
         return flow.map { list -> list.map(ItemMapper::entityToDomain) }
     }
+    
+    override fun observeItemsByReadStatus(type: ItemType, readStatus: ReadStatus): Flow<List<ResearchItem>> {
+        return itemDao.observeItemsByTypeAndReadStatus(
+            type.toServerString(),
+            readStatus.toServerString().substringBefore(" ")  // "unread (未读)" -> "unread"
+        ).map { list -> list.map(ItemMapper::entityToDomain) }
+    }
+    
+    override fun observeItemsByProject(type: ItemType, projectId: String): Flow<List<ResearchItem>> {
+        return itemDao.observeItemsByTypeAndProject(
+            type.toServerString(),
+            projectId
+        ).map { list -> list.map(ItemMapper::entityToDomain) }
+    }
+    
+    override fun observeStarredItems(type: ItemType): Flow<List<ResearchItem>> {
+        return itemDao.observeStarredItemsByType(type.toServerString())
+            .map { list -> list.map(ItemMapper::entityToDomain) }
+    }
 
     override suspend fun refreshItems(): Result<Unit> {
         return try {
+            android.util.Log.d("ItemRepository", "Starting data refresh from NocoDB...")
+            
             // 1) Sync projects first for name resolution
-            val projects = api.getProjects().list
-            val projectEntities = projects.map(ItemMapper::projectDtoToEntity)
+            val projectsResponse = api.getProjects()
+            val projects = projectsResponse.list
+            android.util.Log.d("ItemRepository", "Fetched ${projects.size} projects from API (before filter)")
+            
+            // 过滤无效项目：只保留 name 或 Title 不为空的
+            val validProjects = projects.filter { dto ->
+                !dto.name.isNullOrBlank() || !dto.title.isNullOrBlank()
+            }
+            android.util.Log.d("ItemRepository", "Valid projects after filter: ${validProjects.size}")
+            
+            val projectEntities = validProjects.map(ItemMapper::projectDtoToEntity)
             projectDao.insertProjects(projectEntities)
 
             val projectNameMap = projectEntities.associate { it.id to it.name }
 
             // 2) Sync items
-            val items = api.getItems().list
-            val itemEntities = items.map { dto ->
+            val itemsResponse = api.getItems()
+            val items = itemsResponse.list
+            android.util.Log.d("ItemRepository", "Fetched ${items.size} items from API (before filter)")
+            
+            // 过滤无效数据：只保留 title 和 type 都不为 null 的条目
+            val validItems = items.filter { dto ->
+                !dto.title.isNullOrBlank() && !dto.type.isNullOrBlank()
+            }
+            android.util.Log.d("ItemRepository", "Valid items after filter: ${validItems.size}")
+            
+            validItems.forEachIndexed { index, dto ->
+                android.util.Log.d("ItemRepository", "Item[$index]: id=${dto.id}, title=${dto.title}, type=${dto.type}, project_id=${dto.projectId}")
+            }
+            
+            val itemEntities = validItems.map { dto ->
                 val projectIdFromItem = dto.projectId?.toString()
                 val projectNameFromItem = projectIdFromItem?.let { projectNameMap[it] }
                 ItemMapper.dtoToEntity(
@@ -70,9 +113,11 @@ class ItemRepositoryImpl @Inject constructor(
                 )
             }
             itemDao.insertItems(itemEntities)
+            android.util.Log.d("ItemRepository", "Inserted ${itemEntities.size} items to local DB")
 
             Result.success(Unit)
         } catch (e: Exception) {
+            android.util.Log.e("ItemRepository", "Error refreshing items: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -168,7 +213,7 @@ class ItemRepositoryImpl @Inject constructor(
             val local = itemDao.getItemById(id)
             if (local != null) {
                 val dto = NocoItemDto(
-                    id = local.id,
+                    id = local.id.toIntOrNull(),
                     title = local.title,
                     type = local.type,
                     summary = local.summary,
@@ -195,6 +240,16 @@ class ItemRepositoryImpl @Inject constructor(
             Result.failure(e)
         }
     }
+    
+    override suspend fun updateStarred(id: String, isStarred: Boolean): Result<Unit> {
+        return try {
+            // 本地更新（仅本地存储，无需同步远端）
+            itemDao.updateStarred(id, isStarred)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     override suspend fun updateItem(
         id: String,
@@ -208,7 +263,7 @@ class ItemRepositoryImpl @Inject constructor(
 
             // Prepare update DTO
             val dto = NocoItemDto(
-                id = local.id,
+                id = local.id.toIntOrNull(),
                 title = title ?: local.title,
                 type = local.type,
                 summary = summary ?: local.summary,
@@ -253,7 +308,7 @@ class ItemRepositoryImpl @Inject constructor(
             val projectIdInt = projectId?.toIntOrNull()
             val projectUpdateResult = runCatching {
                 val dto = NocoItemDto(
-                    id = local.id,
+                    id = local.id.toIntOrNull(),
                     title = local.title,
                     type = local.type,
                     summary = local.summary,

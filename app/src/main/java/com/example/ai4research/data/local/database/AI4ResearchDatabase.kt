@@ -13,7 +13,7 @@ import com.example.ai4research.data.local.entity.UserEntity
 
 /**
  * Room Database 定义
- * Version: 2 (添加用户认证)
+ * Version: 3 (添加 isStarred 字段)
  */
 @Database(
     entities = [
@@ -21,7 +21,7 @@ import com.example.ai4research.data.local.entity.UserEntity
         ProjectEntity::class,
         UserEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(RoomConverters::class)

@@ -3,5 +3,6 @@
     "java.import.gradle.enabled": true,
     "java.import.gradle.wrapper.enabled": true,
     "kotlin.languageServer.enabled": false,
-    "kotlinLanguageServer.enabled": false
+    "kotlinLanguageServer.enabled": false,
+    "chat.agent.maxRequests": 50
 }
