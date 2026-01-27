@@ -245,8 +245,33 @@
           let authors = "未知作者";
           if (meta.authors && Array.isArray(meta.authors) && meta.authors.length > 0) {
             authors = meta.authors[0] + (meta.authors.length > 1 ? " 等" : "");
-          } else if (meta.authors) {
+          } else if (meta.authors && typeof meta.authors === 'string') {
             authors = meta.authors;
+          }
+          
+          // 解析来源信息
+          let source = "";
+          if (meta.source && meta.source.length > 0) {
+            source = meta.source;
+          }
+          if (meta.conference && meta.conference.length > 0) {
+            source = source ? `${source} · ${meta.conference}` : meta.conference;
+          }
+          if (meta.year && meta.year.length > 0) {
+            source = source ? `${source} ${meta.year}` : meta.year;
+          }
+          if (!source) {
+            source = "未知来源";
+          }
+          
+          // 解析双语摘要
+          const summaryEn = meta.summary_en || "";
+          const summaryZh = meta.summary_zh || "";
+          let displaySummary = item.summary || "暂无摘要";
+          let summaryObj = { en: summaryEn, zh: summaryZh, display: displaySummary };
+          // 如果有双语摘要，优先使用中文
+          if (summaryZh) {
+            displaySummary = summaryZh;
           }
 
           // 解析 read_status，去掉括号内的中文说明
@@ -261,8 +286,10 @@
             id: item.Id || item.id,
             title: item.title,
             author: authors,
-            source: (meta.conference || "") + (meta.year ? " " + meta.year : ""),
-            summary: item.summary || "暂无摘要",
+            source: source,
+            summary: displaySummary,
+            summaryEn: summaryEn,
+            summaryZh: summaryZh,
             tags: item.tags ? item.tags.split(/[,，]/) : [],
             readStatus: readStatus,   // unread | reading | read
             status: status,           // processing | done | failed
@@ -445,11 +472,15 @@
     const HomeView = ({ papers, competitions, insights }) => {
       const { isDark } = useContext(ThemeContext);
 
-      // 最近捕获的内容 - 合并论文和灵感，按时间排序取最新的
-      const allRecent = [
-        ...papers.map(p => ({ ...p, itemType: 'paper' })),
-        ...(insights || []).map(i => ({ ...i, itemType: 'insight' }))
-      ].slice(0, 3);
+      // 最近捕获的内容 - 只显示动态(insight)，不显示竞赛（竞赛在下面单独显示）
+      // 按时间排序，最新的在最上面
+      const sortedInsights = [...(insights || [])]
+        .sort((a, b) => new Date(b.CreatedAt || 0) - new Date(a.CreatedAt || 0))
+        .map(i => ({ ...i, itemType: 'insight' }));
+      
+      // 竞赛按时间排序，最新的在最左边
+      const sortedCompetitions = [...(competitions || [])]
+        .sort((a, b) => new Date(b.CreatedAt || 0) - new Date(a.CreatedAt || 0));
 
       const today = new Date();
       const dateStr = today.toLocaleDateString('zh-CN', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -475,12 +506,12 @@
             </div>
           </div>
 
-          {/* 最近捕获 Section */}
-          <SectionHeader icon={Sparkles} title="最近捕获" colorClass="text-amber-400" />
+          {/* 最近捕获 Section - 只显示动态 */}
+          <SectionHeader icon={Lightbulb} title="最近动态" colorClass="text-amber-400" />
 
-          {allRecent.length > 0 ? (
+          {sortedInsights.length > 0 ? (
             <div className="space-y-3">
-              {allRecent.map((item, idx) => (
+              {sortedInsights.map((item, idx) => (
                 <GlassCard key={item.id} delay={0.05 * idx} className="group" onClick={() => {
                   if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
                     window.AndroidInterface.navigateToDetail(String(item.id));
@@ -507,19 +538,15 @@
                   </div>
 
                   <div className="flex items-start gap-4 mb-3">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg ${
-                      item.itemType === 'paper' 
-                        ? 'shadow-emerald-500/20 bg-gradient-to-br from-emerald-600 to-teal-600'
-                        : 'shadow-amber-500/20 bg-gradient-to-br from-amber-500 to-orange-500'
-                    }`}>
-                      {item.itemType === 'paper' ? <BookOpen className="w-6 h-6" /> : <Lightbulb className="w-6 h-6" />}
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-500/20 bg-gradient-to-br from-amber-500 to-orange-500">
+                      <Lightbulb className="w-6 h-6" />
                     </div>
                     <div className="flex-1 pt-1 pr-16">
                       <h3 className={`text-base font-bold leading-tight mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                         {item.title}
                       </h3>
                       <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        {item.itemType === 'paper' ? `${item.author || '未知作者'}` : `${item.source || '个人灵感'}`}
+                        {item.source || '灵感'}
                       </p>
                     </div>
                   </div>
@@ -529,12 +556,29 @@
                     <div className={`p-3 rounded-xl border transition-all duration-500 ${isDark
                       ? 'bg-emerald-900/20 border-emerald-500/10'
                       : 'bg-emerald-50/50 border-emerald-100'
-                      }`}>
+                    }`}>
                       <div className="flex items-center gap-2 text-xs font-semibold text-emerald-500 mb-2">
                         <Sparkles className="w-3 h-3" />
-                        <span>{item.itemType === 'paper' ? 'AI 核心摘要' : '灵感描述'}</span>
+                        <span>AI 核心摘要</span>
+                        {/* 双语切换按钮 */}
+                        {item.summaryEn && item.summaryZh && (
+                          <div className="ml-auto flex gap-1">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const summaryEl = e.target.closest('.p-3').querySelector('.summary-text');
+                                if (summaryEl) summaryEl.textContent = '"' + item.summaryZh + '"';
+                              }}>中</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const summaryEl = e.target.closest('.p-3').querySelector('.summary-text');
+                                if (summaryEl) summaryEl.textContent = '"' + item.summaryEn + '"';
+                              }}>En</span>
+                          </div>
+                        )}
                       </div>
-                      <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-emerald-100/90' : 'text-slate-700'}`}>
+                      <p className={`summary-text text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-emerald-100/90' : 'text-slate-700'}`}>
                         "{item.summary}"
                       </p>
                     </div>
@@ -552,12 +596,8 @@
                       }`}>
                         {item.readStatus === 'read' ? '已读' : item.readStatus === 'reading' ? '在读' : '未读'}
                       </span>
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
-                        item.itemType === 'paper' 
-                          ? (isDark ? 'bg-teal-500/20 text-teal-300' : 'bg-teal-50 text-teal-600')
-                          : (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-50 text-amber-600')
-                      }`}>
-                        {item.itemType === 'paper' ? '论文' : '灵感'}
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-50 text-amber-600'}`}>
+                        动态
                       </span>
                     </div>
                     <span className={`text-xs ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
@@ -568,15 +608,15 @@
               ))}
             </div>
           ) : (
-            <GlassCard><p className={`text-center opacity-50 ${isDark ? 'text-white' : 'text-slate-500'}`}>暂无最近捕获内容</p></GlassCard>
+            <GlassCard><p className={`text-center opacity-50 ${isDark ? 'text-white' : 'text-slate-500'}`}>暂无最近动态</p></GlassCard>
           )}
 
           {/* Competitions Section */}
           <SectionHeader icon={Trophy} title="即将截止" colorClass="text-rose-400" />
 
-          {competitions.length > 0 ? (
+          {sortedCompetitions.length > 0 ? (
             <div className="flex gap-4 overflow-x-auto pb-6 -mx-6 px-6 scrollbar-hide">
-              {competitions.map((comp, idx) => (
+              {sortedCompetitions.map((comp, idx) => (
                 <GlassCard key={comp.id} delay={0.1 * idx} className="min-w-[280px]">
                   <div className="flex justify-between items-start mb-3">
                     <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
@@ -890,7 +930,12 @@
           ) : (
             <div className="grid grid-cols-1 gap-4">
               {competitions.map((comp, idx) => (
-                <GlassCard key={comp.id} delay={0.1 * idx}>
+                <GlassCard key={comp.id} delay={0.1 * idx} onClick={() => {
+                  if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
+                    console.log("Navigating to competition detail:", comp.id);
+                    window.AndroidInterface.navigateToDetail(String(comp.id));
+                  }
+                }}>
                   <div className="flex justify-between items-start mb-3">
                     <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
                       }`}>
@@ -1258,6 +1303,17 @@
           window.removeEventListener('insights-updated', handleInsights);
         };
       }, []);
+      
+      // 暴露 setActiveTab 到全局，供 Android 调用
+      useEffect(() => {
+        window.setActiveTab = (tab) => {
+          console.log('React: setActiveTab called from Android:', tab);
+          setActiveTab(tab);
+        };
+        return () => {
+          delete window.setActiveTab;
+        };
+      }, [setActiveTab]);
 
       // Status Bar - 增加顶部安全区域，为系统状态栏留出空间
       const StatusBar = () => (

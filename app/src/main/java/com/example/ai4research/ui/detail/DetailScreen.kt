@@ -21,6 +21,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -41,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -86,14 +89,78 @@ fun DetailScreen(
     val markdownContent = item?.contentMarkdown?.takeIf { it.isNotBlank() } ?: item?.summary.orEmpty()
     val projectName = item?.projectName?.takeIf { it.isNotBlank() } ?: "未归属"
     val projects = uiState.projects
+    
+    // 解析竞赛元数据
+    val competitionMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta
 
     // Edit state
     var isEditing by remember { mutableStateOf(false) }
     var editSummary by remember(item) { mutableStateOf(item?.summary ?: "") }
     var editContent by remember(item) { mutableStateOf(item?.contentMarkdown ?: "") }
-    var projectMenuExpanded by remember { mutableStateOf(false) }
+    var showProjectSheet by remember { mutableStateOf(false) }  // 改用底部弹出面板
+    
+    // 竞赛特有字段编辑状态
+    var editOrganizer by remember(competitionMeta) { mutableStateOf(competitionMeta?.organizer ?: "") }
+    var editDeadline by remember(competitionMeta) { mutableStateOf(competitionMeta?.deadline ?: "") }
+    var editTheme by remember(competitionMeta) { mutableStateOf(competitionMeta?.theme ?: "") }
+    var editCompetitionType by remember(competitionMeta) { mutableStateOf(competitionMeta?.competitionType ?: "") }
+    var editPrizePool by remember(competitionMeta) { mutableStateOf(competitionMeta?.prizePool ?: "") }
+    
+    // Create project dialog state
+    var showCreateProjectDialog by remember { mutableStateOf(false) }
+    var newProjectName by remember { mutableStateOf("") }
+    
+    // 新建项目对话框
+    if (showCreateProjectDialog) {
+        AlertDialog(
+            onDismissRequest = { 
+                showCreateProjectDialog = false
+                newProjectName = ""
+            },
+            title = { Text("新建项目") },
+            text = {
+                Column {
+                    Text(
+                        text = "创建新项目并自动关联到当前条目",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = newProjectName,
+                        onValueChange = { newProjectName = it },
+                        label = { Text("项目名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.createProject(newProjectName, autoAssign = true)
+                        showCreateProjectDialog = false
+                        newProjectName = ""
+                    },
+                    enabled = newProjectName.isNotBlank() && !uiState.isCreatingProject
+                ) {
+                    Text(if (uiState.isCreatingProject) "创建中..." else "创建")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showCreateProjectDialog = false
+                    newProjectName = ""
+                }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 
-    Scaffold(
+    // 使用 Box 包裹，确保项目选择面板在最上层
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             CenterAlignedTopAppBar(
@@ -114,7 +181,17 @@ fun DetailScreen(
                 actions = {
                     if (isEditing) {
                         IconButton(onClick = {
-                            viewModel.saveContent(editSummary, editContent)
+                            // 如果是竞赛类型，构建 metaJson
+                            val metaJson = if (type == ItemType.COMPETITION) {
+                                buildCompetitionMetaJson(
+                                    organizer = editOrganizer,
+                                    deadline = editDeadline,
+                                    theme = editTheme,
+                                    competitionType = editCompetitionType,
+                                    prizePool = editPrizePool
+                                )
+                            } else null
+                            viewModel.saveContent(editSummary, editContent, metaJson)
                             isEditing = false
                         }) {
                             Icon(Icons.Default.Check, contentDescription = "保存")
@@ -266,7 +343,7 @@ fun DetailScreen(
                         color = selectorBorder,
                         shape = RoundedCornerShape(16.dp)
                     )
-                    .clickable { projectMenuExpanded = true }
+                    .clickable { showProjectSheet = true }
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
                 Text(
@@ -290,36 +367,6 @@ fun DetailScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
-                }
-            }
-
-            DropdownMenu(
-                expanded = projectMenuExpanded,
-                onDismissRequest = { projectMenuExpanded = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("未归属") },
-                    onClick = {
-                        projectMenuExpanded = false
-                        viewModel.updateProject(null)
-                    }
-                )
-                if (projects.isEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text("暂无项目") },
-                        onClick = { projectMenuExpanded = false },
-                        enabled = false
-                    )
-                } else {
-                    projects.forEach { project ->
-                        DropdownMenuItem(
-                            text = { Text(project.name) },
-                            onClick = {
-                                projectMenuExpanded = false
-                                viewModel.updateProject(project.id)
-                            }
-                        )
-                    }
                 }
             }
 
@@ -349,6 +396,71 @@ fun DetailScreen(
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
                     if (isEditing) {
+                        // 竞赛类型显示额外字段
+                        if (type == ItemType.COMPETITION) {
+                            Text(
+                                text = "竞赛信息",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editOrganizer,
+                                onValueChange = { editOrganizer = it },
+                                label = { Text("主办方") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editDeadline,
+                                onValueChange = { editDeadline = it },
+                                label = { Text("截止日期 (如: 2026-03-01)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editTheme,
+                                onValueChange = { editTheme = it },
+                                label = { Text("竞赛主题") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editCompetitionType,
+                                onValueChange = { editCompetitionType = it },
+                                label = { Text("竞赛类型 (如: 数据科学/算法/创意)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editPrizePool,
+                                onValueChange = { editPrizePool = it },
+                                label = { Text("奖金池") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            
+                            Spacer(modifier = Modifier.height(20.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(20.dp))
+                            
+                            Text(
+                                text = "基本信息",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        
                         OutlinedTextField(
                             value = editSummary,
                             onValueChange = { editSummary = it },
@@ -365,6 +477,12 @@ fun DetailScreen(
                             minLines = 10
                         )
                     } else {
+                        // 非编辑模式：如果是竞赛，先显示竞赛信息卡片
+                        if (type == ItemType.COMPETITION && competitionMeta != null) {
+                            CompetitionInfoCard(competitionMeta, isDarkTheme)
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+                        
                         MarkdownText(
                             markdown = if (markdownContent.isNotBlank()) markdownContent else "（暂无内容）",
                             style = TextStyle(
@@ -381,11 +499,176 @@ fun DetailScreen(
             Spacer(modifier = Modifier.height(80.dp)) // Bottom padding
         }
     }
+    
+        // 项目选择底部弹出面板 (在 Scaffold 之后，确保 z-index 最高)
+        if (showProjectSheet) {
+            val sheetIsDark = isSystemInDarkTheme()
+            val sheetBackground = if (sheetIsDark) Color(0xFF1C1C1E) else Color.White
+            val cardBg = if (sheetIsDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
+            val borderColor = if (sheetIsDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f)
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { showProjectSheet = false }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .background(sheetBackground)
+                        .clickable(enabled = false) { } // 阻止点击穿透
+                        .padding(20.dp)
+                ) {
+                    // 拖动指示条
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .width(40.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (sheetIsDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.1f))
+                    )
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    Text(
+                        text = "选择项目",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = if (sheetIsDark) Color.White else Color.Black
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // 新建项目按钮
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                            .clickable { 
+                                showProjectSheet = false
+                                showCreateProjectDialog = true
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "新建项目",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // 未归属选项
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(cardBg)
+                            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                            .clickable { 
+                                showProjectSheet = false
+                                viewModel.updateProject(null)
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "未归属",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (sheetIsDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)
+                        )
+                        if (item?.projectId == null) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "已选中",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    
+                    if (projects.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // 项目列表
+                        projects.forEach { project ->
+                            val isSelected = item?.projectId == project.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else cardBg)
+                                    .border(1.dp, if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else borderColor, RoundedCornerShape(12.dp))
+                                    .clickable { 
+                                        showProjectSheet = false
+                                        viewModel.updateProject(project.id)
+                                    }
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = project.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (sheetIsDark) Color.White else Color.Black
+                                    )
+                                    if (isSelected) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "已选中",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                // 删除按钮
+                                IconButton(
+                                    onClick = {
+                                        viewModel.deleteProject(project.id)
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "删除项目",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+            }
+        }
+    } // 关闭 Box
 }
 
 private fun getItemTypeName(type: ItemType): String = when (type) {
     ItemType.PAPER -> "论文"
-    ItemType.INSIGHT -> "灵感"
+    ItemType.INSIGHT -> "动态"
     ItemType.VOICE -> "语音"
     ItemType.COMPETITION -> "竞赛"
 }
@@ -395,4 +678,92 @@ private fun getItemAccent(type: ItemType): Color = when (type) {
     ItemType.INSIGHT -> Color(0xFFB24DFF)
     ItemType.VOICE -> Color(0xFFFF8A00)
     ItemType.COMPETITION -> Color(0xFFFF2D55)
+}
+
+/**
+ * 构建竞赛元数据 JSON
+ */
+private fun buildCompetitionMetaJson(
+    organizer: String,
+    deadline: String,
+    theme: String,
+    competitionType: String,
+    prizePool: String
+): String {
+    val metaMap = mutableMapOf<String, Any>()
+    if (organizer.isNotBlank()) metaMap["organizer"] = organizer
+    if (deadline.isNotBlank()) metaMap["deadline"] = deadline
+    if (theme.isNotBlank()) metaMap["theme"] = theme
+    if (competitionType.isNotBlank()) metaMap["competitionType"] = competitionType
+    if (prizePool.isNotBlank()) metaMap["prizePool"] = prizePool
+    
+    return try {
+        org.json.JSONObject(metaMap as Map<*, *>).toString()
+    } catch (e: Exception) {
+        "{}"
+    }
+}
+
+/**
+ * 竞赛信息卡片组件
+ */
+@Composable
+private fun CompetitionInfoCard(
+    meta: com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta,
+    isDark: Boolean
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFFFF2D55)
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "📋 竞赛信息",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        meta.organizer?.takeIf { it.isNotBlank() }?.let {
+            CompetitionInfoRow("主办方", it, isDark)
+        }
+        meta.deadline?.takeIf { it.isNotBlank() }?.let {
+            CompetitionInfoRow("截止日期", it, isDark)
+        }
+        meta.theme?.takeIf { it.isNotBlank() }?.let {
+            CompetitionInfoRow("竞赛主题", it, isDark)
+        }
+        meta.competitionType?.takeIf { it.isNotBlank() }?.let {
+            CompetitionInfoRow("竞赛类型", it, isDark)
+        }
+        meta.prizePool?.takeIf { it.isNotBlank() }?.let {
+            CompetitionInfoRow("奖金池", it, isDark)
+        }
+    }
+}
+
+@Composable
+private fun CompetitionInfoRow(label: String, value: String, isDark: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
 }

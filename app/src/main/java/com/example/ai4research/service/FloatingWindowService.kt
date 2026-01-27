@@ -28,9 +28,12 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.repository.ItemRepository
 import com.example.ai4research.ui.floating.FloatingBallView
@@ -59,6 +62,11 @@ class FloatingWindowService : Service() {
         // 截图完成广播
         const val ACTION_CAPTURE_COMPLETED = "com.example.ai4research.action.CAPTURE_COMPLETED"
         const val EXTRA_IMAGE_PATH = "image_path"
+        
+        // 条目添加成功广播 - 通知主页面刷新
+        const val ACTION_ITEM_ADDED = "com.example.ai4research.action.ITEM_ADDED"
+        const val EXTRA_ITEM_ID = "item_id"
+        const val EXTRA_ITEM_TYPE = "item_type"
         
         // 用于检测链接的正则表达式
         private val URL_PATTERN = Regex(
@@ -591,6 +599,17 @@ class FloatingWindowService : Service() {
         }
     }
 
+    // 用于存储解析结果，供后续分类选择使用
+    private var pendingParseResult: FullLinkParseResult? = null
+    
+    /**
+     * 处理链接 - 完整工作流
+     * 1. 显示处理状态
+     * 2. AI 解析链接内容
+     * 3. 显示解析结果预览和分类选择
+     * 4. 用户选择分类后入库
+     * 5. 同步更新数据库
+     */
     private fun handleLink(link: String) {
         mainHandler.post {
             floatingBall?.isProcessing = true
@@ -599,36 +618,721 @@ class FloatingWindowService : Service() {
 
         serviceScope.launch {
             try {
-                // 1. AI 解析
-                val result = aiService.parseLinkStructured(link)
+                android.util.Log.d("FloatingWindow", "Starting link parsing: $link")
+                
+                // 1. 使用增强版 AI 解析获取完整结构化数据
+                val result = aiService.parseFullLink(link)
                 val parseResult = result.getOrNull()
                 
-                val title = parseResult?.title ?: "新链接"
-                val id = parseResult?.id
-                val linkType = parseResult?.linkType?.lowercase() ?: "unknown"
-                val itemType = when {
-                    linkType.contains("arxiv") || linkType.contains("doi") -> ItemType.PAPER
-                    else -> ItemType.PAPER
+                if (parseResult == null) {
+                    withContext(Dispatchers.Main) {
+                        floatingBall?.isProcessing = false
+                        Toast.makeText(this@FloatingWindowService, "链接解析失败", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
                 }
                 
-                // 2. 入库
-                val createResult = itemRepository.createUrlItem(link, title, "ID: $id", itemType)
-
+                android.util.Log.d("FloatingWindow", "Parse result: title=${parseResult.title}, type=${parseResult.contentType}")
+                
+                // 2. 保存解析结果，显示分类选择界面
                 withContext(Dispatchers.Main) {
                     floatingBall?.isProcessing = false
-                    createResult.onSuccess {
-                        showResultOverlay("添加成功", title)
-                    }.onFailure { error ->
-                        Toast.makeText(this@FloatingWindowService, "添加失败: ${error.message}", Toast.LENGTH_SHORT).show()
-                    }
+                    pendingParseResult = parseResult
+                    showCategorySelectionDialog(parseResult)
                 }
+                
             } catch (e: Exception) {
+                android.util.Log.e("FloatingWindow", "Link parsing error: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     floatingBall?.isProcessing = false
                     Toast.makeText(this@FloatingWindowService, "解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
+    }
+    
+    // 分类选择对话框视图
+    private var categoryDialogView: View? = null
+    
+    /**
+     * 显示分类选择对话框
+     * 展示解析结果预览，让用户选择/确认分类
+     */
+    private fun showCategorySelectionDialog(parseResult: FullLinkParseResult) {
+        if (categoryDialogView != null) hideCategoryDialog()
+        
+        val dpToPx = { dp: Float -> 
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics).toInt() 
+        }
+        
+        // 主容器
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(24f), dpToPx(24f), dpToPx(24f), dpToPx(24f))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F01F1F24"))
+                cornerRadius = dpToPx(24f).toFloat()
+                setStroke(1, Color.parseColor("#33FFFFFF"))
+            }
+        }
+        
+        // 标题
+        val titleView = TextView(this).apply {
+            text = "✨ 解析完成"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, dpToPx(16f))
+        }
+        container.addView(titleView)
+        
+        // 内容预览区域
+        val previewContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#20FFFFFF"))
+                cornerRadius = dpToPx(16f).toFloat()
+            }
+            setPadding(dpToPx(16f), dpToPx(16f), dpToPx(16f), dpToPx(16f))
+        }
+        
+        // 解析的标题
+        val parsedTitle = TextView(this).apply {
+            text = parseResult.title
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            maxLines = 2
+        }
+        previewContainer.addView(parsedTitle)
+        
+        // 来源信息
+        val sourceInfo = TextView(this).apply {
+            text = "📍 来源: ${parseResult.source.uppercase()}" + 
+                   (parseResult.identifier?.let { " | $it" } ?: "")
+            textSize = 12f
+            setTextColor(Color.parseColor("#9CA3AF"))
+            setPadding(0, dpToPx(8f), 0, 0)
+        }
+        previewContainer.addView(sourceInfo)
+        
+        // 摘要预览
+        val summaryPreview = TextView(this).apply {
+            text = parseResult.summary.take(100) + if (parseResult.summary.length > 100) "..." else ""
+            textSize = 13f
+            setTextColor(Color.parseColor("#D1D5DB"))
+            setPadding(0, dpToPx(8f), 0, 0)
+            maxLines = 3
+        }
+        previewContainer.addView(summaryPreview)
+        
+        container.addView(previewContainer, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dpToPx(20f) })
+        
+        // 分类选择标题
+        val categoryLabel = TextView(this).apply {
+            text = "选择分类"
+            textSize = 14f
+            setTextColor(Color.parseColor("#9CA3AF"))
+            setPadding(0, 0, 0, dpToPx(12f))
+        }
+        container.addView(categoryLabel)
+        
+        // 分类按钮容器
+        val categoryContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        
+        // 当前选中的分类
+        var selectedType = parseResult.toItemType()
+        
+        // 分类选项数据
+        data class CategoryOption(val type: ItemType, val emoji: String, val label: String, val color: String)
+        val categories = listOf(
+            CategoryOption(ItemType.PAPER, "📄", "论文", "#3B82F6"),
+            CategoryOption(ItemType.COMPETITION, "🏆", "竞赛", "#F59E0B"),
+            CategoryOption(ItemType.INSIGHT, "💡", "动态", "#10B981")
+        )
+        
+        val categoryButtons = mutableListOf<LinearLayout>()
+        
+        categories.forEach { category ->
+            val isSelected = category.type == selectedType
+            val btn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dpToPx(16f), dpToPx(12f), dpToPx(16f), dpToPx(12f))
+                background = GradientDrawable().apply {
+                    setColor(if (isSelected) Color.parseColor(category.color + "40") else Color.parseColor("#20FFFFFF"))
+                    cornerRadius = dpToPx(12f).toFloat()
+                    if (isSelected) setStroke(2, Color.parseColor(category.color))
+                }
+                
+                addView(TextView(this@FloatingWindowService).apply {
+                    text = category.emoji
+                    textSize = 24f
+                    gravity = Gravity.CENTER
+                })
+                
+                addView(TextView(this@FloatingWindowService).apply {
+                    text = category.label
+                    textSize = 12f
+                    setTextColor(if (isSelected) Color.parseColor(category.color) else Color.WHITE)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dpToPx(4f), 0, 0)
+                })
+            }
+            
+            btn.setOnClickListener {
+                selectedType = category.type
+                // 更新所有按钮状态
+                categoryButtons.forEachIndexed { index, button ->
+                    val cat = categories[index]
+                    val sel = cat.type == selectedType
+                    button.background = GradientDrawable().apply {
+                        setColor(if (sel) Color.parseColor(cat.color + "40") else Color.parseColor("#20FFFFFF"))
+                        cornerRadius = dpToPx(12f).toFloat()
+                        if (sel) setStroke(2, Color.parseColor(cat.color))
+                    }
+                    (button.getChildAt(1) as? TextView)?.setTextColor(
+                        if (sel) Color.parseColor(cat.color) else Color.WHITE
+                    )
+                }
+            }
+            
+            categoryButtons.add(btn)
+            categoryContainer.addView(btn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                if (categories.indexOf(category) < categories.size - 1) marginEnd = dpToPx(8f)
+            })
+        }
+        
+        container.addView(categoryContainer, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dpToPx(16f) })
+        
+        // ===== 来源选择 =====
+        val sourceLabel = TextView(this).apply {
+            text = "选择来源"
+            textSize = 14f
+            setTextColor(Color.parseColor("#9CA3AF"))
+            setPadding(0, 0, 0, dpToPx(12f))
+        }
+        container.addView(sourceLabel)
+        
+        // 来源选项数据
+        data class SourceOption(val id: String, val label: String, val emoji: String)
+        val sourceOptions = listOf(
+            SourceOption("wechat", "微信公众号", "📱"),
+            SourceOption("zhihu", "知乎", "💬"),
+            SourceOption("web", "网页", "🌐"),
+            SourceOption("custom", "自定义", "✏️")
+        )
+        
+        // 根据解析结果预选来源
+        var selectedSource = when {
+            parseResult.source.contains("wechat", ignoreCase = true) -> "wechat"
+            parseResult.source.contains("arxiv", ignoreCase = true) -> "web"
+            parseResult.source.contains("doi", ignoreCase = true) -> "web"
+            else -> "web"
+        }
+        var customSourceText = ""
+        
+        val sourceContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        
+        val sourceButtons = mutableListOf<LinearLayout>()
+        
+        sourceOptions.forEach { source ->
+            val isSelected = source.id == selectedSource
+            val btn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dpToPx(12f), dpToPx(10f), dpToPx(12f), dpToPx(10f))
+                background = GradientDrawable().apply {
+                    setColor(if (isSelected) Color.parseColor("#6366F140") else Color.parseColor("#20FFFFFF"))
+                    cornerRadius = dpToPx(10f).toFloat()
+                    if (isSelected) setStroke(2, Color.parseColor("#6366F1"))
+                }
+                
+                addView(TextView(this@FloatingWindowService).apply {
+                    text = source.emoji
+                    textSize = 18f
+                    gravity = Gravity.CENTER
+                })
+                
+                addView(TextView(this@FloatingWindowService).apply {
+                    text = source.label
+                    textSize = 10f
+                    setTextColor(if (isSelected) Color.parseColor("#6366F1") else Color.WHITE)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dpToPx(2f), 0, 0)
+                })
+            }
+            
+            btn.setOnClickListener {
+                selectedSource = source.id
+                // 更新所有按钮状态
+                sourceButtons.forEachIndexed { index, button ->
+                    val src = sourceOptions[index]
+                    val sel = src.id == selectedSource
+                    button.background = GradientDrawable().apply {
+                        setColor(if (sel) Color.parseColor("#6366F140") else Color.parseColor("#20FFFFFF"))
+                        cornerRadius = dpToPx(10f).toFloat()
+                        if (sel) setStroke(2, Color.parseColor("#6366F1"))
+                    }
+                    (button.getChildAt(1) as? TextView)?.setTextColor(
+                        if (sel) Color.parseColor("#6366F1") else Color.WHITE
+                    )
+                }
+                
+                // 如果选择自定义，显示输入框
+                if (source.id == "custom") {
+                    showCustomSourceInput { input ->
+                        customSourceText = input
+                    }
+                }
+            }
+            
+            sourceButtons.add(btn)
+            sourceContainer.addView(btn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                if (sourceOptions.indexOf(source) < sourceOptions.size - 1) marginEnd = dpToPx(6f)
+            })
+        }
+        
+        container.addView(sourceContainer, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dpToPx(24f) })
+        
+        // 操作按钮容器
+        val buttonContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        
+        // 取消按钮
+        val cancelBtn = Button(this).apply {
+            text = "取消"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#374151"))
+                cornerRadius = dpToPx(12f).toFloat()
+            }
+            setOnClickListener {
+                hideCategoryDialog()
+                pendingParseResult = null
+            }
+        }
+        
+        // 添加按钮
+        val confirmBtn = Button(this).apply {
+            text = "添加到库"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#10B981"))
+                cornerRadius = dpToPx(12f).toFloat()
+            }
+            setOnClickListener {
+                hideCategoryDialog()
+                // 使用选中的分类和来源进行入库
+                val finalSource = if (selectedSource == "custom" && customSourceText.isNotEmpty()) {
+                    customSourceText
+                } else {
+                    when (selectedSource) {
+                        "wechat" -> "微信公众号"
+                        "zhihu" -> "知乎"
+                        "web" -> "网页"
+                        else -> parseResult.source
+                    }
+                }
+                saveItemToDatabase(parseResult, selectedType, finalSource)
+            }
+        }
+        
+        buttonContainer.addView(cancelBtn, LinearLayout.LayoutParams(0, dpToPx(48f), 1f).apply {
+            marginEnd = dpToPx(12f)
+        })
+        buttonContainer.addView(confirmBtn, LinearLayout.LayoutParams(0, dpToPx(48f), 1.5f))
+        
+        container.addView(buttonContainer)
+        
+        // 窗口参数
+        val params = WindowManager.LayoutParams(
+            dpToPx(320f),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+            dimAmount = 0.6f
+        }
+        
+        categoryDialogView = container
+        try {
+            windowManager.addView(categoryDialogView, params)
+        } catch (e: Exception) {
+            android.util.Log.e("FloatingWindow", "Failed to show category dialog: ${e.message}", e)
+        }
+    }
+    
+    private fun hideCategoryDialog() {
+        categoryDialogView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        categoryDialogView = null
+    }
+    
+    /**
+     * 构建 metaJson，包含作者和来源信息
+     */
+    private fun buildMetaJson(parseResult: FullLinkParseResult, source: String): String {
+        val metaMap = mutableMapOf<String, Any>()
+        
+        // 添加作者信息
+        parseResult.authors?.let { authors ->
+            if (authors.isNotEmpty()) {
+                metaMap["authors"] = authors
+            }
+        }
+        
+        // 添加来源信息
+        if (source.isNotEmpty()) {
+            metaMap["source"] = source
+        }
+        
+        // 添加会议/期刊信息
+        parseResult.conference?.let { conf ->
+            if (conf.isNotEmpty()) {
+                metaMap["conference"] = conf
+            }
+        }
+        
+        // 添加年份信息
+        parseResult.year?.let { year ->
+            if (year.isNotEmpty()) {
+                metaMap["year"] = year
+            }
+        }
+        
+        // 添加平台信息
+        parseResult.platform?.let { platform ->
+            if (platform.isNotEmpty()) {
+                metaMap["platform"] = platform
+            }
+        }
+        
+        // 添加标识符信息
+        parseResult.identifier?.let { identifier ->
+            if (identifier.isNotEmpty()) {
+                metaMap["identifier"] = identifier
+            }
+        }
+        
+        // 添加双语摘要
+        parseResult.summaryEn?.let { en ->
+            if (en.isNotEmpty()) {
+                metaMap["summary_en"] = en
+            }
+        }
+        parseResult.summaryZh?.let { zh ->
+            if (zh.isNotEmpty()) {
+                metaMap["summary_zh"] = zh
+            }
+        }
+        
+        // 使用 Gson 序列化
+        return if (metaMap.isEmpty()) {
+            "{}"
+        } else {
+            try {
+                com.google.gson.Gson().toJson(metaMap)
+            } catch (e: Exception) {
+                android.util.Log.e("FloatingWindow", "序列化 metaJson 失败: ${e.message}")
+                "{}"
+            }
+        }
+    }
+    
+    /**
+     * 显示自定义来源输入对话框
+     */
+    private fun showCustomSourceInput(onResult: (String) -> Unit) {
+        mainHandler.post {
+            // 定义 dp 转换函数
+            val dpToPx = { dp: Float -> 
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics).toInt() 
+            }
+            
+            // 预计算 dp 值
+            val padding24 = dpToPx(24f)
+            val padding20 = dpToPx(20f)
+            val padding16 = dpToPx(16f)
+            val padding12 = dpToPx(12f)
+            val padding8 = dpToPx(8f)
+            val height40 = dpToPx(40f)
+            val width280 = dpToPx(280f)
+            val corner16 = dpToPx(16f).toFloat()
+            val corner8 = dpToPx(8f).toFloat()
+            
+            val containerBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#1F2937"))
+                cornerRadius = corner16
+            }
+            
+            val container = LinearLayout(this@FloatingWindowService).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(padding24, padding20, padding24, padding20)
+                background = containerBg
+            }
+            
+            // 标题
+            val titleView = TextView(this@FloatingWindowService).apply {
+                text = "输入自定义来源"
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(0, 0, 0, padding16)
+            }
+            container.addView(titleView)
+            
+            // 输入框背景
+            val editBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#374151"))
+                cornerRadius = corner8
+            }
+            
+            val editText = EditText(this@FloatingWindowService).apply {
+                hint = "例如: 技术博客、论坛..."
+                setHintTextColor(Color.parseColor("#6B7280"))
+                setTextColor(Color.WHITE)
+                textSize = 14f
+                background = editBg
+                setPadding(padding12, padding12, padding12, padding12)
+            }
+            container.addView(editText, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = padding16 })
+            
+            // 按钮容器
+            val btnContainer = LinearLayout(this@FloatingWindowService).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+            }
+            
+            val cancelBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#374151"))
+                cornerRadius = corner8
+            }
+            
+            val cancelBtn = Button(this@FloatingWindowService).apply {
+                text = "取消"
+                setTextColor(Color.WHITE)
+                textSize = 13f
+                background = cancelBg
+            }
+            
+            val confirmBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#6366F1"))
+                cornerRadius = corner8
+            }
+            
+            val confirmBtn = Button(this@FloatingWindowService).apply {
+                text = "确定"
+                setTextColor(Color.WHITE)
+                textSize = 13f
+                background = confirmBg
+            }
+            
+            btnContainer.addView(cancelBtn, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                height40
+            ).apply { marginEnd = padding8 })
+            btnContainer.addView(confirmBtn, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                height40
+            ))
+            
+            container.addView(btnContainer)
+            
+            // 窗口参数
+            val params = WindowManager.LayoutParams(
+                width280,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                else
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+                dimAmount = 0.6f
+            }
+            
+            var dialogView: View? = container
+            
+            cancelBtn.setOnClickListener {
+                dialogView?.let { windowManager.removeView(it) }
+                dialogView = null
+            }
+            
+            confirmBtn.setOnClickListener {
+                val input = editText.text.toString().trim()
+                if (input.isNotEmpty()) {
+                    onResult(input)
+                }
+                dialogView?.let { windowManager.removeView(it) }
+                dialogView = null
+            }
+            
+            try {
+                windowManager.addView(container, params)
+            } catch (e: Exception) {
+                android.util.Log.e("FloatingWindow", "显示自定义来源对话框失败: ${e.message}", e)
+            }
+        }
+    }
+    
+    /**
+     * 保存条目到数据库
+     * 完成完整的入库流程：创建记录 -> 同步到远端 -> 更新本地 -> 跳转主页
+     */
+    private fun saveItemToDatabase(parseResult: FullLinkParseResult, selectedType: ItemType, selectedSource: String = "") {
+        mainHandler.post {
+            floatingBall?.isProcessing = true
+            Toast.makeText(this, "正在保存...", Toast.LENGTH_SHORT).show()
+        }
+        
+        serviceScope.launch {
+            try {
+                android.util.Log.d("FloatingWindow", "========== 开始保存条目 ==========")
+                android.util.Log.d("FloatingWindow", "类型: $selectedType")
+                android.util.Log.d("FloatingWindow", "标题: ${parseResult.title}")
+                android.util.Log.d("FloatingWindow", "作者: ${parseResult.authors}")
+                android.util.Log.d("FloatingWindow", "来源: $selectedSource")
+                android.util.Log.d("FloatingWindow", "摘要: ${parseResult.summary}")
+                android.util.Log.d("FloatingWindow", "链接: ${parseResult.originalUrl}")
+                
+                // 判断解析状态：只要标题不是默认值就认为解析成功
+                // AI模型无法访问网页，但能根据URL生成有意义的标题和描述
+                val isParseComplete = parseResult.title.isNotBlank() && 
+                    parseResult.title != "未命名链接" &&
+                    !parseResult.title.startsWith("链接已保存")
+                val itemStatus = if (isParseComplete) ItemStatus.DONE else ItemStatus.PROCESSING
+                
+                android.util.Log.d("FloatingWindow", "解析状态: $itemStatus (isParseComplete=$isParseComplete)")
+                
+                // 构建 metaJson，包含作者和来源信息
+                val finalSource = if (selectedSource.isNotEmpty()) selectedSource else parseResult.source
+                val metaJson = buildMetaJson(parseResult, finalSource)
+                android.util.Log.d("FloatingWindow", "metaJson: $metaJson")
+                
+                // 使用新的 createFullItem 方法创建完整条目
+                val createResult = itemRepository.createFullItem(
+                    title = parseResult.title,
+                    summary = parseResult.summary,
+                    contentMd = parseResult.toMarkdownContent(),
+                    originUrl = parseResult.originalUrl,
+                    type = selectedType,
+                    status = itemStatus, // 根据解析结果设置状态
+                    metaJson = metaJson, // 传递作者和来源信息
+                    tags = parseResult.tags
+                )
+                
+                withContext(Dispatchers.Main) {
+                    floatingBall?.isProcessing = false
+                    pendingParseResult = null
+                    
+                    createResult.onSuccess { item ->
+                        android.util.Log.d("FloatingWindow", "✅ 条目保存成功: id=${item.id}")
+                        
+                        // 1. 发送广播通知主页面刷新数据
+                        val broadcastIntent = Intent(ACTION_ITEM_ADDED).apply {
+                            putExtra(EXTRA_ITEM_ID, item.id)
+                            putExtra(EXTRA_ITEM_TYPE, selectedType.name)
+                            setPackage(packageName)
+                        }
+                        sendBroadcast(broadcastIntent)
+                        android.util.Log.d("FloatingWindow", "已发送刷新广播")
+                        
+                        // 2. 跳转到主页面
+                        openMainActivity(selectedType)
+                        
+                        // 3. 显示成功提示
+                        showSuccessOverlay(parseResult.title, selectedType)
+                        
+                    }.onFailure { error ->
+                        android.util.Log.e("FloatingWindow", "❌ 保存失败: ${error.message}", error)
+                        Toast.makeText(this@FloatingWindowService, "保存失败: ${error.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FloatingWindow", "❌ 保存异常: ${e.message}", e)
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    floatingBall?.isProcessing = false
+                    Toast.makeText(this@FloatingWindowService, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    
+    /**
+     * 打开主页面并跳转到对应的Tab
+     */
+    private fun openMainActivity(itemType: ItemType) {
+        try {
+            val intent = Intent(this, com.example.ai4research.MainActivity::class.java).apply {
+                // 使用 SINGLE_TOP 避免重新创建 Activity，触发 onNewIntent
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                // 传递要显示的类型，让主页面知道跳转到哪个Tab
+                putExtra("target_type", itemType.name)
+            }
+            startActivity(intent)
+            android.util.Log.d("FloatingWindow", "已跳转到主页面，目标类型: ${itemType.name}")
+        } catch (e: Exception) {
+            android.util.Log.e("FloatingWindow", "跳转主页面失败: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * 显示成功提示
+     */
+    private fun showSuccessOverlay(title: String, type: ItemType) {
+        val emoji = when (type) {
+            ItemType.PAPER -> "📄"
+            ItemType.COMPETITION -> "🏆"
+            ItemType.INSIGHT -> "💡"
+            ItemType.VOICE -> "🎤"
+        }
+        val typeName = when (type) {
+            ItemType.PAPER -> "论文"
+            ItemType.COMPETITION -> "竞赛"
+            ItemType.INSIGHT -> "动态"
+            ItemType.VOICE -> "语音"
+        }
+        showResultOverlay("$emoji 已添加到$typeName", title)
     }
 
     private fun setupClipboardListener() {
@@ -862,6 +1566,8 @@ class FloatingWindowService : Service() {
         super.onDestroy()
         hideFloatingBall()
         hideRegionSelectionOverlay()
+        hideCategoryDialog()
+        pendingParseResult = null
         unregisterReceiver(captureReceiver)
     }
 

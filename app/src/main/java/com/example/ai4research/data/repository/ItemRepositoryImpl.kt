@@ -203,6 +203,110 @@ class ItemRepositoryImpl @Inject constructor(
             Result.failure(e)
         }
     }
+    
+    override suspend fun createFullItem(
+        title: String,
+        summary: String,
+        contentMd: String,
+        originUrl: String?,
+        type: ItemType,
+        status: ItemStatus,
+        metaJson: String?,
+        tags: List<String>?
+    ): Result<ResearchItem> {
+        return try {
+            android.util.Log.d("ItemRepository", "========== createFullItem 开始 ==========")
+            android.util.Log.d("ItemRepository", "title=$title")
+            android.util.Log.d("ItemRepository", "type=${type.toServerString()}")
+            android.util.Log.d("ItemRepository", "summary=${summary.take(50)}...")
+            android.util.Log.d("ItemRepository", "originUrl=$originUrl")
+            android.util.Log.d("ItemRepository", "metaJson原始: $metaJson")
+            
+            // 解析 metaJson，如果解析失败则不传递
+            val parsedMetaJson = try {
+                metaJson?.let { parseMetaJson(it) }
+            } catch (e: Exception) {
+                android.util.Log.w("ItemRepository", "metaJson 解析失败，跳过: ${e.message}")
+                null
+            }
+            
+            val dto = NocoItemDto(
+                title = title,
+                type = type.toServerString(),
+                summary = summary,
+                contentMd = contentMd,
+                originUrl = originUrl,
+                audioUrl = null,
+                status = status.toServerString(),
+                readStatus = ReadStatus.UNREAD.toServerString(),
+                tags = tags?.joinToString(","),
+                metaJson = parsedMetaJson
+            )
+            
+            // 打印完整的 DTO 内容
+            val json = Json { prettyPrint = false; encodeDefaults = false }
+            val dtoJson = json.encodeToString(NocoItemDto.serializer(), dto)
+            android.util.Log.d("ItemRepository", "DTO JSON: $dtoJson")
+            
+            // 创建远端记录
+            val created = api.createItem(dto)
+            android.util.Log.d("ItemRepository", "✅ API 调用成功! created.id=${created.id}, created.title=${created.title}")
+            
+            // 本地入库
+            val entity = ItemMapper.dtoToEntity(created)
+            android.util.Log.d("ItemRepository", "Entity 已映射: entity.id=${entity.id}, entity.type=${entity.type}")
+            
+            itemDao.insertItem(entity)
+            android.util.Log.d("ItemRepository", "✅ 本地数据库插入成功!")
+            
+            val result = ItemMapper.entityToDomain(entity)
+            android.util.Log.d("ItemRepository", "========== createFullItem 完成 ==========")
+            
+            Result.success(result)
+        } catch (e: Exception) {
+            android.util.Log.e("ItemRepository", "❌ createFullItem 失败: ${e.message}", e)
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+    
+    override suspend fun updateItemType(id: String, type: ItemType): Result<Unit> {
+        return try {
+            val local = itemDao.getItemById(id) ?: return Result.failure(Exception("Item not found"))
+            
+            // 更新远端
+            val dto = NocoItemDto(
+                id = local.id.toIntOrNull(),
+                title = local.title,
+                type = type.toServerString(),
+                summary = local.summary,
+                contentMd = local.contentMarkdown,
+                originUrl = local.originUrl,
+                audioUrl = local.audioUrl,
+                status = local.status,
+                readStatus = local.readStatus,
+                projectId = local.projectId?.toIntOrNull(),
+                metaJson = parseMetaJson(local.metaJson)
+            )
+            
+            val updated = api.updateItem(id, dto)
+            
+            // 更新本地
+            itemDao.insertItem(
+                ItemMapper.dtoToEntity(
+                    updated,
+                    projectId = local.projectId,
+                    projectName = local.projectName
+                )
+            )
+            
+            android.util.Log.d("ItemRepository", "Item type updated: id=$id, newType=$type")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("ItemRepository", "Failed to update item type: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
 
     override suspend fun updateReadStatus(id: String, readStatus: ReadStatus): Result<Unit> {
         return try {
@@ -256,10 +360,18 @@ class ItemRepositoryImpl @Inject constructor(
         title: String?,
         summary: String?,
         content: String?,
-        tags: List<String>?
+        tags: List<String>?,
+        metaJson: String?
     ): Result<Unit> {
         return try {
             val local = itemDao.getItemById(id) ?: return Result.failure(Exception("Item not found"))
+
+            // 处理 metaJson - 如果传入新值则使用新值，否则保留原值
+            val finalMetaJson = if (metaJson != null) {
+                parseMetaJson(metaJson)
+            } else {
+                parseMetaJson(local.metaJson)
+            }
 
             // Prepare update DTO
             val dto = NocoItemDto(
@@ -274,7 +386,7 @@ class ItemRepositoryImpl @Inject constructor(
                 readStatus = local.readStatus,
                 projectId = local.projectId?.toIntOrNull(),
                 tags = tags?.joinToString(","),
-                metaJson = parseMetaJson(local.metaJson)
+                metaJson = finalMetaJson
             )
 
             // Remote update

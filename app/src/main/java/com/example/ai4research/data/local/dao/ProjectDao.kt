@@ -44,5 +44,11 @@ interface ProjectDao {
      */
     @Delete
     suspend fun deleteProject(project: ProjectEntity)
+    
+    /**
+     * 删除所有项目 (用于同步前清理)
+     */
+    @Query("DELETE FROM projects")
+    suspend fun deleteAllProjects()
 }
 

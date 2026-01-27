@@ -15,8 +15,25 @@ import java.util.*
  */
 object ItemMapper {
     private val gson = Gson()
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
+    // NocoDB 返回的日期格式: "2026-01-27 04:43:09+00:00"
+    private val dateFormats = listOf(
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.US),  // 带时区偏移
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),     // 无时区
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),  // ISO 8601
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)       // ISO 8601 无毫秒
+    ).onEach { it.timeZone = TimeZone.getTimeZone("UTC") }
+    
+    private fun parseDate(dateStr: String?): Long {
+        if (dateStr.isNullOrBlank()) return System.currentTimeMillis()
+        for (format in dateFormats) {
+            try {
+                return format.parse(dateStr)?.time ?: continue
+            } catch (e: Exception) {
+                // 尝试下一个格式
+            }
+        }
+        android.util.Log.w("ItemMapper", "无法解析日期: $dateStr，使用当前时间")
+        return System.currentTimeMillis()
     }
     
     /**
@@ -27,11 +44,7 @@ object ItemMapper {
         projectId: String? = null,
         projectName: String? = null
     ): ItemEntity {
-        val createdAt = try {
-            dto.createdAt?.let { dateFormat.parse(it)?.time } ?: System.currentTimeMillis()
-        } catch (e: Exception) {
-            System.currentTimeMillis()
-        }
+        val createdAt = parseDate(dto.createdAt)
         
         // 标准化 type 值为小写，确保与查询匹配
         val normalizedType = (dto.type ?: "insight").trim().lowercase()
@@ -74,6 +87,7 @@ object ItemMapper {
             projectId = entity.projectId,
             projectName = entity.projectName,
             metaData = parseMetaData(entity.metaJson, entity.type),
+            rawMetaJson = entity.metaJson, // 保留原始JSON
             createdAt = Date(entity.createdAt)
         )
     }
@@ -102,20 +116,75 @@ object ItemMapper {
     }
     
     /**
-     * 解析元数据 JSON
+     * 解析元数据 JSON - 更健壮的解析，兼容多种格式
      */
     private fun parseMetaData(metaJson: String?, type: String): ItemMetaData? {
-        if (metaJson.isNullOrEmpty()) return null
+        if (metaJson.isNullOrEmpty() || metaJson == "{}") return null
         
         return try {
+            // 先尝试解析为通用 Map，然后手动构造对象
+            val map = gson.fromJson(metaJson, Map::class.java) as? Map<String, Any?> ?: return null
+            
             when (type.lowercase()) {
-                "paper" -> gson.fromJson(metaJson, ItemMetaData.PaperMeta::class.java)
-                "competition" -> gson.fromJson(metaJson, ItemMetaData.CompetitionMeta::class.java)
-                "insight" -> gson.fromJson(metaJson, ItemMetaData.InsightMeta::class.java)
-                "voice" -> gson.fromJson(metaJson, ItemMetaData.VoiceMeta::class.java)
+                "paper" -> {
+                    // 处理 authors - 可能是数组或字符串
+                    val authors = when (val authorsRaw = map["authors"]) {
+                        is List<*> -> authorsRaw.mapNotNull { it?.toString() }
+                        is String -> if (authorsRaw.isNotBlank()) authorsRaw.split(",").map { it.trim() } else emptyList()
+                        else -> emptyList()
+                    }
+                    // 处理 tags - 可能是数组或字符串
+                    val tags = when (val tagsRaw = map["tags"]) {
+                        is List<*> -> tagsRaw.mapNotNull { it?.toString() }
+                        is String -> if (tagsRaw.isNotBlank()) tagsRaw.split(",").map { it.trim() } else emptyList()
+                        else -> emptyList()
+                    }
+                    // 处理 year - 可能是 Int、Double 或 String
+                    val year = when (val yearRaw = map["year"]) {
+                        is Number -> yearRaw.toInt()
+                        is String -> yearRaw.toIntOrNull()
+                        else -> null
+                    }
+                    
+                    ItemMetaData.PaperMeta(
+                        authors = authors,
+                        conference = map["conference"]?.toString(),
+                        year = year,
+                        tags = tags
+                    )
+                }
+                "competition" -> {
+                    ItemMetaData.CompetitionMeta(
+                        organizer = map["organizer"]?.toString(),
+                        prizePool = map["prizePool"]?.toString(),
+                        deadline = map["deadline"]?.toString(),
+                        theme = map["theme"]?.toString(),
+                        competitionType = map["competitionType"]?.toString()
+                    )
+                }
+                "insight" -> {
+                    val tags = when (val tagsRaw = map["tags"]) {
+                        is List<*> -> tagsRaw.mapNotNull { it?.toString() }
+                        is String -> if (tagsRaw.isNotBlank()) tagsRaw.split(",").map { it.trim() } else emptyList()
+                        else -> emptyList()
+                    }
+                    ItemMetaData.InsightMeta(tags = tags)
+                }
+                "voice" -> {
+                    val duration = when (val durationRaw = map["duration"]) {
+                        is Number -> durationRaw.toInt()
+                        is String -> durationRaw.toIntOrNull() ?: 0
+                        else -> 0
+                    }
+                    ItemMetaData.VoiceMeta(
+                        duration = duration,
+                        transcription = map["transcription"]?.toString()
+                    )
+                }
                 else -> null
             }
-        } catch (e: JsonSyntaxException) {
+        } catch (e: Exception) {
+            android.util.Log.w("ItemMapper", "解析 metaJson 失败: $metaJson, error: ${e.message}")
             null
         }
     }
@@ -126,11 +195,7 @@ object ItemMapper {
      * Project DTO -> Entity
      */
     fun projectDtoToEntity(dto: NocoProjectDto): ProjectEntity {
-        val createdAt = try {
-            dto.createdAt?.let { dateFormat.parse(it)?.time } ?: System.currentTimeMillis()
-        } catch (e: Exception) {
-            System.currentTimeMillis()
-        }
+        val createdAt = parseDate(dto.createdAt)
         
         return ProjectEntity(
             id = dto.id?.toString() ?: UUID.randomUUID().toString(),  // 将 Int ID 转为 String

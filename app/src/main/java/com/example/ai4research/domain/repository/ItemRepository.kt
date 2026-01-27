@@ -1,5 +1,6 @@
 package com.example.ai4research.domain.repository
 
+import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
@@ -37,6 +38,28 @@ interface ItemRepository {
         note: String? = null,
         type: ItemType = ItemType.INSIGHT
     ): Result<ResearchItem>
+    
+    /**
+     * 创建完整的研究条目（用于AI解析后的完整数据）
+     * @param title 标题
+     * @param summary 摘要
+     * @param contentMd Markdown格式的详细内容
+     * @param originUrl 来源链接
+     * @param type 条目类型
+     * @param status 状态（默认为已完成）
+     * @param metaJson 元数据JSON字符串
+     * @param tags 标签列表
+     */
+    suspend fun createFullItem(
+        title: String,
+        summary: String,
+        contentMd: String,
+        originUrl: String?,
+        type: ItemType,
+        status: ItemStatus = ItemStatus.DONE,
+        metaJson: String? = null,
+        tags: List<String>? = null
+    ): Result<ResearchItem>
 
     /**
      * 本地创建：语音条目（音频文件先落地到本机，后续可扩展上传）
@@ -65,8 +88,14 @@ interface ItemRepository {
         title: String? = null,
         summary: String? = null,
         content: String? = null,
-        tags: List<String>? = null
+        tags: List<String>? = null,
+        metaJson: String? = null
     ): Result<Unit>
+    
+    /**
+     * 更新条目类型（用于用户分类选择后）
+     */
+    suspend fun updateItemType(id: String, type: ItemType): Result<Unit>
 
     /**
      * 更新条目的项目归属（同时同步远端关联）

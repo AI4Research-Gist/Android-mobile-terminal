@@ -1,11 +1,11 @@
-﻿# AI4Research
+﻿# Gist
 
 <p align="center">
-  <img src="app/src/main/assets/logo.png" alt="AI4Research Logo" width="120"/>
+  <img src="app/src/main/assets/logo.png" alt="Gist Logo" width="120"/>
 </p>
 
 <p align="center">
-  <b>Photon Lab · 你的个人 AI 研究助手（Android）</b>
+  <b>Advanced Informatics Scholar · 你的个人 AI 研究助手（Android）</b>
 </p>
 
 <p align="center">
@@ -20,17 +20,24 @@
 
 ## 项目简介
 
-AI4Research 是面向科研/学习场景的信息采集与分析助手。移动端负责“入口与轻处理”，云端负责“结构化与 AI 解析”，本地负责“流畅展示与离线缓存”。应用采用 Hybrid UI：主列表与交互使用 WebView 内的 React/Tailwind 页面，详情页与系统能力使用原生 Compose。
+**Gist** 是面向科研/学习场景的信息采集与分析助手：
+- **移动端负责入口与轻处理**，提供快速采集、浏览、编辑与管理。
+- **云端负责结构化与 AI 解析**（NocoDB + SiliconFlow）。
+- **本地负责流畅展示与离线缓存**（Room SSOT）。
+
+应用采用 Hybrid UI：**主列表与交互使用 WebView 内的 React/Tailwind 页面**，详情页与系统能力使用 **原生 Compose**。
+
+> 说明：代码层仍保留旧命名（包名/类名/DB 名等为 `ai4research`），对外名称已统一为 **Gist**。
 
 ## 当前功能（以代码实现为准）
 
-- 混合 UI：`assets/main_ui.html` + `assets/login.html` 作为主/登录界面，详情页为 Compose，统一导航过渡。
-- 研究卡片管理：paper / competition / insight / voice 统一列表，支持搜索、过滤、项目归属、星标、阅读状态。
-- 详情页：Markdown 渲染、编辑保存、标记已读/星标/删除、项目归属同步。
-- 账号系统：NocoDB 用户表注册/登录；本地使用 EncryptedSharedPreferences 缓存 token。
-- 悬浮窗助手：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接；调用 AI 解析并入库。
-- AI 能力：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要。
-- 启动优化：WebView 预热与页面缓存，Splash 动画等待初始化完成。
+- **混合 UI**：`assets/main_ui.html` + `assets/login.html` 作为主/登录界面，详情页为 Compose。
+- **研究卡片管理**：paper / competition / insight / voice 统一列表，支持搜索、过滤、项目归属、星标、阅读状态。
+- **详情页**：Markdown 渲染、编辑保存、标记已读/星标/删除、项目归属同步。
+- **账号系统**：NocoDB 用户表注册/登录；本地 EncryptedSharedPreferences 缓存 token。
+- **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接；AI 解析入库。
+- **AI 能力**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要。
+- **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
 > 注意：Web UI 依赖 CDN/ESM（React、Tailwind、Framer Motion、Lucide），运行时需要网络。
 
@@ -59,7 +66,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 ### Android Native
 | 模块 | 技术选型 |
 |------|----------|
-| 语言 | Kotlin |
+| 语言 | Kotlin (2.0.21) |
 | UI | Jetpack Compose (Material 3, iOS 风格主题) |
 | 架构 | MVVM + Clean Architecture |
 | 依赖注入 | Hilt |
@@ -90,7 +97,7 @@ app/src/main/
 │  ├─ main_ui.html         # 主界面（React）
 │  └─ login.html           # 登录界面（React）
 ├─ java/com/example/ai4research/
-│  ├─ core/                # 主题、网络拦截、工具
+│  ├─ core/                # 主题、网络拦截、工具、安全
 │  ├─ data/                # 数据层（Room + Retrofit）
 │  ├─ domain/              # 领域模型与仓库接口
 │  ├─ ui/                  # Compose 界面

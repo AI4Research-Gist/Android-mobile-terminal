@@ -99,6 +99,15 @@ interface NocoApiService {
     suspend fun createProject(
         @Body project: NocoProjectDto
     ): NocoProjectDto
+    
+    /**
+     * 删除项目
+     * DELETE /m14rejhia8w9cf7/{id}
+     */
+    @DELETE("m14rejhia8w9cf7/{id}")
+    suspend fun deleteProject(
+        @Path("id") id: String
+    ): Unit
 
     
     // ==================== Authentication API ====================

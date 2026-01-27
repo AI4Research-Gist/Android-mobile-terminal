@@ -25,7 +25,8 @@ import javax.inject.Singleton
 @Singleton
 class AIService @Inject constructor(
     private val siliconFlowApi: SiliconFlowApiService,
-    private val json: Json
+    private val json: Json,
+    private val webContentFetcher: WebContentFetcher
 ) {
 
     companion object {
@@ -59,6 +60,38 @@ class AIService @Inject constructor(
 
 请以 JSON 格式返回：
 {"link_type": "arxiv/doi/webpage", "id": "...", "title": "..."}"""
+
+        // 增强版链接解析提示词 - 用于完整解析链接内容
+        private const val SYSTEM_PROMPT_FULL_PARSE = """你是一个专业的学术内容解析助手。请根据提供的链接信息，智能分析并提取结构化内容。
+
+根据链接类型进行不同处理：
+1. **arXiv论文**: 根据arXiv ID解析，提取标题、作者、摘要
+2. **DOI文献**: 根据DOI提取文献信息
+3. **微信公众号/网页文章**: 分析URL特征，推断可能的内容主题
+4. **竞赛链接**: 识别Kaggle、天池等竞赛平台链接
+
+请以JSON格式返回，格式如下：
+{
+  "title": "论文/文章标题（必填，如无法获取请根据链接推断）",
+  "authors": "作者列表，用逗号分隔（可选）",
+  "summary": "内容摘要或描述（必填，根据URL结构和领域知识生成一段描述性文字，说明这可能是什么内容）",
+  "content_type": "paper/competition/article/insight",
+  "source": "arxiv/doi/wechat/kaggle/web",
+  "identifier": "arXiv ID或DOI（如有）",
+  "tags": ["标签1", "标签2"],
+  "meta": {
+    "conference": "会议名称（如有）",
+    "year": "年份（如有）",
+    "platform": "平台名称（如有）"
+  }
+}
+
+注意：
+- title必须有值，如果无法从链接获取，请根据URL结构推断一个描述性标题
+- summary必须有实质内容！请根据URL结构、标题关键词、平台特征等推断并生成一段有意义的描述（50-150字）。绝对禁止写"待解析"或类似的占位符
+- content_type根据链接特征判断：学术链接返回paper，竞赛平台返回competition，公众号/博客返回article，其他返回insight
+- 如果是arXiv链接(如arxiv.org/abs/xxxx.xxxxx)，请直接使用arXiv ID作为identifier
+- 返回纯JSON，不要包含markdown代码块"""
     }
 
     fun getProviderName(): String = "SiliconFlow"
@@ -303,6 +336,316 @@ class AIService @Inject constructor(
             response
         }
     }
+
+    /**
+     * 完整解析链接内容 - 先抓取网页真实内容，再用 AI 结构化解析
+     * 
+     * 流程：
+     * 1. 使用 WebContentFetcher 抓取网页真实内容（arXiv API / DOI API / Jsoup）
+     * 2. 将抓取的内容发送给 AI 进行结构化解析
+     * 3. 返回可直接用于创建卡片的结构化数据
+     */
+    suspend fun parseFullLink(link: String): Result<FullLinkParseResult> = withContext(Dispatchers.IO) {
+        try {
+            android.util.Log.d("AIService", "========== 开始解析链接 ==========")
+            android.util.Log.d("AIService", "链接: $link")
+            
+            // Step 1: 抓取网页真实内容
+            android.util.Log.d("AIService", "Step 1: 抓取网页内容...")
+            val webContentResult = webContentFetcher.fetchContent(link)
+            
+            val webContent = webContentResult.getOrNull()
+            if (webContent != null) {
+                android.util.Log.d("AIService", "抓取成功: title=${webContent.title.take(50)}, source=${webContent.source}")
+                android.util.Log.d("AIService", "内容长度: ${webContent.content.length} 字符")
+                
+                // Step 2: 用 AI 对抓取的内容进行结构化解析
+                android.util.Log.d("AIService", "Step 2: AI 结构化解析...")
+                return@withContext parseContentWithAI(webContent, link)
+            } else {
+                // 抓取失败，降级为仅解析 URL
+                android.util.Log.w("AIService", "抓取失败，降级为 URL 解析: ${webContentResult.exceptionOrNull()?.message}")
+                return@withContext parseUrlOnly(link)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AIService", "parseFullLink 异常: ${e.message}", e)
+            // 返回一个基础结果，避免完全失败
+            Result.success(createFallbackResult(link))
+        }
+    }
+    
+    /**
+     * 用 AI 对抓取的网页内容进行结构化解析
+     */
+    private suspend fun parseContentWithAI(webContent: WebContent, originalUrl: String): Result<FullLinkParseResult> {
+        try {
+            // 构建提示词，包含真实抓取的内容
+            val contentPrompt = buildString {
+                appendLine("请根据以下网页内容，提取并总结关键信息：")
+                appendLine()
+                appendLine("【原始链接】$originalUrl")
+                appendLine()
+                appendLine("【抓取内容】")
+                appendLine(webContent.content.take(5000)) // 限制长度避免超出 token
+            }
+            
+            val systemPrompt = """你是一个专业的学术内容解析助手。请根据提供的网页内容，提取结构化信息。
+
+请以JSON格式返回，格式如下：
+{
+  "title": "论文/文章标题（从内容中提取）",
+  "authors": "作者列表，用逗号分隔（如有）",
+  "summary_en": "英文摘要，100-150字（如果原文是英文，提取原文摘要；如果是中文，则翻译为英文）",
+  "summary_zh": "中文摘要，100-150字（如果原文是中文，提取原文摘要；如果是英文，则翻译为中文）",
+  "content_type": "paper/competition/article/insight",
+  "source": "arxiv/doi/wechat/kaggle/web",
+  "identifier": "arXiv ID或DOI（如有）",
+  "tags": ["标签1", "标签2", "标签3"],
+  "meta": {
+    "conference": "会议/期刊名称（如有）",
+    "year": "发表年份（如有）",
+    "platform": "平台名称（如有）"
+  }
+}
+
+注意：
+- summary_en 和 summary_zh 必须同时提供，形成双语对照
+- 摘要必须根据提供的正文内容生成，不要写"待解析"
+- tags 应该从内容中提取关键词作为标签
+- 如果是学术论文，content_type 为 paper
+- 返回纯JSON，不要包含markdown代码块"""
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = contentPrompt)
+                ),
+                maxTokens = 1500
+            )
+            
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val aiContent = response.choices.firstOrNull()?.message?.content
+            
+            if (aiContent != null) {
+                android.util.Log.d("AIService", "AI 返回: ${aiContent.take(200)}...")
+                val cleanJson = extractJsonFromResponse(aiContent)
+                val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+                
+                // 提取tags数组
+                val tagsArray = jsonObj["tags"]?.let { element ->
+                    try {
+                        (element as? kotlinx.serialization.json.JsonArray)?.map { 
+                            it.jsonPrimitive.content 
+                        } ?: emptyList()
+                    } catch (e: Exception) { emptyList() }
+                } ?: emptyList()
+                
+                // 提取meta对象
+                val metaObj = jsonObj["meta"]?.let { element ->
+                    try {
+                        element as? JsonObject
+                    } catch (e: Exception) { null }
+                }
+                
+                // 提取双语摘要
+                val summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.content
+                val summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.content
+                // 兼容旧格式的单语摘要
+                val summary = jsonObj["summary"]?.jsonPrimitive?.content
+                    ?: summaryZh ?: summaryEn ?: webContent.abstract ?: "已抓取内容，待总结"
+                
+                val result = FullLinkParseResult(
+                    title = jsonObj["title"]?.jsonPrimitive?.content 
+                        ?: webContent.title.ifEmpty { "未命名链接" },
+                    authors = jsonObj["authors"]?.jsonPrimitive?.content 
+                        ?: webContent.authors,
+                    summary = summary,
+                    summaryEn = summaryEn,
+                    summaryZh = summaryZh,
+                    contentType = jsonObj["content_type"]?.jsonPrimitive?.content 
+                        ?: guessContentTypeFromUrl(originalUrl),
+                    source = jsonObj["source"]?.jsonPrimitive?.content 
+                        ?: webContent.source,
+                    identifier = jsonObj["identifier"]?.jsonPrimitive?.content,
+                    tags = tagsArray,
+                    originalUrl = originalUrl,
+                    conference = metaObj?.get("conference")?.jsonPrimitive?.content,
+                    year = metaObj?.get("year")?.jsonPrimitive?.content,
+                    platform = metaObj?.get("platform")?.jsonPrimitive?.content
+                )
+                
+                android.util.Log.d("AIService", "✅ 解析完成: ${result.title}")
+                return Result.success(result)
+            } else {
+                // AI 返回空，使用抓取的原始内容
+                return Result.success(createResultFromWebContent(webContent, originalUrl))
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AIService", "AI 解析失败，使用原始抓取内容: ${e.message}")
+            return Result.success(createResultFromWebContent(webContent, originalUrl))
+        }
+    }
+    
+    /**
+     * 从抓取的网页内容创建结果（AI 解析失败时的备用方案）
+     */
+    private fun createResultFromWebContent(webContent: WebContent, originalUrl: String): FullLinkParseResult {
+        return FullLinkParseResult(
+            title = webContent.title.ifEmpty { extractTitleFromUrl(originalUrl) },
+            authors = webContent.authors,
+            summary = webContent.abstract ?: webContent.content.take(300),
+            summaryEn = null, // 无法确定原文语言，暂不生成双语
+            summaryZh = null,
+            contentType = guessContentTypeFromUrl(originalUrl),
+            source = webContent.source,
+            identifier = extractIdentifierFromUrl(originalUrl),
+            tags = emptyList(),
+            originalUrl = originalUrl,
+            conference = null,
+            year = null,
+            platform = null
+        )
+    }
+    
+    /**
+     * 仅解析 URL（网页抓取失败时的降级方案）
+     */
+    private suspend fun parseUrlOnly(link: String): Result<FullLinkParseResult> {
+        try {
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = SYSTEM_PROMPT_FULL_PARSE),
+                    SimpleMessage(role = "user", content = "请解析这个链接的内容：$link")
+                ),
+                maxTokens = 1024
+            )
+            
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content
+            
+            if (content != null) {
+                val cleanJson = extractJsonFromResponse(content)
+                val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+                
+                val tagsArray = jsonObj["tags"]?.let { element ->
+                    try {
+                        (element as? kotlinx.serialization.json.JsonArray)?.map { 
+                            it.jsonPrimitive.content 
+                        } ?: emptyList()
+                    } catch (e: Exception) { emptyList() }
+                } ?: emptyList()
+                
+                val metaObj = jsonObj["meta"]?.let { element ->
+                    try { element as? JsonObject } catch (e: Exception) { null }
+                }
+                
+                return Result.success(FullLinkParseResult(
+                    title = jsonObj["title"]?.jsonPrimitive?.content ?: "未命名链接",
+                    authors = jsonObj["authors"]?.jsonPrimitive?.content,
+                    summary = jsonObj["summary"]?.jsonPrimitive?.content ?: "链接已保存",
+                    summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.content,
+                    summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.content,
+                    contentType = jsonObj["content_type"]?.jsonPrimitive?.content ?: "insight",
+                    source = jsonObj["source"]?.jsonPrimitive?.content ?: "web",
+                    identifier = jsonObj["identifier"]?.jsonPrimitive?.content,
+                    tags = tagsArray,
+                    originalUrl = link,
+                    conference = metaObj?.get("conference")?.jsonPrimitive?.content,
+                    year = metaObj?.get("year")?.jsonPrimitive?.content,
+                    platform = metaObj?.get("platform")?.jsonPrimitive?.content
+                ))
+            }
+            return Result.success(createFallbackResult(link))
+        } catch (e: Exception) {
+            return Result.success(createFallbackResult(link))
+        }
+    }
+    
+    /**
+     * 创建降级结果
+     */
+    private fun createFallbackResult(link: String): FullLinkParseResult {
+        return FullLinkParseResult(
+            title = extractTitleFromUrl(link),
+            authors = null,
+            summary = "链接已保存，内容抓取失败",
+            summaryEn = null,
+            summaryZh = null,
+            contentType = guessContentTypeFromUrl(link),
+            source = guessSourceFromUrl(link),
+            identifier = extractIdentifierFromUrl(link),
+            tags = emptyList(),
+            originalUrl = link,
+            conference = null,
+            year = null,
+            platform = null
+        )
+    }
+    
+    /**
+     * 从URL中提取标题（作为备用方案）
+     */
+    private fun extractTitleFromUrl(url: String): String {
+        return try {
+            val uri = android.net.Uri.parse(url)
+            val path = uri.lastPathSegment ?: uri.host ?: "未命名链接"
+            // 清理路径，移除扩展名和特殊字符
+            path.replace(Regex("\\.(html?|pdf|php|aspx?)$"), "")
+                .replace(Regex("[_-]"), " ")
+                .take(50)
+        } catch (e: Exception) {
+            "未命名链接"
+        }
+    }
+    
+    /**
+     * 从URL推断内容类型
+     */
+    private fun guessContentTypeFromUrl(url: String): String {
+        val lowerUrl = url.lowercase()
+        return when {
+            lowerUrl.contains("arxiv.org") -> "paper"
+            lowerUrl.contains("doi.org") -> "paper"
+            lowerUrl.contains("ieee.org") -> "paper"
+            lowerUrl.contains("acm.org") -> "paper"
+            lowerUrl.contains("springer.com") -> "paper"
+            lowerUrl.contains("kaggle.com") -> "competition"
+            lowerUrl.contains("tianchi") -> "competition"
+            lowerUrl.contains("mp.weixin.qq.com") -> "article"
+            else -> "insight"
+        }
+    }
+    
+    /**
+     * 从URL推断来源
+     */
+    private fun guessSourceFromUrl(url: String): String {
+        val lowerUrl = url.lowercase()
+        return when {
+            lowerUrl.contains("arxiv.org") -> "arxiv"
+            lowerUrl.contains("doi.org") -> "doi"
+            lowerUrl.contains("mp.weixin.qq.com") -> "wechat"
+            lowerUrl.contains("kaggle.com") -> "kaggle"
+            else -> "web"
+        }
+    }
+    
+    /**
+     * 从URL提取标识符（arXiv ID 或 DOI）
+     */
+    private fun extractIdentifierFromUrl(url: String): String? {
+        // arXiv ID 模式: arxiv.org/abs/xxxx.xxxxx
+        val arxivRegex = Regex("arxiv\\.org/abs/(\\d+\\.\\d+)")
+        arxivRegex.find(url)?.groupValues?.getOrNull(1)?.let { return it }
+        
+        // DOI 模式
+        val doiRegex = Regex("doi\\.org/(10\\.\\d+/[^\\s]+)")
+        doiRegex.find(url)?.groupValues?.getOrNull(1)?.let { return it }
+        
+        return null
+    }
 }
 
 // 数据类定义
@@ -327,3 +670,104 @@ data class LiteratureInfo(
     val doi: String?,
     val summary: String?
 )
+
+/**
+ * 完整链接解析结果 - 包含创建卡片所需的所有信息
+ */
+data class FullLinkParseResult(
+    val title: String,
+    val authors: String?,
+    val summary: String,          // 主摘要（兼容旧格式）
+    val summaryEn: String? = null,  // 英文摘要
+    val summaryZh: String? = null,  // 中文摘要
+    val contentType: String,  // paper, competition, article, insight
+    val source: String,       // arxiv, doi, wechat, kaggle, web
+    val identifier: String?,  // arXiv ID 或 DOI
+    val tags: List<String>,
+    val originalUrl: String,
+    val conference: String?,
+    val year: String?,
+    val platform: String?
+) {
+    /**
+     * 获取双语摘要格式（用于显示）
+     */
+    fun getBilingualSummary(): String {
+        return when {
+            summaryEn != null && summaryZh != null -> {
+                "【英文】$summaryEn\n\n【中文】$summaryZh"
+            }
+            summaryZh != null -> summaryZh
+            summaryEn != null -> summaryEn
+            else -> summary
+        }
+    }
+    
+    /**
+     * 转换为 ItemType
+     */
+    fun toItemType(): com.example.ai4research.domain.model.ItemType {
+        return when (contentType.lowercase()) {
+            "paper" -> com.example.ai4research.domain.model.ItemType.PAPER
+            "competition" -> com.example.ai4research.domain.model.ItemType.COMPETITION
+            else -> com.example.ai4research.domain.model.ItemType.INSIGHT
+        }
+    }
+    
+    /**
+     * 生成 Markdown 内容
+     */
+    fun toMarkdownContent(): String {
+        return buildString {
+            appendLine("# $title")
+            appendLine()
+            authors?.let { appendLine("**作者**: $it") }
+            identifier?.let { appendLine("**标识符**: $it") }
+            conference?.let { appendLine("**会议/期刊**: $it") }
+            year?.let { appendLine("**年份**: $it") }
+            platform?.let { appendLine("**平台**: $it") }
+            appendLine()
+            appendLine("## 摘要")
+            // 优先使用双语摘要
+            if (summaryEn != null && summaryZh != null) {
+                appendLine("### English")
+                appendLine(summaryEn)
+                appendLine()
+                appendLine("### 中文")
+                appendLine(summaryZh)
+            } else {
+                appendLine(summary)
+            }
+            appendLine()
+            appendLine("---")
+            appendLine("[原文链接]($originalUrl)")
+            if (tags.isNotEmpty()) {
+                appendLine()
+                appendLine("**标签**: ${tags.joinToString(", ")}")
+            }
+        }
+    }
+    
+    /**
+     * 生成元数据JSON字符串（使用安全的序列化方式）
+     */
+    fun toMetaJson(): String? {
+        return try {
+            val metaMap = mutableMapOf<String, Any?>()
+            metaMap["source"] = source
+            identifier?.let { metaMap["identifier"] = it }
+            authors?.let { metaMap["authors"] = it }
+            conference?.let { metaMap["conference"] = it }
+            year?.let { metaMap["year"] = it }
+            summaryEn?.let { metaMap["summary_en"] = it }
+            summaryZh?.let { metaMap["summary_zh"] = it }
+            if (tags.isNotEmpty()) metaMap["tags"] = tags
+            
+            // 使用 org.json 安全序列化
+            org.json.JSONObject(metaMap).toString()
+        } catch (e: Exception) {
+            android.util.Log.w("FullLinkParseResult", "toMetaJson 失败: ${e.message}")
+            null
+        }
+    }
+}

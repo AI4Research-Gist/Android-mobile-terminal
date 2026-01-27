@@ -20,6 +20,7 @@ data class ResearchItem(
     val projectId: String?,
     val projectName: String?,
     val metaData: ItemMetaData?,
+    val rawMetaJson: String? = null, // 保留原始JSON，用于序列化时回退
     val createdAt: Date
 )
 
@@ -127,7 +128,12 @@ sealed class ItemMetaData {
     data class CompetitionMeta(
         val timeline: List<TimelineEvent>? = null,
         val prizePool: String? = null,
-        val organizer: String? = null
+        val organizer: String? = null,
+        val deadline: String? = null,        // 截止日期 (ISO 格式)
+        val theme: String? = null,           // 竞赛主题
+        val competitionType: String? = null, // 竞赛类型（数据科学、算法、创意等）
+        val website: String? = null,         // 官网链接
+        val registrationUrl: String? = null  // 报名链接
     ) : ItemMetaData()
     
     /**

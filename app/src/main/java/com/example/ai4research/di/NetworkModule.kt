@@ -31,10 +31,11 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideJson(): Json = Json {
-        ignoreUnknownKeys = true  // 忽略未知字段
+        ignoreUnknownKeys = true   // 忽略未知字段
         coerceInputValues = true   // 强制输入值
         isLenient = true           // 宽松模式
-        encodeDefaults = true      // 编码默认值
+        encodeDefaults = false     // 不编码默认值和 null 值，避免发送 "Id":null 导致 NocoDB 400 错误
+        explicitNulls = false      // 不序列化 null 值
     }
     
     /**
@@ -73,6 +74,22 @@ object NetworkModule {
             .connectTimeout(60, TimeUnit.SECONDS)  // AI调用需要更长超时
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+    
+    /**
+     * 提供通用 Web OkHttpClient（用于网页抓取）
+     */
+    @Provides
+    @Singleton
+    @Named("web")
+    fun provideWebOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .build()
     }
     

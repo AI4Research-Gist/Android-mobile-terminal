@@ -85,6 +85,9 @@ dependencies {
     // Gson (JSON解析，用于Room TypeConverter)
     implementation(libs.gson)
     
+    // Jsoup (HTML解析，用于网页内容抓取)
+    implementation(libs.jsoup)
+    
     // Compose Markdown (Markdown渲染)
     implementation(libs.compose.markdown)
     

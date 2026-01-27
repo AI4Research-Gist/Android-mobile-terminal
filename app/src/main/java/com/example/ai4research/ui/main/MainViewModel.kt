@@ -275,22 +275,39 @@ class MainViewModel @Inject constructor(
     }
 
     private fun serializeMetaData(item: ResearchItem): String {
-        return when (val meta = item.metaData) {
+        // 如果有解析后的 metaData，序列化它
+        val serialized = when (val meta = item.metaData) {
             is com.example.ai4research.domain.model.ItemMetaData.PaperMeta -> {
                 gson.toJson(mapOf(
                     "authors" to meta.authors,
                     "conference" to meta.conference,
-                    "year" to meta.year
+                    "year" to meta.year?.toString(),
+                    "tags" to meta.tags
                 ))
             }
             is com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta -> {
                 gson.toJson(mapOf(
                     "organizer" to meta.organizer,
                     "prizePool" to meta.prizePool,
-                    "deadline" to meta.timeline?.firstOrNull()?.date?.toString()
+                    "deadline" to (meta.deadline ?: meta.timeline?.firstOrNull()?.date?.toString()),
+                    "theme" to meta.theme,
+                    "competitionType" to meta.competitionType
                 ))
             }
-            else -> "{}"
+            is com.example.ai4research.domain.model.ItemMetaData.InsightMeta -> {
+                gson.toJson(mapOf(
+                    "source" to "灵感",
+                    "tags" to meta.tags
+                ))
+            }
+            else -> null
+        }
+        
+        // 如果 serialized 为 null 或空，回退到原始 metaJson
+        return if (serialized.isNullOrEmpty() || serialized == "{}") {
+            item.rawMetaJson ?: "{}"
+        } else {
+            serialized
         }
     }
 }

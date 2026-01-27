@@ -30,6 +30,9 @@ composeMarkdown = "0.5.4"
 # Gson
 gson = "2.11.0"
 
+# Jsoup (HTML解析)
+jsoup = "1.17.2"
+
 # Navigation
 navigation = "2.8.5"
 
@@ -83,6 +86,9 @@ compose-markdown = { group = "com.github.jeziellago", name = "compose-markdown",
 
 # Gson
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+
+# Jsoup (HTML解析)
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 
 # Navigation
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }

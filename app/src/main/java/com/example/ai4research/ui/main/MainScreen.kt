@@ -41,6 +41,9 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
     val webViewCache = LocalWebViewCache.current
+    
+    // 获取 MainActivity 的 targetTab
+    val activity = context as? com.example.ai4research.MainActivity
 
     // Track loading state
     var isLoading by remember { mutableStateOf(!webViewCache.isMainLoaded()) }
@@ -54,6 +57,67 @@ fun MainScreen(
     
     val coroutineScope = rememberCoroutineScope()
     val floatingWindowManager = viewModel.floatingWindowManager
+    
+    // 用于记录待处理的 targetTab
+    var pendingTargetTab by remember { mutableStateOf<String?>(null) }
+    // 用于记录是否正在处理 tab 切换，避免数据更新时重复推送
+    var isHandlingTabSwitch by remember { mutableStateOf(false) }
+    
+    // 监听 targetTab 变化，记录待处理的 tab
+    LaunchedEffect(activity?.targetTab) {
+        activity?.targetTab?.let { tab ->
+            android.util.Log.d("MainScreen", "收到 targetTab: $tab, isPageReady=$isPageReady")
+            pendingTargetTab = tab
+        }
+    }
+    
+    // 当页面准备好且有待处理的 tab 时，执行跳转逻辑
+    LaunchedEffect(isPageReady, pendingTargetTab) {
+        if (isPageReady && webViewRef != null && pendingTargetTab != null) {
+            val tab = pendingTargetTab!!
+            android.util.Log.d("MainScreen", "执行Tab切换: $tab")
+            isHandlingTabSwitch = true
+            
+            try {
+                // 1. 先刷新远程数据到本地
+                viewModel.fetchData()
+                
+                // 2. 重新应用筛选，确保 Flow collect 获取最新数据
+                viewModel.applyFilter(viewModel.currentFilter.value, viewModel.currentProjectId.value)
+                
+                // 3. 等待数据加载完成（最多等待3秒）
+                var retryCount = 0
+                while (viewModel.isLoading.value && retryCount < 30) {
+                    kotlinx.coroutines.delay(100)
+                    retryCount++
+                }
+                
+                // 额外等待一下确保 Room Flow 已 emit 新数据
+                kotlinx.coroutines.delay(300)
+                
+                // 推送最新数据
+                val papersJson = viewModel.getPapersJson()
+                val competitionsJson = viewModel.getCompetitionsJson()
+                val insightsJson = viewModel.getInsightsJson()
+                val projectsJson = viewModel.getProjectsJson()
+                android.util.Log.d("MainScreen", "推送数据: papers=${viewModel.papers.value.size}, insights=${viewModel.insights.value.size}")
+                webViewRef?.evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
+                webViewRef?.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
+                webViewRef?.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
+                webViewRef?.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
+                
+                // 4. 切换到目标Tab
+                kotlinx.coroutines.delay(100)
+                webViewRef?.evaluateJavascript("if(window.setActiveTab) window.setActiveTab('$tab');", null)
+                android.util.Log.d("MainScreen", "Tab切换完成: $tab")
+            } finally {
+                // 清除待处理的 tab
+                pendingTargetTab = null
+                activity?.clearTargetTab()
+                isHandlingTabSwitch = false
+            }
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -81,9 +145,9 @@ fun MainScreen(
     
     val projectsState by viewModel.projects.collectAsState()
 
-    // Sync data to WebView when it changes - 只在页面准备好后才推送
-    LaunchedEffect(papers, webViewRef, isPageReady) {
-        if (isPageReady) {
+    // Sync data to WebView when it changes - 只在页面准备好且不在处理tab切换时才推送
+    LaunchedEffect(papers, webViewRef, isPageReady, isHandlingTabSwitch) {
+        if (isPageReady && !isHandlingTabSwitch) {
             webViewRef?.let { wv ->
                 val jsonStr = viewModel.getPapersJson()
                 android.util.Log.d("MainScreen", "Syncing papers to WebView: ${papers.size} items")
@@ -92,8 +156,8 @@ fun MainScreen(
         }
     }
 
-    LaunchedEffect(competitions, webViewRef, isPageReady) {
-        if (isPageReady) {
+    LaunchedEffect(competitions, webViewRef, isPageReady, isHandlingTabSwitch) {
+        if (isPageReady && !isHandlingTabSwitch) {
             webViewRef?.let { wv ->
                 val jsonStr = viewModel.getCompetitionsJson()
                 android.util.Log.d("MainScreen", "Syncing competitions to WebView: ${competitions.size} items")
@@ -102,8 +166,8 @@ fun MainScreen(
         }
     }
     
-    LaunchedEffect(insights, webViewRef, isPageReady) {
-        if (isPageReady) {
+    LaunchedEffect(insights, webViewRef, isPageReady, isHandlingTabSwitch) {
+        if (isPageReady && !isHandlingTabSwitch) {
             webViewRef?.let { wv ->
                 val jsonStr = viewModel.getInsightsJson()
                 android.util.Log.d("MainScreen", "Syncing insights to WebView: ${insights.size} items")
@@ -112,8 +176,8 @@ fun MainScreen(
         }
     }
     
-    LaunchedEffect(projectsState, webViewRef, isPageReady) {
-        if (isPageReady) {
+    LaunchedEffect(projectsState, webViewRef, isPageReady, isHandlingTabSwitch) {
+        if (isPageReady && !isHandlingTabSwitch) {
             webViewRef?.let { wv ->
                 val jsonStr = viewModel.getProjectsJson()
                 android.util.Log.d("MainScreen", "Syncing projects to WebView: ${projectsState.size} items")
@@ -188,6 +252,19 @@ fun MainScreen(
                                 
                                 // 同时触发刷新以获取最新数据
                                 viewModel.fetchData()
+                                
+                                // 1秒后再次推送数据，确保数据刷新后同步到 WebView
+                                view.postDelayed({
+                                    val latestPapersJson = viewModel.getPapersJson()
+                                    val latestCompetitionsJson = viewModel.getCompetitionsJson()
+                                    val latestInsightsJson = viewModel.getInsightsJson()
+                                    val latestProjectsJson = viewModel.getProjectsJson()
+                                    android.util.Log.d("MainScreen", "Re-pushing data after refresh: papers=${viewModel.papers.value.size}")
+                                    view.evaluateJavascript("if(window.receivePapers) window.receivePapers($latestPapersJson)", null)
+                                    view.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($latestCompetitionsJson)", null)
+                                    view.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($latestInsightsJson)", null)
+                                    view.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($latestProjectsJson)", null)
+                                }, 1000)
                             }, 500)
                         }
                     }
