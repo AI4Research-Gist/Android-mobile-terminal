@@ -27,8 +27,6 @@
 
 应用采用 Hybrid UI：**主列表与交互使用 WebView 内的 React/Tailwind 页面**，详情页与系统能力使用 **原生 Compose**。
 
-> 说明：代码层仍保留旧命名（包名/类名/DB 名等为 `ai4research`），对外名称已统一为 **Gist**。
-
 ## 当前功能（以代码实现为准）
 
 - **混合 UI**：`assets/main_ui.html` + `assets/login.html` 作为主/登录界面，详情页为 Compose。
