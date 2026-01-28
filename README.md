@@ -1,7 +1,7 @@
 ﻿# Gist
 
 <p align="center">
-  <img src="app/src/main/assets/logo.png" alt="Gist Logo" width="120"/>
+  <img src="app/src/main/assets/logo.jpg" alt="Gist Logo" width="120"/>
 </p>
 
 <p align="center">
