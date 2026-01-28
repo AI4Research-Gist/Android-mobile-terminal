@@ -34,7 +34,8 @@
 - **详情页**：Markdown 渲染、编辑保存、标记已读/星标/删除、项目归属同步。
 - **账号系统**：NocoDB 用户表注册/登录；本地 EncryptedSharedPreferences 缓存 token。
 - **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接；AI 解析入库。
-- **AI 能力**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要。
+- **语音采集**：语音录制 + 本地识别 + AI 润色优化，快速记录灵感。
+- **AI 能力**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
 > 注意：Web UI 依赖 CDN/ESM（React、Tailwind、Framer Motion、Lucide），运行时需要网络。
@@ -130,6 +131,7 @@ app/src/main/
 | 权限 | 用途 |
 |------|------|
 | `INTERNET` | 访问 NocoDB / AI 服务 / Web 依赖 |
+| `RECORD_AUDIO` | 语音采集录音 |
 | `SYSTEM_ALERT_WINDOW` | 悬浮窗显示 |
 | `FOREGROUND_SERVICE` | 悬浮窗服务常驻 |
 | `FOREGROUND_SERVICE_MEDIA_PROJECTION` | 截图能力 |

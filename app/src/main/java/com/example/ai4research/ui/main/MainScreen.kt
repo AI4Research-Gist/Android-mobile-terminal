@@ -37,6 +37,7 @@ import kotlinx.coroutines.launch
 fun MainScreen(
     onLogout: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
+    onNavigateToVoiceRecording: () -> Unit = {},
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -100,11 +101,13 @@ fun MainScreen(
                 val competitionsJson = viewModel.getCompetitionsJson()
                 val insightsJson = viewModel.getInsightsJson()
                 val projectsJson = viewModel.getProjectsJson()
-                android.util.Log.d("MainScreen", "推送数据: papers=${viewModel.papers.value.size}, insights=${viewModel.insights.value.size}")
+                val voiceItemsJson = viewModel.getVoiceItemsJson()
+                android.util.Log.d("MainScreen", "推送数据: papers=${viewModel.papers.value.size}, insights=${viewModel.insights.value.size}, voice=${viewModel.voiceItems.value.size}")
                 webViewRef?.evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
                 webViewRef?.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
                 webViewRef?.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
                 webViewRef?.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
+                webViewRef?.evaluateJavascript("if(window.receiveVoiceItems) window.receiveVoiceItems($voiceItemsJson)", null)
                 
                 // 4. 切换到目标Tab
                 kotlinx.coroutines.delay(100)
@@ -139,7 +142,8 @@ fun MainScreen(
             coroutineScope = coroutineScope,
             viewModel = viewModel,
             onLogout = onLogout,
-            onNavigateToDetail = onNavigateToDetail
+            onNavigateToDetail = onNavigateToDetail,
+            onNavigateToVoiceRecording = onNavigateToVoiceRecording
         )
     }
     
@@ -244,11 +248,13 @@ fun MainScreen(
                                 val competitionsJson = viewModel.getCompetitionsJson()
                                 val insightsJson = viewModel.getInsightsJson()
                                 val projectsJson = viewModel.getProjectsJson()
-                                android.util.Log.d("MainScreen", "Pushing initial data to WebView: papers=${viewModel.papers.value.size}, competitions=${viewModel.competitions.value.size}, insights=${viewModel.insights.value.size}")
+                                val voiceItemsJson = viewModel.getVoiceItemsJson()
+                                android.util.Log.d("MainScreen", "Pushing initial data to WebView: papers=${viewModel.papers.value.size}, competitions=${viewModel.competitions.value.size}, insights=${viewModel.insights.value.size}, voice=${viewModel.voiceItems.value.size}")
                                 view.evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
                                 view.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
                                 view.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
                                 view.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
+                                view.evaluateJavascript("if(window.receiveVoiceItems) window.receiveVoiceItems($voiceItemsJson)", null)
                                 
                                 // 同时触发刷新以获取最新数据
                                 viewModel.fetchData()
@@ -259,11 +265,13 @@ fun MainScreen(
                                     val latestCompetitionsJson = viewModel.getCompetitionsJson()
                                     val latestInsightsJson = viewModel.getInsightsJson()
                                     val latestProjectsJson = viewModel.getProjectsJson()
-                                    android.util.Log.d("MainScreen", "Re-pushing data after refresh: papers=${viewModel.papers.value.size}")
+                                    val latestVoiceItemsJson = viewModel.getVoiceItemsJson()
+                                    android.util.Log.d("MainScreen", "Re-pushing data after refresh: papers=${viewModel.papers.value.size}, voice=${viewModel.voiceItems.value.size}")
                                     view.evaluateJavascript("if(window.receivePapers) window.receivePapers($latestPapersJson)", null)
                                     view.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($latestCompetitionsJson)", null)
                                     view.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($latestInsightsJson)", null)
                                     view.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($latestProjectsJson)", null)
+                                    view.evaluateJavascript("if(window.receiveVoiceItems) window.receiveVoiceItems($latestVoiceItemsJson)", null)
                                 }, 1000)
                             }, 500)
                         }
@@ -290,10 +298,12 @@ fun MainScreen(
                         val competitionsJson = viewModel.getCompetitionsJson()
                         val insightsJson = viewModel.getInsightsJson()
                         val projectsJson = viewModel.getProjectsJson()
+                        val voiceItemsJson = viewModel.getVoiceItemsJson()
                         evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
                         evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
                         evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
                         evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
+                        evaluateJavascript("if(window.receiveVoiceItems) window.receiveVoiceItems($voiceItemsJson)", null)
                     }
                 }
             }
@@ -324,7 +334,8 @@ class MainAppInterface(
     private val coroutineScope: CoroutineScope,
     private val viewModel: MainViewModel,
     private val onLogout: () -> Unit,
-    private val onNavigateToDetail: (String) -> Unit
+    private val onNavigateToDetail: (String) -> Unit,
+    private val onNavigateToVoiceRecording: () -> Unit = {}
 ) {
     @JavascriptInterface
     fun logout() {
@@ -411,6 +422,18 @@ class MainAppInterface(
     fun setFloatingWindowEnabled(enabled: Boolean) {
         coroutineScope.launch {
             floatingWindowManager.setFloatingWindowEnabled(enabled)
+        }
+    }
+    
+    /**
+     * 启动语音录制页面
+     * 由WebView中的语音按钮调用
+     */
+    @JavascriptInterface
+    fun startVoiceRecording() {
+        android.util.Log.d("MainAppInterface", "startVoiceRecording called")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onNavigateToVoiceRecording()
         }
     }
 }

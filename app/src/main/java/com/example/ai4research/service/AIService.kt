@@ -14,6 +14,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -268,6 +271,96 @@ class AIService @Inject constructor(
                 Result.failure(Exception("AI 返回内容为空"))
             }
         } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * 优化语音识别文本 - 使用AI润色和结构化识别结果
+     * @param rawText 原始语音识别文本
+     * @return 优化后的文本
+     */
+    suspend fun enhanceTranscription(rawText: String): Result<String> = withContext(Dispatchers.IO) {
+        if (rawText.isBlank()) {
+            return@withContext Result.failure(Exception("语音识别结果为空"))
+        }
+        
+        try {
+            val systemPrompt = """你是一个专业的语音转文字优化助手。请对以下语音识别文本进行优化：
+1. 纠正可能的识别错误（同音字、语法错误等）
+2. 添加适当的标点符号
+3. 保持原意不变，尽量不增减内容
+4. 如果识别结果本身没有问题，直接返回原文
+
+只返回优化后的文本，不要添加任何解释或额外内容。"""
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = "请优化以下语音识别文本：\n$rawText")
+                ),
+                maxTokens = 1024
+            )
+            
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content?.trim()
+            
+            if (!content.isNullOrBlank()) {
+                android.util.Log.d("AIService", "语音优化完成: ${rawText.take(30)}... -> ${content.take(30)}...")
+                Result.success(content)
+            } else {
+                // AI返回空则使用原文
+                Result.success(rawText)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("AIService", "语音优化失败，使用原文: ${e.message}")
+            // 优化失败时返回原文
+            Result.success(rawText)
+        }
+    }
+    
+    /**
+     * 音频转文字 - 使用SiliconFlow ASR API
+     * @param audioFilePath 音频文件路径
+     * @return 转写文本
+     */
+    suspend fun transcribeAudio(audioFilePath: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val audioFile = java.io.File(audioFilePath)
+            if (!audioFile.exists()) {
+                return@withContext Result.failure(Exception("音频文件不存在"))
+            }
+            
+            android.util.Log.d("AIService", "开始转写音频: $audioFilePath, 大小: ${audioFile.length()} bytes")
+            
+            // 创建音频文件的RequestBody
+            val mediaType = "audio/mpeg".toMediaType()
+            val requestBody = audioFile.asRequestBody(mediaType)
+            
+            // 创建Multipart
+            val filePart = okhttp3.MultipartBody.Part.createFormData(
+                "file", 
+                audioFile.name, 
+                requestBody
+            )
+            
+            // 模型参数
+            val modelBody = SiliconFlowApiService.MODEL_ASR.toRequestBody("text/plain".toMediaType())
+            
+            // 调用API
+            val response = siliconFlowApi.audioTranscription(AUTH_HEADER, filePart, modelBody)
+            val text = response.text.trim()
+            
+            if (text.isNotBlank()) {
+                android.util.Log.d("AIService", "音频转写完成: ${text.take(50)}...")
+                Result.success(text)
+            } else {
+                android.util.Log.w("AIService", "音频转写结果为空")
+                Result.failure(Exception("转写结果为空"))
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AIService", "音频转写失败: ${e.message}", e)
             Result.failure(e)
         }
     }

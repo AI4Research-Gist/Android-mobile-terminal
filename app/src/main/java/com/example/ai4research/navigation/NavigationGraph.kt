@@ -102,6 +102,9 @@ fun NavigationGraph(
                 },
                 onNavigateToDetail = { itemId ->
                     navController.navigate(Screen.Detail.createRoute(itemId))
+                },
+                onNavigateToVoiceRecording = {
+                    navController.navigate(Screen.VoiceRecording.route)
                 }
             )
         }
@@ -115,6 +118,18 @@ fun NavigationGraph(
             DetailScreen(
                 itemId = itemId,
                 onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+        
+        // 语音录制页面
+        composable(Screen.VoiceRecording.route) {
+            com.example.ai4research.ui.voice.VoiceRecordingScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onSaveSuccess = { itemId ->
                     navController.popBackStack()
                 }
             )

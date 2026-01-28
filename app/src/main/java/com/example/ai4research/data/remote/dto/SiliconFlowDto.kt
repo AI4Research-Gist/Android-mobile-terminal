@@ -146,3 +146,10 @@ data class VLContent(
 data class VLImageUrl(
     val url: String
 )
+
+// ==================== 音频转写响应 ====================
+
+@Serializable
+data class TranscriptionResponse(
+    val text: String
+)

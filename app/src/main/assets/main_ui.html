@@ -110,31 +110,27 @@
       position: relative;
       overflow: hidden;
     }
-    
+
     .liquid-glass::before {
       content: '';
       position: absolute;
       inset: 0;
       border-radius: inherit;
-      background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.4) 0%,
-        rgba(255, 255, 255, 0.1) 50%,
-        rgba(255, 255, 255, 0.05) 100%
-      );
+      background: linear-gradient(135deg,
+          rgba(255, 255, 255, 0.4) 0%,
+          rgba(255, 255, 255, 0.1) 50%,
+          rgba(255, 255, 255, 0.05) 100%);
       pointer-events: none;
       z-index: 1;
     }
-    
+
     .liquid-glass-dark::before {
-      background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.15) 0%,
-        rgba(255, 255, 255, 0.05) 50%,
-        rgba(255, 255, 255, 0.02) 100%
-      );
+      background: linear-gradient(135deg,
+          rgba(255, 255, 255, 0.15) 0%,
+          rgba(255, 255, 255, 0.05) 50%,
+          rgba(255, 255, 255, 0.02) 100%);
     }
-    
+
     /* Edge highlight for glass refraction effect */
     .liquid-glass::after {
       content: '';
@@ -142,28 +138,25 @@
       inset: 0;
       border-radius: inherit;
       padding: 1px;
-      background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.6) 0%,
-        rgba(255, 255, 255, 0.2) 30%,
-        transparent 60%,
-        rgba(255, 255, 255, 0.1) 100%
-      );
+      background: linear-gradient(135deg,
+          rgba(255, 255, 255, 0.6) 0%,
+          rgba(255, 255, 255, 0.2) 30%,
+          transparent 60%,
+          rgba(255, 255, 255, 0.1) 100%);
       -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
       -webkit-mask-composite: xor;
       mask-composite: exclude;
       pointer-events: none;
       z-index: 2;
     }
-    
+
     .liquid-glass-dark::after {
-      background: linear-gradient(
-        135deg,
-        rgba(255, 255, 255, 0.25) 0%,
-        rgba(255, 255, 255, 0.1) 30%,
-        transparent 60%,
-        rgba(16, 185, 129, 0.15) 100%
-      );
+      background: linear-gradient(135deg,
+          rgba(255, 255, 255, 0.25) 0%,
+          rgba(255, 255, 255, 0.1) 30%,
+          transparent 60%,
+          rgba(16, 185, 129, 0.15) 100%);
     }
   </style>
   <!-- Import dependencies as modules and expose to window for Babel script -->
@@ -188,23 +181,26 @@
   <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;">
     <defs>
       <!-- Light mode liquid glass filter -->
-      <filter id="liquid-glass-light" x="-50%" y="-50%" width="200%" height="200%" filterUnits="objectBoundingBox" colorInterpolationFilters="sRGB">
-        <feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur"/>
-        <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0.02  0 1 0 0 0.02  0 0 1 0 0.02  0 0 0 1 0" result="brighten"/>
-        <feComposite in="brighten" in2="SourceGraphic" operator="over"/>
+      <filter id="liquid-glass-light" x="-50%" y="-50%" width="200%" height="200%" filterUnits="objectBoundingBox"
+        colorInterpolationFilters="sRGB">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="blur" />
+        <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0.02  0 1 0 0 0.02  0 0 1 0 0.02  0 0 0 1 0"
+          result="brighten" />
+        <feComposite in="brighten" in2="SourceGraphic" operator="over" />
       </filter>
-      
+
       <!-- Dark mode liquid glass filter with subtle glow -->
-      <filter id="liquid-glass-dark" x="-50%" y="-50%" width="200%" height="200%" filterUnits="objectBoundingBox" colorInterpolationFilters="sRGB">
-        <feGaussianBlur in="SourceGraphic" stdDeviation="0.3" result="blur"/>
-        <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1.05 0 0 0  0 0 1 0 0  0 0 0 1 0" result="tint"/>
-        <feComposite in="tint" in2="SourceGraphic" operator="over"/>
+      <filter id="liquid-glass-dark" x="-50%" y="-50%" width="200%" height="200%" filterUnits="objectBoundingBox"
+        colorInterpolationFilters="sRGB">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.3" result="blur" />
+        <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1.05 0 0 0  0 0 1 0 0  0 0 0 1 0" result="tint" />
+        <feComposite in="tint" in2="SourceGraphic" operator="over" />
       </filter>
 
       <!-- Displacement map for refraction effect -->
       <filter id="liquid-refract" x="-10%" y="-10%" width="120%" height="120%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" result="noise" seed="5"/>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+        <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" result="noise" seed="5" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="3" xChannelSelector="R" yChannelSelector="G" />
       </filter>
     </defs>
   </svg>
@@ -248,7 +244,7 @@
           } else if (meta.authors && typeof meta.authors === 'string') {
             authors = meta.authors;
           }
-          
+
           // 解析来源信息
           let source = "";
           if (meta.source && meta.source.length > 0) {
@@ -263,7 +259,7 @@
           if (!source) {
             source = "未知来源";
           }
-          
+
           // 解析双语摘要
           const summaryEn = meta.summary_en || "";
           const summaryZh = meta.summary_zh || "";
@@ -277,7 +273,7 @@
           // 解析 read_status，去掉括号内的中文说明
           const rawReadStatus = item.read_status || 'unread';
           const readStatus = rawReadStatus.split(' ')[0].toLowerCase();
-          
+
           // 解析 status，去掉括号内的中文说明
           const rawStatus = item.status || 'processing';
           const status = rawStatus.split(' ')[0].toLowerCase();
@@ -376,11 +372,55 @@
             category: meta.category || "未分类",
             readStatus: readStatus,
             status: status,
-            timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚"
+            timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚",
+            itemType: 'insight'
           };
         });
         window.dispatchEvent(new CustomEvent('insights-updated', { detail: mapped }));
       } catch (e) { console.error("Error parsing insights", e); }
+    };
+
+    window.receiveVoiceItems = (jsonStr) => {
+      console.log("receiveVoiceItems called with:", typeof jsonStr, jsonStr ? String(jsonStr).substring(0, 200) : "null");
+      try {
+        const data = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+        console.log("Parsed voice items data:", data.length, "items");
+        const mapped = data.map(item => {
+          let meta = {};
+          try {
+            if (typeof item.meta_json === 'string') {
+              meta = JSON.parse(item.meta_json || '{}');
+            } else if (item.meta_json && typeof item.meta_json === 'object') {
+              meta = item.meta_json;
+            }
+          } catch (e) { }
+
+          const rawReadStatus = item.read_status || 'unread';
+          const readStatus = rawReadStatus.split(' ')[0].toLowerCase();
+          const rawStatus = item.status || 'done';
+          const status = rawStatus.split(' ')[0].toLowerCase();
+
+          // 格式化时长
+          const duration = meta.duration || 0;
+          const minutes = Math.floor(duration / 60);
+          const seconds = duration % 60;
+          const durationStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+
+          return {
+            id: item.Id || item.id,
+            title: item.title || "语音灵感",
+            summary: meta.transcription || item.summary || "暂无转写内容",
+            duration: duration,
+            durationStr: durationStr,
+            audioUrl: item.audio_url,
+            readStatus: readStatus,
+            status: status,
+            timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚",
+            itemType: 'voice'
+          };
+        });
+        window.dispatchEvent(new CustomEvent('voice-items-updated', { detail: mapped }));
+      } catch (e) { console.error("Error parsing voice items", e); }
     };
 
     // --- 主题上下文配置 ---
@@ -405,13 +445,13 @@
                 ${className}
               `}
           style={{
-            background: isDark 
-              ? 'rgba(255, 255, 255, 0.03)' 
+            background: isDark
+              ? 'rgba(255, 255, 255, 0.03)'
               : 'rgba(255, 255, 255, 0.15)',
             backdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
             WebkitBackdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
-            border: isDark 
-              ? '1px solid rgba(255, 255, 255, 0.08)' 
+            border: isDark
+              ? '1px solid rgba(255, 255, 255, 0.08)'
               : '1px solid rgba(255, 255, 255, 0.35)',
             boxShadow: isDark
               ? '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px rgba(255, 255, 255, 0.03)'
@@ -469,15 +509,16 @@
 
     // --- 页面视图 ---
 
-    const HomeView = ({ papers, competitions, insights }) => {
+    const HomeView = ({ papers, competitions, insights, voiceItems }) => {
       const { isDark } = useContext(ThemeContext);
 
-      // 最近捕获的内容 - 只显示动态(insight)，不显示竞赛（竞赛在下面单独显示）
+      // 合并insights和voiceItems，统一显示在"最近动态"区域
       // 按时间排序，最新的在最上面
-      const sortedInsights = [...(insights || [])]
-        .sort((a, b) => new Date(b.CreatedAt || 0) - new Date(a.CreatedAt || 0))
-        .map(i => ({ ...i, itemType: 'insight' }));
-      
+      const allDynamics = [
+        ...(insights || []).map(i => ({ ...i, itemType: i.itemType || 'insight' })),
+        ...(voiceItems || []).map(v => ({ ...v, itemType: 'voice' }))
+      ].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
       // 竞赛按时间排序，最新的在最左边
       const sortedCompetitions = [...(competitions || [])]
         .sort((a, b) => new Date(b.CreatedAt || 0) - new Date(a.CreatedAt || 0));
@@ -506,13 +547,13 @@
             </div>
           </div>
 
-          {/* 最近捕获 Section - 只显示动态 */}
+          {/* 最近捕获 Section - 显示动态和语音 */}
           <SectionHeader icon={Lightbulb} title="最近动态" colorClass="text-amber-400" />
 
-          {sortedInsights.length > 0 ? (
+          {allDynamics.length > 0 ? (
             <div className="space-y-3">
-              {sortedInsights.map((item, idx) => (
-                <GlassCard key={item.id} delay={0.05 * idx} className="group" onClick={() => {
+              {allDynamics.map((item, idx) => (
+                <GlassCard key={`${item.itemType}-${item.id}`} delay={0.05 * idx} className="group" onClick={() => {
                   if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
                     window.AndroidInterface.navigateToDetail(String(item.id));
                   }
@@ -520,48 +561,53 @@
                   {/* 顶部状态指示器 */}
                   <div className={`absolute top-0 right-0 p-3 transition-opacity duration-500 ${isDark ? 'opacity-50' : 'opacity-100'}`}>
                     <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold tracking-wider uppercase ${
-                        item.status === 'done' 
-                          ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
-                          : item.status === 'failed'
+                      <span className={`text-[10px] font-bold tracking-wider uppercase ${item.status === 'done'
+                        ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
+                        : item.status === 'failed'
                           ? (isDark ? 'text-red-400' : 'text-red-600')
                           : (isDark ? 'text-amber-400' : 'text-amber-600')
-                      }`}>
-                        {item.status === 'done' ? '已解析' : item.status === 'failed' ? '解析失败' : '解析中'}
+                        }`}>
+                        {item.itemType === 'voice'
+                          ? (item.status === 'done' ? '已转写' : '转写中')
+                          : (item.status === 'done' ? '已解析' : item.status === 'failed' ? '解析失败' : '解析中')}
                       </span>
-                      <div className={`w-1.5 h-1.5 rounded-full animate-pulse shadow-lg ${
-                        item.status === 'done' ? 'bg-emerald-400 shadow-emerald-500/50' : 
-                        item.status === 'failed' ? 'bg-red-400 shadow-red-500/50' : 
-                        'bg-amber-400 shadow-amber-500/50'
-                      }`} />
+                      <div className={`w-1.5 h-1.5 rounded-full animate-pulse shadow-lg ${item.status === 'done' ? 'bg-emerald-400 shadow-emerald-500/50' :
+                        item.status === 'failed' ? 'bg-red-400 shadow-red-500/50' :
+                          'bg-amber-400 shadow-amber-500/50'
+                        }`} />
                     </div>
                   </div>
 
                   <div className="flex items-start gap-4 mb-3">
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-amber-500/20 bg-gradient-to-br from-amber-500 to-orange-500">
-                      <Lightbulb className="w-6 h-6" />
+                    {/* 根据类型显示不同图标：voice用麦克风，insight用灯泡 */}
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg ${item.itemType === 'voice'
+                      ? 'shadow-orange-500/20 bg-gradient-to-br from-orange-500 to-red-500'
+                      : 'shadow-amber-500/20 bg-gradient-to-br from-amber-500 to-orange-500'
+                      }`}>
+                      {item.itemType === 'voice' ? <Mic className="w-6 h-6" /> : <Lightbulb className="w-6 h-6" />}
                     </div>
                     <div className="flex-1 pt-1 pr-16">
                       <h3 className={`text-base font-bold leading-tight mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                         {item.title}
                       </h3>
                       <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        {item.source || '灵感'}
+                        {item.itemType === 'voice' ? `语音 · ${item.durationStr || ''}` : (item.source || '灵感')}
                       </p>
                     </div>
                   </div>
 
-                  {/* AI Summary Block */}
+                  {/* 内容区域 - voice显示转写文本，insight显示摘要 */}
                   {item.summary && (
-                    <div className={`p-3 rounded-xl border transition-all duration-500 ${isDark
-                      ? 'bg-emerald-900/20 border-emerald-500/10'
-                      : 'bg-emerald-50/50 border-emerald-100'
-                    }`}>
-                      <div className="flex items-center gap-2 text-xs font-semibold text-emerald-500 mb-2">
-                        <Sparkles className="w-3 h-3" />
-                        <span>AI 核心摘要</span>
-                        {/* 双语切换按钮 */}
-                        {item.summaryEn && item.summaryZh && (
+                    <div className={`p-3 rounded-xl border transition-all duration-500 ${item.itemType === 'voice'
+                      ? (isDark ? 'bg-orange-900/20 border-orange-500/10' : 'bg-orange-50/50 border-orange-100')
+                      : (isDark ? 'bg-emerald-900/20 border-emerald-500/10' : 'bg-emerald-50/50 border-emerald-100')
+                      }`}>
+                      <div className={`flex items-center gap-2 text-xs font-semibold mb-2 ${item.itemType === 'voice' ? 'text-orange-500' : 'text-emerald-500'
+                        }`}>
+                        {item.itemType === 'voice' ? <Mic className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                        <span>{item.itemType === 'voice' ? '语音转写' : 'AI 核心摘要'}</span>
+                        {/* 双语切换按钮 - 仅insight有 */}
+                        {item.itemType === 'insight' && item.summaryEn && item.summaryZh && (
                           <div className="ml-auto flex gap-1">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}
                               onClick={(e) => {
@@ -578,7 +624,10 @@
                           </div>
                         )}
                       </div>
-                      <p className={`summary-text text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-emerald-100/90' : 'text-slate-700'}`}>
+                      <p className={`summary-text text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${item.itemType === 'voice'
+                        ? (isDark ? 'text-orange-100/90' : 'text-slate-700')
+                        : (isDark ? 'text-emerald-100/90' : 'text-slate-700')
+                        }`}>
                         "{item.summary}"
                       </p>
                     </div>
@@ -587,17 +636,19 @@
                   {/* 底部状态标签 */}
                   <div className="flex items-center justify-between mt-3">
                     <div className="flex gap-2">
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
-                        item.readStatus === 'read' 
-                          ? (isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-50 text-emerald-600')
-                          : item.readStatus === 'reading'
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${item.readStatus === 'read'
+                        ? (isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-50 text-emerald-600')
+                        : item.readStatus === 'reading'
                           ? (isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-50 text-blue-600')
                           : (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-50 text-amber-600')
-                      }`}>
+                        }`}>
                         {item.readStatus === 'read' ? '已读' : item.readStatus === 'reading' ? '在读' : '未读'}
                       </span>
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-50 text-amber-600'}`}>
-                        动态
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${item.itemType === 'voice'
+                        ? (isDark ? 'bg-orange-500/20 text-orange-300' : 'bg-orange-50 text-orange-600')
+                        : (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-50 text-amber-600')
+                        }`}>
+                        {item.itemType === 'voice' ? '语音' : '动态'}
                       </span>
                     </div>
                     <span className={`text-xs ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
@@ -660,7 +711,7 @@
           window.AndroidInterface.search(query);
         }
       };
-      
+
       const handleToggleSearch = () => {
         if (showSearch) {
           // 收回时先清空搜索
@@ -671,7 +722,7 @@
         }
         setShowSearch(!showSearch);
       };
-      
+
       // 构建筛选按钮列表：全部、未读、标星 + 动态项目列表
       const filters = [
         { label: "全部", type: "all", projectId: null },
@@ -679,7 +730,7 @@
         { label: "标星", type: "starred", projectId: null },
         ...projects.map(p => ({ label: p.name, type: "project", projectId: p.id }))
       ];
-      
+
       const handleFilterClick = (index, filter) => {
         console.log("Filter clicked:", index, filter);
         setActiveFilterIndex(index);
@@ -693,12 +744,12 @@
           onFilterChange(filter);
         }
       };
-      
+
       const handleMenuClick = (e, paperId) => {
         e.stopPropagation();
         setMenuOpenId(menuOpenId === paperId ? null : paperId);
       };
-      
+
       const handleEditClick = (e, paperId) => {
         e.stopPropagation();
         setMenuOpenId(null);
@@ -710,7 +761,7 @@
           console.log("AndroidInterface.navigateToDetail not available");
         }
       };
-      
+
       const handleDeleteClick = (e, paperId) => {
         e.stopPropagation();
         setMenuOpenId(null);
@@ -725,11 +776,10 @@
             <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>论文库</h1>
             <button
               onClick={handleToggleSearch}
-              className={`p-2.5 rounded-full transition-all duration-300 ${
-                showSearch 
-                  ? (isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-50 text-emerald-600')
-                  : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50')
-              }`}>
+              className={`p-2.5 rounded-full transition-all duration-300 ${showSearch
+                ? (isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-50 text-emerald-600')
+                : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50')
+                }`}>
               {showSearch ? <X className="w-5 h-5" /> : <Search className="w-5 h-5" />}
             </button>
           </div>
@@ -745,13 +795,13 @@
                 autoFocus
                 className={`liquid-glass ${isDark ? 'liquid-glass-dark' : ''} w-full p-3 rounded-xl outline-none transition-colors duration-300`}
                 style={{
-                  background: isDark 
-                    ? 'rgba(255, 255, 255, 0.03)' 
+                  background: isDark
+                    ? 'rgba(255, 255, 255, 0.03)'
                     : 'rgba(255, 255, 255, 0.12)',
                   backdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
                   WebkitBackdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
-                  border: isDark 
-                    ? '1px solid rgba(255, 255, 255, 0.08)' 
+                  border: isDark
+                    ? '1px solid rgba(255, 255, 255, 0.08)'
                     : '1px solid rgba(255, 255, 255, 0.3)',
                   color: isDark ? '#fff' : '#1e293b',
                   boxShadow: isDark
@@ -764,24 +814,24 @@
 
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
             {filters.map((filter, i) => (
-              <button 
-                key={filter.label + i} 
+              <button
+                key={filter.label + i}
                 onClick={() => handleFilterClick(i, filter)}
                 className={`${i !== activeFilterIndex ? `liquid-glass ${isDark ? 'liquid-glass-dark' : ''}` : ''} px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 flex-shrink-0`}
                 style={i === activeFilterIndex ? {
                   background: isDark ? 'rgba(255,255,255,0.85)' : '#1e293b',
                   color: isDark ? '#000' : '#fff',
-                  boxShadow: isDark 
-                    ? '0 4px 12px rgba(255,255,255,0.15)' 
+                  boxShadow: isDark
+                    ? '0 4px 12px rgba(255,255,255,0.15)'
                     : '0 4px 12px rgba(0,0,0,0.12)'
                 } : {
-                  background: isDark 
-                    ? 'rgba(255, 255, 255, 0.02)' 
+                  background: isDark
+                    ? 'rgba(255, 255, 255, 0.02)'
                     : 'rgba(255, 255, 255, 0.1)',
                   backdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
                   WebkitBackdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
-                  border: isDark 
-                    ? '1px solid rgba(255, 255, 255, 0.06)' 
+                  border: isDark
+                    ? '1px solid rgba(255, 255, 255, 0.06)'
                     : '1px solid rgba(255, 255, 255, 0.25)',
                   color: isDark ? 'rgba(255,255,255,0.75)' : '#475569',
                   boxShadow: isDark
@@ -817,23 +867,21 @@
                 <div className="flex justify-between items-start">
                   <div className="flex gap-2 flex-wrap">
                     {/* 阅读状态标签 */}
-                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
-                      paper.readStatus === 'read' 
-                        ? (isDark ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200')
-                        : paper.readStatus === 'reading'
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${paper.readStatus === 'read'
+                      ? (isDark ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200')
+                      : paper.readStatus === 'reading'
                         ? (isDark ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' : 'bg-blue-50 text-blue-600 border border-blue-200')
                         : (isDark ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-amber-50 text-amber-600 border border-amber-200')
-                    }`}>
+                      }`}>
                       {paper.readStatus === 'read' ? '已读' : paper.readStatus === 'reading' ? '在读' : '未读'}
                     </span>
                     {/* 解析状态标签 */}
-                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
-                      paper.status === 'done' 
-                        ? (isDark ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' : 'bg-teal-50 text-teal-600 border border-teal-200')
-                        : paper.status === 'failed'
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${paper.status === 'done'
+                      ? (isDark ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' : 'bg-teal-50 text-teal-600 border border-teal-200')
+                      : paper.status === 'failed'
                         ? (isDark ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-red-50 text-red-600 border border-red-200')
                         : (isDark ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-purple-50 text-purple-600 border border-purple-200')
-                    }`}>
+                      }`}>
                       {paper.status === 'done' ? '已解析' : paper.status === 'failed' ? '解析失败' : '解析中'}
                     </span>
                     {/* 项目归属标签 */}
@@ -845,7 +893,7 @@
                   </div>
                   {/* 三个点菜单 */}
                   <div className="relative">
-                    <button 
+                    <button
                       onClick={(e) => handleMenuClick(e, paper.id)}
                       className={`p-1 rounded-lg transition-colors duration-300 ${isDark ? 'text-white/30 hover:text-white hover:bg-white/10' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}
                     >
@@ -853,27 +901,27 @@
                     </button>
                     {/* 下拉菜单 */}
                     {menuOpenId === paper.id && (
-                      <div 
+                      <div
                         className={`absolute right-0 top-8 z-50 min-w-[120px] rounded-xl overflow-hidden shadow-lg`}
                         style={{
-                          background: isDark 
-                            ? '#1f2937' 
+                          background: isDark
+                            ? '#1f2937'
                             : '#ffffff',
-                          border: isDark 
-                            ? '1px solid rgba(255, 255, 255, 0.1)' 
+                          border: isDark
+                            ? '1px solid rgba(255, 255, 255, 0.1)'
                             : '1px solid rgba(0, 0, 0, 0.08)',
                           boxShadow: isDark
                             ? '0 8px 24px rgba(0, 0, 0, 0.5)'
                             : '0 8px 24px rgba(0, 0, 0, 0.15)'
                         }}
                       >
-                        <button 
+                        <button
                           onClick={(e) => handleEditClick(e, paper.id)}
                           className={`w-full px-4 py-2.5 text-sm text-left flex items-center gap-2 ${isDark ? 'text-white hover:bg-white/10' : 'text-slate-700 hover:bg-slate-50'}`}
                         >
                           <span>📝</span> 编辑
                         </button>
-                        <button 
+                        <button
                           onClick={(e) => handleDeleteClick(e, paper.id)}
                           className={`w-full px-4 py-2.5 text-sm text-left flex items-center gap-2 ${isDark ? 'text-red-400 hover:bg-red-500/10' : 'text-red-500 hover:bg-red-50'}`}
                         >
@@ -1091,13 +1139,13 @@
             transition={{ type: "spring", damping: 30, stiffness: 400 }}
             className={`liquid-glass ${isDark ? 'liquid-glass-dark' : ''} w-full max-w-md relative z-10 rounded-[2.5rem] p-6 pb-8`}
             style={{
-              background: isDark 
-                ? 'rgba(255, 255, 255, 0.03)' 
+              background: isDark
+                ? 'rgba(255, 255, 255, 0.03)'
                 : 'rgba(255, 255, 255, 0.15)',
               backdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
               WebkitBackdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
-              border: isDark 
-                ? '1px solid rgba(255, 255, 255, 0.08)' 
+              border: isDark
+                ? '1px solid rgba(255, 255, 255, 0.08)'
                 : '1px solid rgba(255, 255, 255, 0.35)',
               boxShadow: isDark
                 ? '0 8px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06)'
@@ -1113,11 +1161,24 @@
 
             <div className="grid grid-cols-3 gap-6">
               {[
-                { icon: LinkIcon, label: "链接", color: "from-cyan-400 to-cyan-600" },
-                { icon: ImageIcon, label: "扫描", color: "from-emerald-500 to-teal-500" },
-                { icon: Mic, label: "语音", color: "from-orange-500 to-red-500" },
+                { icon: LinkIcon, label: "链接", color: "from-cyan-400 to-cyan-600", action: "link" },
+                { icon: ImageIcon, label: "扫描", color: "from-emerald-500 to-teal-500", action: "scan" },
+                { icon: Mic, label: "语音", color: "from-orange-500 to-red-500", action: "voice" },
               ].map((item, idx) => (
-                <button key={idx} className="flex flex-col items-center gap-4 group">
+                <button
+                  key={idx}
+                  className="flex flex-col items-center gap-4 group"
+                  onClick={() => {
+                    if (item.action === 'voice' && window.AndroidInterface && window.AndroidInterface.startVoiceRecording) {
+                      window.AndroidInterface.startVoiceRecording();
+                      setShowQuickCapture(false);
+                    } else if (item.action === 'link') {
+                      // TODO: 链接采集
+                    } else if (item.action === 'scan') {
+                      // TODO: 扫描采集
+                    }
+                  }}
+                >
                   <div className={`
                          w-18 h-18 w-full aspect-square rounded-[1.5rem] flex items-center justify-center text-white shadow-xl 
                          bg-gradient-to-br ${item.color}
@@ -1133,16 +1194,16 @@
             </div>
 
             {/* Smart Paste Hint */}
-            <div 
+            <div
               className={`liquid-glass ${isDark ? 'liquid-glass-dark' : ''} mt-10 p-4 rounded-2xl flex items-center gap-3`}
               style={{
-                background: isDark 
-                  ? 'rgba(255, 255, 255, 0.02)' 
+                background: isDark
+                  ? 'rgba(255, 255, 255, 0.02)'
                   : 'rgba(255, 255, 255, 0.1)',
                 backdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
                 WebkitBackdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
-                border: isDark 
-                  ? '1px solid rgba(255, 255, 255, 0.05)' 
+                border: isDark
+                  ? '1px solid rgba(255, 255, 255, 0.05)'
                   : '1px solid rgba(255, 255, 255, 0.25)',
                 boxShadow: isDark
                   ? 'inset 0 1px 0 rgba(255, 255, 255, 0.03)'
@@ -1190,16 +1251,16 @@
           <div className={`absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t transition-colors duration-500 pointer-events-none ${isDark ? 'from-black via-black/90 to-transparent' : 'from-[#F2F2F7] via-[#F2F2F7]/90 to-transparent'
             }`} />
 
-          <div 
+          <div
             className={`liquid-glass ${isDark ? 'liquid-glass-dark' : ''} relative h-20 rounded-[2.5rem] flex items-center justify-between px-2 pointer-events-auto transition-all duration-300`}
             style={{
-              background: isDark 
-                ? 'rgba(255, 255, 255, 0.03)' 
+              background: isDark
+                ? 'rgba(255, 255, 255, 0.03)'
                 : 'rgba(255, 255, 255, 0.12)',
               backdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
               WebkitBackdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
-              border: isDark 
-                ? '1px solid rgba(255, 255, 255, 0.06)' 
+              border: isDark
+                ? '1px solid rgba(255, 255, 255, 0.06)'
                 : '1px solid rgba(255, 255, 255, 0.3)',
               boxShadow: isDark
                 ? '0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04)'
@@ -1250,6 +1311,7 @@
       const [competitions, setCompetitions] = useState([]);
       const [projects, setProjects] = useState([]);
       const [insights, setInsights] = useState([]);
+      const [voiceItems, setVoiceItems] = useState([]);
       const [currentFilter, setCurrentFilter] = useState({ type: 'all', projectId: null });
 
       const toggleTheme = () => setIsDark(!isDark);
@@ -1272,18 +1334,23 @@
           console.log("React: insights-updated event received, setting state with", e.detail.length, "items");
           setInsights(e.detail);
         };
+        const handleVoiceItems = (e) => {
+          console.log("React: voice-items-updated event received, setting state with", e.detail.length, "items");
+          setVoiceItems(e.detail);
+        };
 
         window.addEventListener('papers-updated', handlePapers);
         window.addEventListener('competitions-updated', handleCompetitions);
         window.addEventListener('projects-updated', handleProjects);
         window.addEventListener('insights-updated', handleInsights);
+        window.addEventListener('voice-items-updated', handleVoiceItems);
 
         // Request initial data
         console.log("React: App mounted, requesting initial data");
         if (window.AndroidInterface && window.AndroidInterface.requestData) {
           window.AndroidInterface.requestData();
         }
-        
+
         // 获取项目列表
         if (window.AndroidInterface && window.AndroidInterface.getProjects) {
           try {
@@ -1301,9 +1368,10 @@
           window.removeEventListener('competitions-updated', handleCompetitions);
           window.removeEventListener('projects-updated', handleProjects);
           window.removeEventListener('insights-updated', handleInsights);
+          window.removeEventListener('voice-items-updated', handleVoiceItems);
         };
       }, []);
-      
+
       // 暴露 setActiveTab 到全局，供 Android 调用
       useEffect(() => {
         window.setActiveTab = (tab) => {
@@ -1378,7 +1446,7 @@
                       exit={{ opacity: 0, scale: 1.05 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <HomeView papers={papers} competitions={competitions} insights={insights} />
+                      <HomeView papers={papers} competitions={competitions} insights={insights} voiceItems={voiceItems} />
                     </motion.div>
                   )}
                   {activeTab === 'papers' && (
@@ -1389,8 +1457,8 @@
                       exit={{ opacity: 0, x: -20 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <PapersView 
-                        papers={papers} 
+                      <PapersView
+                        papers={papers}
                         projects={projects}
                         currentFilter={currentFilter}
                         onFilterChange={setCurrentFilter}

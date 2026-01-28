@@ -44,6 +44,9 @@ class MainViewModel @Inject constructor(
     private val _insights = MutableStateFlow<List<ResearchItem>>(emptyList())
     val insights: StateFlow<List<ResearchItem>> = _insights.asStateFlow()
     
+    private val _voiceItems = MutableStateFlow<List<ResearchItem>>(emptyList())
+    val voiceItems: StateFlow<List<ResearchItem>> = _voiceItems.asStateFlow()
+    
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects.asStateFlow()
 
@@ -64,6 +67,7 @@ class MainViewModel @Inject constructor(
     private var papersCollectionJob: Job? = null
     private var competitionsCollectionJob: Job? = null
     private var insightsCollectionJob: Job? = null
+    private var voiceCollectionJob: Job? = null
 
     init {
         fetchData()
@@ -91,6 +95,7 @@ class MainViewModel @Inject constructor(
         papersCollectionJob?.cancel()
         competitionsCollectionJob?.cancel()
         insightsCollectionJob?.cancel()
+        voiceCollectionJob?.cancel()
         
         android.util.Log.d("MainViewModel", "Applying filter: $filterType, projectId=$projectId")
         
@@ -137,6 +142,14 @@ class MainViewModel @Inject constructor(
             itemRepository.observeItems(type = ItemType.INSIGHT, query = null).collect { items ->
                 android.util.Log.d("MainViewModel", "Insights observed: ${items.size} items")
                 _insights.value = items
+            }
+        }
+        
+        // 同时观察 voice 数据
+        voiceCollectionJob = viewModelScope.launch {
+            itemRepository.observeItems(type = ItemType.VOICE, query = null).collect { items ->
+                android.util.Log.d("MainViewModel", "Voice items observed: ${items.size} items")
+                _voiceItems.value = items
             }
         }
     }
@@ -272,6 +285,32 @@ class MainViewModel @Inject constructor(
             )
         }
         return gson.toJson(projectDtos)
+    }
+    
+    fun getVoiceItemsJson(): String {
+        val voiceDtos = _voiceItems.value.map { item ->
+            val voiceMeta = item.metaData as? com.example.ai4research.domain.model.ItemMetaData.VoiceMeta
+            mapOf(
+                "Id" to item.id,
+                "id" to item.id,
+                "title" to item.title,
+                "type" to item.type.toServerString(),
+                "summary" to item.summary,
+                "content_md" to item.contentMarkdown,
+                "audio_url" to item.audioUrl,
+                "status" to item.status.toServerString(),
+                "read_status" to item.readStatus.toServerString(),
+                "project_id" to item.projectId,
+                "project_name" to item.projectName,
+                "meta_json" to gson.toJson(mapOf(
+                    "duration" to (voiceMeta?.duration ?: 0),
+                    "transcription" to (voiceMeta?.transcription ?: item.summary)
+                )),
+                "CreatedAt" to item.createdAt.toString(),
+                "UpdatedAt" to item.createdAt.toString()
+            )
+        }
+        return gson.toJson(voiceDtos)
     }
 
     private fun serializeMetaData(item: ResearchItem): String {

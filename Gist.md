@@ -58,10 +58,40 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - **详情页**：Markdown 渲染、编辑保存、标记已读、星标、删除、项目归属同步。
 - **账号系统**：NocoDB 用户表注册/登录；本地使用 EncryptedSharedPreferences 缓存 token。
 - **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接。
-- **AI 解析**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要。
+- **语音采集**：语音录制 → SpeechRecognizer 本地识别 → AI 优化润色 → 保存为语音卡片。
+- **AI 解析**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
 > Web UI 使用 CDN/ESM（React、Tailwind、Framer Motion、Lucide），**运行时需要网络**。
+
+## 5.1 语音采集功能详情
+### 功能入口
+主页快速采集窗口（点击"+"号）→ 选择"语音"按钮 → 进入 Compose 录音页面。
+
+### 技术实现
+| 组件 | 文件路径 | 说明 |
+|------|----------|------|
+| 录音状态 | `service/VoiceRecordingState.kt` | Idle/Recording/Processing/Completed/Error 五种状态 |
+| 录音工具 | `service/AudioRecorderHelper.kt` | MediaRecorder 封装，支持获取振幅、时长 |
+| 录音界面 | `ui/voice/VoiceRecordingScreen.kt` | iOS 风格 Compose UI，脉冲动画、实时计时 |
+| 状态管理 | `ui/voice/VoiceRecordingViewModel.kt` | 整合 SpeechRecognizer + AI 优化 + 保存逻辑 |
+| AI 优化 | `service/AIService.kt#enhanceTranscription` | 使用 Qwen2.5 润色语音识别结果 |
+| 路由定义 | `navigation/GistNavigation.kt` | `Screen.VoiceRecording` 路由 |
+| JS Bridge | `ui/main/MainScreen.kt#startVoiceRecording` | WebView 调用入口 |
+
+### 数据流程
+```
+用户点击语音按钮 → JS Bridge.startVoiceRecording()
+    → NavigationGraph 导航到 VoiceRecordingScreen
+    → 用户开始录音
+    → AudioRecorderHelper 录制音频 + SpeechRecognizer 识别
+    → AIService.enhanceTranscription() 优化文本
+    → 用户编辑确认 → ItemRepository.createVoiceItem() 保存
+    → 返回主页面
+```
+
+### 权限要求
+- `RECORD_AUDIO`：麦克风录音权限
 
 ## 6. 运行流程（关键路径）
 ### 6.1 启动与路由
@@ -138,6 +168,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - `checkFloatingWindowStatus()`
 - `requestFloatingWindowPermission()`
 - `setFloatingWindowEnabled(enabled)`
+- `startVoiceRecording()` - 启动语音录制页面
 
 ## 9. 数据模型
 ### 9.1 Domain Model
@@ -292,6 +323,7 @@ Base ID：`p8bhzq1ltutm8zr`
 ## 17. 权限与系统声明
 Manifest 声明：
 - `INTERNET`
+- `RECORD_AUDIO` - 语音采集录音
 - `SYSTEM_ALERT_WINDOW`
 - `FOREGROUND_SERVICE`
 - `FOREGROUND_SERVICE_MEDIA_PROJECTION`

@@ -92,6 +92,9 @@ fun DetailScreen(
     
     // 解析竞赛元数据
     val competitionMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta
+    
+    // 解析语音元数据
+    val voiceMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.VoiceMeta
 
     // Edit state
     var isEditing by remember { mutableStateOf(false) }
@@ -105,6 +108,9 @@ fun DetailScreen(
     var editTheme by remember(competitionMeta) { mutableStateOf(competitionMeta?.theme ?: "") }
     var editCompetitionType by remember(competitionMeta) { mutableStateOf(competitionMeta?.competitionType ?: "") }
     var editPrizePool by remember(competitionMeta) { mutableStateOf(competitionMeta?.prizePool ?: "") }
+    
+    // 语音特有字段编辑状态
+    var editTranscription by remember(voiceMeta) { mutableStateOf(voiceMeta?.transcription ?: item?.summary ?: "") }
     
     // Create project dialog state
     var showCreateProjectDialog by remember { mutableStateOf(false) }
@@ -181,17 +187,24 @@ fun DetailScreen(
                 actions = {
                     if (isEditing) {
                         IconButton(onClick = {
-                            // 如果是竞赛类型，构建 metaJson
-                            val metaJson = if (type == ItemType.COMPETITION) {
-                                buildCompetitionMetaJson(
+                            // 根据类型构建 metaJson
+                            val metaJson = when (type) {
+                                ItemType.COMPETITION -> buildCompetitionMetaJson(
                                     organizer = editOrganizer,
                                     deadline = editDeadline,
                                     theme = editTheme,
                                     competitionType = editCompetitionType,
                                     prizePool = editPrizePool
                                 )
-                            } else null
-                            viewModel.saveContent(editSummary, editContent, metaJson)
+                                ItemType.VOICE -> buildVoiceMetaJson(
+                                    transcription = editTranscription,
+                                    duration = voiceMeta?.duration ?: 0
+                                )
+                                else -> null
+                            }
+                            // 语音类型使用转写文本作为summary
+                            val summaryToSave = if (type == ItemType.VOICE) editTranscription else editSummary
+                            viewModel.saveContent(summaryToSave, editContent, metaJson)
                             isEditing = false
                         }) {
                             Icon(Icons.Default.Check, contentDescription = "保存")
@@ -461,6 +474,42 @@ fun DetailScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                         }
                         
+                        // 语音类型显示转写文本编辑
+                        if (type == ItemType.VOICE) {
+                            Text(
+                                text = "语音转写",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFF8A00)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "时长: ${voiceMeta?.duration?.let { "${it / 60}分${it % 60}秒" } ?: "未知"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editTranscription,
+                                onValueChange = { editTranscription = it },
+                                label = { Text("转写内容") },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 5,
+                                placeholder = { Text("编辑语音转写的文本内容...") }
+                            )
+                            
+                            Spacer(modifier = Modifier.height(20.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(20.dp))
+                            
+                            Text(
+                                text = "备注信息",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFF8A00)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        
                         OutlinedTextField(
                             value = editSummary,
                             onValueChange = { editSummary = it },
@@ -480,6 +529,12 @@ fun DetailScreen(
                         // 非编辑模式：如果是竞赛，先显示竞赛信息卡片
                         if (type == ItemType.COMPETITION && competitionMeta != null) {
                             CompetitionInfoCard(competitionMeta, isDarkTheme)
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+                        
+                        // 如果是语音，显示语音信息卡片
+                        if (type == ItemType.VOICE && voiceMeta != null) {
+                            VoiceInfoCard(voiceMeta, isDarkTheme)
                             Spacer(modifier = Modifier.height(16.dp))
                         }
                         
@@ -764,6 +819,87 @@ private fun CompetitionInfoRow(label: String, value: String, isDark: Boolean) {
             text = value,
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
             color = if (isDark) Color.White else Color.Black
+        )
+    }
+}
+
+/**
+ * 构建语音元数据 JSON
+ */
+private fun buildVoiceMetaJson(
+    transcription: String,
+    duration: Int
+): String {
+    val metaMap = mutableMapOf<String, Any>()
+    metaMap["transcription"] = transcription
+    metaMap["duration"] = duration
+    
+    return try {
+        org.json.JSONObject(metaMap as Map<*, *>).toString()
+    } catch (e: Exception) {
+        "{}"
+    }
+}
+
+/**
+ * 语音信息卡片组件
+ */
+@Composable
+private fun VoiceInfoCard(
+    meta: com.example.ai4research.domain.model.ItemMetaData.VoiceMeta,
+    isDark: Boolean
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFFFF8A00)
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "🎙️ 语音信息",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // 时长
+        val duration = meta.duration
+        val durationStr = if (duration > 0) {
+            val minutes = duration / 60
+            val seconds = duration % 60
+            if (minutes > 0) "${minutes}分${seconds}秒" else "${seconds}秒"
+        } else "未知"
+        VoiceInfoRow("录音时长", durationStr, isDark)
+        
+        // 转写文本预览
+        meta.transcription?.takeIf { it.isNotBlank() }?.let {
+            VoiceInfoRow("转写预览", if (it.length > 50) it.take(50) + "..." else it, isDark)
+        }
+    }
+}
+
+@Composable
+private fun VoiceInfoRow(label: String, value: String, isDark: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = if (isDark) Color.White else Color.Black,
+            modifier = Modifier.weight(1f, fill = false)
         )
     }
 }
