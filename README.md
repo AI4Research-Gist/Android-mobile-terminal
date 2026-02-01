@@ -10,7 +10,7 @@
 
 <p align="center">
   <b>AIS · 研智小组（Research Intelligence Group）@ Advanced Informatics Scholar  </b>
-   <img src="app/src/main/assets/Team-logo.png" alt="Team Logo" width="60"/>
+   <img src="app/src/main/assets/Team-logo.png" alt="Team Logo" width="100"/>
 </p>
 
 
