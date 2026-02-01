@@ -5,8 +5,14 @@
 </p>
 
 <p align="center">
-  <b>Advanced Informatics Scholar · 你的个人 AI 研究助手（Android）</b>
+  <b>Gist （Get the Gist） · 你的个人 AI 研究助手（Android）  </b>
 </p>
+
+<p align="center">
+  <b>AIS · 研智小组（Research Intelligence Group）@ Advanced Informatics Scholar  </b>
+   <img src="app/src/main/assets/Team-logo.png" alt="Team Logo" width="60"/>
+</p>
+
 
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Android-green.svg"/>
@@ -20,7 +26,7 @@
 
 ## 项目简介
 
-**Gist** 是面向科研/学习场景的信息采集与分析助手：
+**Gist （Get the Gist）** 是面向科研/学习场景的信息采集与分析助手：
 - **移动端负责入口与轻处理**，提供快速采集、浏览、编辑与管理。
 - **云端负责结构化与 AI 解析**（NocoDB + SiliconFlow）。
 - **本地负责流畅展示与离线缓存**（Room SSOT）。
