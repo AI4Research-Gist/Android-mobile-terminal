@@ -4,54 +4,52 @@ import com.example.ai4research.data.local.entity.ItemEntity
 import com.example.ai4research.data.local.entity.ProjectEntity
 import com.example.ai4research.data.remote.dto.NocoItemDto
 import com.example.ai4research.data.remote.dto.NocoProjectDto
-import com.example.ai4research.domain.model.*
+import com.example.ai4research.domain.model.ItemMetaData
+import com.example.ai4research.domain.model.ItemStatus
+import com.example.ai4research.domain.model.ItemType
+import com.example.ai4research.domain.model.Project
+import com.example.ai4research.domain.model.ReadStatus
+import com.example.ai4research.domain.model.ResearchItem
 import com.google.gson.Gson
-import com.google.gson.JsonSyntaxException
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.UUID
 
-/**
- * 数据映射器 - 在不同层级的数据类型之间转换
- */
 object ItemMapper {
     private val gson = Gson()
-    // NocoDB 返回的日期格式: "2026-01-27 04:43:09+00:00"
     private val dateFormats = listOf(
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.US),  // 带时区偏移
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),     // 无时区
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),  // ISO 8601
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)       // ISO 8601 无毫秒
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ssXXX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
     ).onEach { it.timeZone = TimeZone.getTimeZone("UTC") }
-    
+
     private fun parseDate(dateStr: String?): Long {
         if (dateStr.isNullOrBlank()) return System.currentTimeMillis()
         for (format in dateFormats) {
             try {
                 return format.parse(dateStr)?.time ?: continue
-            } catch (e: Exception) {
-                // 尝试下一个格式
+            } catch (_: Exception) {
             }
         }
-        android.util.Log.w("ItemMapper", "无法解析日期: $dateStr，使用当前时间")
+        android.util.Log.w("ItemMapper", "Unable to parse date: $dateStr")
         return System.currentTimeMillis()
     }
-    
-    /**
-     * DTO -> Entity (网络数据转本地存储)
-     */
+
     fun dtoToEntity(
         dto: NocoItemDto,
         projectId: String? = null,
-        projectName: String? = null
+        projectName: String? = null,
+        ownerUserId: String? = null
     ): ItemEntity {
         val createdAt = parseDate(dto.createdAt)
-        
-        // 标准化 type 值为小写，确保与查询匹配
         val normalizedType = (dto.type ?: "insight").trim().lowercase()
-        android.util.Log.d("ItemMapper", "Mapping item: id=${dto.id}, originalType=${dto.type}, normalizedType=$normalizedType, projectId=${dto.projectId}")
-        
+
         return ItemEntity(
-            id = dto.id?.toString() ?: UUID.randomUUID().toString(),  // 将 Int ID 转为 String
+            id = dto.id?.toString() ?: UUID.randomUUID().toString(),
+            ownerUserId = dto.ownerUserId ?: ownerUserId.orEmpty(),
             type = normalizedType,
             title = dto.title ?: "未命名",
             summary = dto.summary ?: "",
@@ -62,16 +60,13 @@ object ItemMapper {
             readStatus = dto.readStatus ?: ReadStatus.UNREAD.toServerString(),
             projectId = dto.projectId?.toString() ?: projectId,
             projectName = projectName,
-            isStarred = false,  // 默认未标星
+            isStarred = false,
             metaJson = dto.metaJson?.toString(),
             createdAt = createdAt,
             syncedAt = System.currentTimeMillis()
         )
     }
-    
-    /**
-     * Entity -> Domain Model (本地存储转业务模型)
-     */
+
     fun entityToDomain(entity: ItemEntity): ResearchItem {
         return ResearchItem(
             id = entity.id,
@@ -87,17 +82,15 @@ object ItemMapper {
             projectId = entity.projectId,
             projectName = entity.projectName,
             metaData = parseMetaData(entity.metaJson, entity.type),
-            rawMetaJson = entity.metaJson, // 保留原始JSON
+            rawMetaJson = entity.metaJson,
             createdAt = Date(entity.createdAt)
         )
     }
-    
-    /**
-     * Domain Model -> Entity (业务模型转本地存储)
-     */
-    fun domainToEntity(item: ResearchItem): ItemEntity {
+
+    fun domainToEntity(item: ResearchItem, ownerUserId: String): ItemEntity {
         return ItemEntity(
             id = item.id,
+            ownerUserId = ownerUserId,
             type = item.type.toServerString(),
             title = item.title,
             summary = item.summary,
@@ -114,38 +107,31 @@ object ItemMapper {
             syncedAt = System.currentTimeMillis()
         )
     }
-    
-    /**
-     * 解析元数据 JSON - 更健壮的解析，兼容多种格式
-     */
+
     private fun parseMetaData(metaJson: String?, type: String): ItemMetaData? {
         if (metaJson.isNullOrEmpty() || metaJson == "{}") return null
-        
+
         return try {
-            // 先尝试解析为通用 Map，然后手动构造对象
             val map = gson.fromJson(metaJson, Map::class.java) as? Map<String, Any?> ?: return null
-            
+
             when (type.lowercase()) {
                 "paper" -> {
-                    // 处理 authors - 可能是数组或字符串
                     val authors = when (val authorsRaw = map["authors"]) {
                         is List<*> -> authorsRaw.mapNotNull { it?.toString() }
                         is String -> if (authorsRaw.isNotBlank()) authorsRaw.split(",").map { it.trim() } else emptyList()
                         else -> emptyList()
                     }
-                    // 处理 tags - 可能是数组或字符串
                     val tags = when (val tagsRaw = map["tags"]) {
                         is List<*> -> tagsRaw.mapNotNull { it?.toString() }
                         is String -> if (tagsRaw.isNotBlank()) tagsRaw.split(",").map { it.trim() } else emptyList()
                         else -> emptyList()
                     }
-                    // 处理 year - 可能是 Int、Double 或 String
                     val year = when (val yearRaw = map["year"]) {
                         is Number -> yearRaw.toInt()
                         is String -> yearRaw.toIntOrNull()
                         else -> null
                     }
-                    
+
                     ItemMetaData.PaperMeta(
                         authors = authors,
                         conference = map["conference"]?.toString(),
@@ -153,15 +139,15 @@ object ItemMapper {
                         tags = tags
                     )
                 }
-                "competition" -> {
-                    ItemMetaData.CompetitionMeta(
-                        organizer = map["organizer"]?.toString(),
-                        prizePool = map["prizePool"]?.toString(),
-                        deadline = map["deadline"]?.toString(),
-                        theme = map["theme"]?.toString(),
-                        competitionType = map["competitionType"]?.toString()
-                    )
-                }
+
+                "competition" -> ItemMetaData.CompetitionMeta(
+                    organizer = map["organizer"]?.toString(),
+                    prizePool = map["prizePool"]?.toString(),
+                    deadline = map["deadline"]?.toString(),
+                    theme = map["theme"]?.toString(),
+                    competitionType = map["competitionType"]?.toString()
+                )
+
                 "insight" -> {
                     val tags = when (val tagsRaw = map["tags"]) {
                         is List<*> -> tagsRaw.mapNotNull { it?.toString() }
@@ -170,6 +156,7 @@ object ItemMapper {
                     }
                     ItemMetaData.InsightMeta(tags = tags)
                 }
+
                 "voice" -> {
                     val duration = when (val durationRaw = map["duration"]) {
                         is Number -> durationRaw.toInt()
@@ -181,24 +168,21 @@ object ItemMapper {
                         transcription = map["transcription"]?.toString()
                     )
                 }
+
                 else -> null
             }
         } catch (e: Exception) {
-            android.util.Log.w("ItemMapper", "解析 metaJson 失败: $metaJson, error: ${e.message}")
+            android.util.Log.w("ItemMapper", "Failed to parse metaJson: $metaJson, error: ${e.message}")
             null
         }
     }
-    
-    // ==================== Project Mapper ====================
-    
-    /**
-     * Project DTO -> Entity
-     */
-    fun projectDtoToEntity(dto: NocoProjectDto): ProjectEntity {
+
+    fun projectDtoToEntity(dto: NocoProjectDto, ownerUserId: String? = null): ProjectEntity {
         val createdAt = parseDate(dto.createdAt)
-        
+
         return ProjectEntity(
-            id = dto.id?.toString() ?: UUID.randomUUID().toString(),  // 将 Int ID 转为 String
+            id = dto.id?.toString() ?: UUID.randomUUID().toString(),
+            ownerUserId = dto.ownerUserId ?: ownerUserId.orEmpty(),
             name = dto.name?.takeIf { it.isNotBlank() }
                 ?: dto.title?.takeIf { it.isNotBlank() }
                 ?: "未命名项目",
@@ -206,10 +190,7 @@ object ItemMapper {
             createdAt = createdAt
         )
     }
-    
-    /**
-     * Project Entity -> Domain
-     */
+
     fun projectEntityToDomain(entity: ProjectEntity): Project {
         return Project(
             id = entity.id,
@@ -218,4 +199,3 @@ object ItemMapper {
         )
     }
 }
-

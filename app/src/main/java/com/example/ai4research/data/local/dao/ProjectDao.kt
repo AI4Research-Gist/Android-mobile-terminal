@@ -1,54 +1,34 @@
 package com.example.ai4research.data.local.dao
 
-import androidx.room.*
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Update
 import com.example.ai4research.data.local.entity.ProjectEntity
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Project DAO
- */
 @Dao
 interface ProjectDao {
-    /**
-     * 观察所有项目
-     */
-    @Query("SELECT * FROM projects ORDER BY created_at DESC")
-    fun observeAllProjects(): Flow<List<ProjectEntity>>
-    
-    /**
-     * 获取单个项目
-     */
-    @Query("SELECT * FROM projects WHERE id = :id")
-    suspend fun getProjectById(id: String): ProjectEntity?
-    
-    /**
-     * 插入或替换
-     */
+    @Query("SELECT * FROM projects WHERE owner_user_id = :ownerUserId ORDER BY created_at DESC")
+    fun observeAllProjects(ownerUserId: String): Flow<List<ProjectEntity>>
+
+    @Query("SELECT * FROM projects WHERE id = :id AND owner_user_id = :ownerUserId")
+    suspend fun getProjectById(ownerUserId: String, id: String): ProjectEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProject(project: ProjectEntity)
-    
-    /**
-     * 批量插入
-     */
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProjects(projects: List<ProjectEntity>)
-    
-    /**
-     * 更新项目
-     */
+
     @Update
     suspend fun updateProject(project: ProjectEntity)
-    
-    /**
-     * 删除项目
-     */
+
     @Delete
     suspend fun deleteProject(project: ProjectEntity)
-    
-    /**
-     * 删除所有项目 (用于同步前清理)
-     */
-    @Query("DELETE FROM projects")
-    suspend fun deleteAllProjects()
-}
 
+    @Query("DELETE FROM projects WHERE owner_user_id = :ownerUserId")
+    suspend fun deleteAllProjectsByOwner(ownerUserId: String)
+}

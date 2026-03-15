@@ -1,5 +1,6 @@
 package com.example.ai4research.data.repository
 
+import com.example.ai4research.core.security.TokenManager
 import com.example.ai4research.data.local.dao.ItemDao
 import com.example.ai4research.data.local.dao.ProjectDao
 import com.example.ai4research.data.mapper.ItemMapper
@@ -11,137 +12,144 @@ import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.repository.ItemRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * 数据层：ItemRepository 实现类，负责：
- * 1. 协调本地数据（Room）与远程数据（NocoDB API）的同步
- * 2. 提供对 ResearchItem 的增删改查（CRUD）操作
- * 3. 处理数据转换：DTO → Entity → Domain Model
- * 4. 实现离线优先策略：本地更新立即生效，远程同步尽力而为
- *
- * 使用 @Singleton 注解确保全局唯一实例，通过 Hilt 注入依赖。
- */
 @Singleton
 class ItemRepositoryImpl @Inject constructor(
     private val api: NocoApiService,
     private val itemDao: ItemDao,
-    private val projectDao: ProjectDao
+    private val projectDao: ProjectDao,
+    private val tokenManager: TokenManager
 ) : ItemRepository {
+
+    private fun currentUserId(): String? = tokenManager.getCurrentUserId()
+
+    private fun requireCurrentUserId(): Result<String> {
+        val userId = currentUserId()
+        return if (userId.isNullOrBlank()) {
+            Result.failure(IllegalStateException("User must be logged in"))
+        } else {
+            Result.success(userId)
+        }
+    }
 
     private fun parseMetaJson(metaJson: String?): JsonElement? {
         if (metaJson.isNullOrBlank()) return null
         return runCatching { Json.parseToJsonElement(metaJson) }.getOrNull()
     }
 
+    private fun buildOwnerWhereClause(ownerUserId: String): String {
+        return "(ownerId,eq,$ownerUserId)"
+    }
+
+    private fun buildItemDto(local: com.example.ai4research.data.local.entity.ItemEntity): NocoItemDto {
+        return NocoItemDto(
+            id = local.id.toIntOrNull(),
+            ownerUserId = local.ownerUserId,
+            title = local.title,
+            type = local.type,
+            summary = local.summary,
+            contentMd = local.contentMarkdown,
+            originUrl = local.originUrl,
+            audioUrl = local.audioUrl,
+            status = local.status,
+            readStatus = local.readStatus,
+            projectId = local.projectId?.toIntOrNull(),
+            metaJson = parseMetaJson(local.metaJson)
+        )
+    }
+
     override fun observeItems(type: ItemType?, query: String?): Flow<List<ResearchItem>> {
+        val ownerUserId = currentUserId() ?: return flowOf(emptyList())
         val cleanedQuery = query?.trim().orEmpty()
 
         val flow = when {
             cleanedQuery.isNotEmpty() && type != null ->
-                itemDao.searchItemsByType(type.toServerString(), cleanedQuery)
+                itemDao.searchItemsByType(ownerUserId, type.toServerString(), cleanedQuery)
 
             cleanedQuery.isNotEmpty() ->
-                itemDao.searchItems(cleanedQuery)
+                itemDao.searchItems(ownerUserId, cleanedQuery)
 
             type != null ->
-                itemDao.observeItemsByType(type.toServerString())
+                itemDao.observeItemsByType(ownerUserId, type.toServerString())
 
             else ->
-                itemDao.observeAllItems()
+                itemDao.observeAllItems(ownerUserId)
         }
 
         return flow.map { list -> list.map(ItemMapper::entityToDomain) }
     }
-    
+
     override fun observeItemsByReadStatus(type: ItemType, readStatus: ReadStatus): Flow<List<ResearchItem>> {
+        val ownerUserId = currentUserId() ?: return flowOf(emptyList())
         return itemDao.observeItemsByTypeAndReadStatus(
+            ownerUserId,
             type.toServerString(),
-            readStatus.toServerString().substringBefore(" ")  // "unread (未读)" -> "unread"
+            readStatus.toServerString().substringBefore(" ")
         ).map { list -> list.map(ItemMapper::entityToDomain) }
     }
-    
+
     override fun observeItemsByProject(type: ItemType, projectId: String): Flow<List<ResearchItem>> {
+        val ownerUserId = currentUserId() ?: return flowOf(emptyList())
         return itemDao.observeItemsByTypeAndProject(
+            ownerUserId,
             type.toServerString(),
             projectId
         ).map { list -> list.map(ItemMapper::entityToDomain) }
     }
-    
+
     override fun observeStarredItems(type: ItemType): Flow<List<ResearchItem>> {
-        return itemDao.observeStarredItemsByType(type.toServerString())
+        val ownerUserId = currentUserId() ?: return flowOf(emptyList())
+        return itemDao.observeStarredItemsByType(ownerUserId, type.toServerString())
             .map { list -> list.map(ItemMapper::entityToDomain) }
     }
 
-    /**
-     * 从远程 API 刷新数据到本地数据库，执行以下步骤：
-     * 1. 同步项目数据（用于项目名称解析）
-     * 2. 同步条目数据
-     * 3. 过滤无效数据（标题或类型为空）
-     * 4. 使用 ItemMapper 进行 DTO → Entity 转换
-     * 5. 批量插入到 Room 数据库
-     * 6. 返回成功或失败结果
-     */
     override suspend fun refreshItems(): Result<Unit> {
-        return try {
-            android.util.Log.d("ItemRepository", "Starting data refresh from NocoDB...")
-            
-            // 1) Sync projects first for name resolution
-            val projectsResponse = api.getProjects()
-            val projects = projectsResponse.list
-            android.util.Log.d("ItemRepository", "Fetched ${projects.size} projects from API (before filter)")
-            
-            // 过滤无效项目：只保留 name 或 Title 不为空的
-            val validProjects = projects.filter { dto ->
-                !dto.name.isNullOrBlank() || !dto.title.isNullOrBlank()
-            }
-            android.util.Log.d("ItemRepository", "Valid projects after filter: ${validProjects.size}")
-            
-            val projectEntities = validProjects.map(ItemMapper::projectDtoToEntity)
-            projectDao.insertProjects(projectEntities)
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
+        return try {
+            val projectWhere = buildOwnerWhereClause(ownerUserId)
+            val projects = api.getProjects(where = projectWhere).list
+                .filter { !it.name.isNullOrBlank() || !it.title.isNullOrBlank() }
+
+            val projectEntities = projects.map { dto ->
+                ItemMapper.projectDtoToEntity(dto, ownerUserId)
+            }
+            projectDao.deleteAllProjectsByOwner(ownerUserId)
+            projectDao.insertProjects(projectEntities)
             val projectNameMap = projectEntities.associate { it.id to it.name }
 
-            // 2) Sync items
-            val itemsResponse = api.getItems()
-            val items = itemsResponse.list
-            android.util.Log.d("ItemRepository", "Fetched ${items.size} items from API (before filter)")
-            
-            // 过滤无效数据：只保留 title 和 type 都不为 null 的条目
-            val validItems = items.filter { dto ->
-                !dto.title.isNullOrBlank() && !dto.type.isNullOrBlank()
-            }
-            android.util.Log.d("ItemRepository", "Valid items after filter: ${validItems.size}")
-            
-            validItems.forEachIndexed { index, dto ->
-                android.util.Log.d("ItemRepository", "Item[$index]: id=${dto.id}, title=${dto.title}, type=${dto.type}, project_id=${dto.projectId}")
-            }
-            
-            val itemEntities = validItems.map { dto ->
-                val projectIdFromItem = dto.projectId?.toString()
-                val projectNameFromItem = projectIdFromItem?.let { projectNameMap[it] }
+            val itemWhere = buildOwnerWhereClause(ownerUserId)
+            val items = api.getItems(where = itemWhere).list
+                .filter { !it.title.isNullOrBlank() && !it.type.isNullOrBlank() }
+
+            val itemEntities = items.map { dto ->
+                val projectId = dto.projectId?.toString()
+                val projectName = projectId?.let { projectNameMap[it] }
                 ItemMapper.dtoToEntity(
-                    dto,
-                    projectId = projectIdFromItem,
-                    projectName = projectNameFromItem
+                    dto = dto,
+                    projectId = projectId,
+                    projectName = projectName,
+                    ownerUserId = ownerUserId
                 )
             }
+            itemDao.deleteAllItemsByOwner(ownerUserId)
             itemDao.insertItems(itemEntities)
-            android.util.Log.d("ItemRepository", "Inserted ${itemEntities.size} items to local DB")
-
             Result.success(Unit)
         } catch (e: Exception) {
-            android.util.Log.e("ItemRepository", "Error refreshing items: ${e.message}", e)
+            android.util.Log.e("ItemRepository", "Failed to refresh items", e)
             Result.failure(e)
         }
     }
 
     override suspend fun getItem(id: String): ResearchItem? {
-        return itemDao.getItemById(id)?.let(ItemMapper::entityToDomain)
+        val ownerUserId = currentUserId() ?: return null
+        return itemDao.getItemById(ownerUserId, id)?.let(ItemMapper::entityToDomain)
     }
 
     override suspend fun createUrlItem(
@@ -150,9 +158,11 @@ class ItemRepositoryImpl @Inject constructor(
         note: String?,
         type: ItemType
     ): Result<ResearchItem> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
-            // 创建一个“待解析”条目（云端 AI 流水线后续可更新）
             val dto = NocoItemDto(
+                ownerUserId = ownerUserId,
                 title = title?.takeIf { it.isNotBlank() } ?: "待解析链接",
                 type = type.toServerString(),
                 summary = note?.orEmpty(),
@@ -165,7 +175,7 @@ class ItemRepositoryImpl @Inject constructor(
             )
 
             val created = api.createItem(dto)
-            val entity = ItemMapper.dtoToEntity(created)
+            val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
@@ -179,8 +189,11 @@ class ItemRepositoryImpl @Inject constructor(
         durationSeconds: Int,
         summary: String?
     ): Result<ResearchItem> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
             val dto = NocoItemDto(
+                ownerUserId = ownerUserId,
                 title = title.ifBlank { "语音灵感" },
                 type = ItemType.VOICE.toServerString(),
                 summary = summary ?: "已录制语音（${durationSeconds}s）",
@@ -192,7 +205,7 @@ class ItemRepositoryImpl @Inject constructor(
                 metaJson = null
             )
             val created = api.createItem(dto)
-            val entity = ItemMapper.dtoToEntity(created)
+            val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
@@ -201,11 +214,14 @@ class ItemRepositoryImpl @Inject constructor(
     }
 
     override suspend fun createImageItem(imageUri: String, summary: String?): Result<ResearchItem> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
             val dto = NocoItemDto(
+                ownerUserId = ownerUserId,
                 title = "图片采集",
                 type = ItemType.INSIGHT.toServerString(),
-                summary = summary ?: "已采集图片（待 OCR/解析）",
+                summary = summary ?: "已采集图片（待 OCR / 解析）",
                 contentMd = "",
                 originUrl = imageUri,
                 audioUrl = null,
@@ -214,14 +230,14 @@ class ItemRepositoryImpl @Inject constructor(
                 metaJson = null
             )
             val created = api.createItem(dto)
-            val entity = ItemMapper.dtoToEntity(created)
+            val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
-    
+
     override suspend fun createFullItem(
         title: String,
         summary: String,
@@ -232,23 +248,11 @@ class ItemRepositoryImpl @Inject constructor(
         metaJson: String?,
         tags: List<String>?
     ): Result<ResearchItem> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
-            android.util.Log.d("ItemRepository", "========== createFullItem 开始 ==========")
-            android.util.Log.d("ItemRepository", "title=$title")
-            android.util.Log.d("ItemRepository", "type=${type.toServerString()}")
-            android.util.Log.d("ItemRepository", "summary=${summary.take(50)}...")
-            android.util.Log.d("ItemRepository", "originUrl=$originUrl")
-            android.util.Log.d("ItemRepository", "metaJson原始: $metaJson")
-            
-            // 解析 metaJson，如果解析失败则不传递
-            val parsedMetaJson = try {
-                metaJson?.let { parseMetaJson(it) }
-            } catch (e: Exception) {
-                android.util.Log.w("ItemRepository", "metaJson 解析失败，跳过: ${e.message}")
-                null
-            }
-            
             val dto = NocoItemDto(
+                ownerUserId = ownerUserId,
                 title = title,
                 type = type.toServerString(),
                 summary = summary,
@@ -258,101 +262,63 @@ class ItemRepositoryImpl @Inject constructor(
                 status = status.toServerString(),
                 readStatus = ReadStatus.UNREAD.toServerString(),
                 tags = tags?.joinToString(","),
-                metaJson = parsedMetaJson
+                metaJson = parseMetaJson(metaJson)
             )
-            
-            // 打印完整的 DTO 内容
-            val json = Json { prettyPrint = false; encodeDefaults = false }
-            val dtoJson = json.encodeToString(NocoItemDto.serializer(), dto)
-            android.util.Log.d("ItemRepository", "DTO JSON: $dtoJson")
-            
-            // 创建远端记录
+
             val created = api.createItem(dto)
-            android.util.Log.d("ItemRepository", "✅ API 调用成功! created.id=${created.id}, created.title=${created.title}")
-            
-            // 本地入库
-            val entity = ItemMapper.dtoToEntity(created)
-            android.util.Log.d("ItemRepository", "Entity 已映射: entity.id=${entity.id}, entity.type=${entity.type}")
-            
+            val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
-            android.util.Log.d("ItemRepository", "✅ 本地数据库插入成功!")
-            
-            val result = ItemMapper.entityToDomain(entity)
-            android.util.Log.d("ItemRepository", "========== createFullItem 完成 ==========")
-            
-            Result.success(result)
+            Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
-            android.util.Log.e("ItemRepository", "❌ createFullItem 失败: ${e.message}", e)
-            e.printStackTrace()
+            android.util.Log.e("ItemRepository", "Failed to create full item", e)
             Result.failure(e)
         }
     }
 
     override suspend fun updateItemType(id: String, type: ItemType): Result<Unit> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
-            val local = itemDao.getItemById(id) ?: return Result.failure(Exception("Item not found"))
-
-            val dto = NocoItemDto(
-                id = local.id.toIntOrNull(),
-                title = local.title,
-                type = type.toServerString(),
-                summary = local.summary,
-                contentMd = local.contentMarkdown,
-                originUrl = local.originUrl,
-                audioUrl = local.audioUrl,
-                status = local.status,
-                readStatus = local.readStatus,
-                projectId = local.projectId?.toIntOrNull(),
-                metaJson = parseMetaJson(local.metaJson)
+            val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
+            val updated = api.updateItem(
+                id,
+                buildItemDto(local).copy(type = type.toServerString())
             )
-
-            val updated = api.updateItem(id, dto)
-
             itemDao.insertItem(
                 ItemMapper.dtoToEntity(
                     updated,
                     projectId = local.projectId,
-                    projectName = local.projectName
+                    projectName = local.projectName,
+                    ownerUserId = ownerUserId
                 )
             )
-
-            android.util.Log.d("ItemRepository", "Item type updated: id=$id, newType=$type")
             Result.success(Unit)
         } catch (e: Exception) {
-            android.util.Log.e("ItemRepository", "Failed to update item type: ${e.message}", e)
+            android.util.Log.e("ItemRepository", "Failed to update item type", e)
             Result.failure(e)
         }
     }
 
     override suspend fun updateReadStatus(id: String, readStatus: ReadStatus): Result<Unit> {
-        return try {
-            itemDao.updateReadStatus(id, readStatus.toServerString())
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
-            val local = itemDao.getItemById(id)
+        return try {
+            itemDao.updateReadStatus(ownerUserId, id, readStatus.toServerString())
+            val local = itemDao.getItemById(ownerUserId, id)
             if (local != null) {
-                val dto = NocoItemDto(
-                    id = local.id.toIntOrNull(),
-                    title = local.title,
-                    type = local.type,
-                    summary = local.summary,
-                    contentMd = local.contentMarkdown,
-                    originUrl = local.originUrl,
-                    audioUrl = local.audioUrl,
-                    status = local.status,
-                    readStatus = readStatus.toServerString(),
-                    projectId = local.projectId?.toIntOrNull(),
-                    metaJson = parseMetaJson(local.metaJson)
+                val updated = api.updateItem(
+                    id,
+                    buildItemDto(local).copy(readStatus = readStatus.toServerString())
                 )
-                val updated = api.updateItem(id, dto)
                 itemDao.insertItem(
                     ItemMapper.dtoToEntity(
                         updated,
                         projectId = local.projectId,
-                        projectName = local.projectName
+                        projectName = local.projectName,
+                        ownerUserId = ownerUserId
                     )
                 )
             }
-
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -360,8 +326,10 @@ class ItemRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateStarred(id: String, isStarred: Boolean): Result<Unit> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
-            itemDao.updateStarred(id, isStarred)
+            itemDao.updateStarred(ownerUserId, id, isStarred)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -376,37 +344,25 @@ class ItemRepositoryImpl @Inject constructor(
         tags: List<String>?,
         metaJson: String?
     ): Result<Unit> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
-            val local = itemDao.getItemById(id) ?: return Result.failure(Exception("Item not found"))
-
-            val finalMetaJson = if (metaJson != null) {
-                parseMetaJson(metaJson)
-            } else {
-                parseMetaJson(local.metaJson)
-            }
-
-            val dto = NocoItemDto(
-                id = local.id.toIntOrNull(),
+            val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
+            val dto = buildItemDto(local).copy(
                 title = title ?: local.title,
-                type = local.type,
                 summary = summary ?: local.summary,
                 contentMd = content ?: local.contentMarkdown,
-                originUrl = local.originUrl,
-                audioUrl = local.audioUrl,
-                status = local.status,
-                readStatus = local.readStatus,
-                projectId = local.projectId?.toIntOrNull(),
                 tags = tags?.joinToString(","),
-                metaJson = finalMetaJson
+                metaJson = metaJson?.let { parseMetaJson(it) } ?: parseMetaJson(local.metaJson)
             )
 
             val updated = api.updateItem(id, dto)
-
             itemDao.insertItem(
                 ItemMapper.dtoToEntity(
                     updated,
                     projectId = local.projectId,
-                    projectName = local.projectName
+                    projectName = local.projectName,
+                    ownerUserId = ownerUserId
                 )
             )
 
@@ -417,55 +373,40 @@ class ItemRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateItemProject(id: String, projectId: String?): Result<Unit> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
-            val local = itemDao.getItemById(id) ?: return Result.failure(Exception("Item not found"))
+            val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
             if (local.projectId == projectId) {
                 return Result.success(Unit)
             }
 
-            val projectName = projectId?.let { projectDao.getProjectById(it)?.name }
-            val projectIdInt = projectId?.toIntOrNull()
-            val projectUpdateResult = runCatching {
-                val dto = NocoItemDto(
-                    id = local.id.toIntOrNull(),
-                    title = local.title,
-                    type = local.type,
-                    summary = local.summary,
-                    contentMd = local.contentMarkdown,
-                    originUrl = local.originUrl,
-                    audioUrl = local.audioUrl,
-                    status = local.status,
-                    readStatus = local.readStatus,
-                    projectId = projectIdInt,
-                    metaJson = parseMetaJson(local.metaJson)
+            val projectName = projectId?.let { projectDao.getProjectById(ownerUserId, it)?.name }
+            val updated = api.updateItem(
+                id,
+                buildItemDto(local).copy(projectId = projectId?.toIntOrNull())
+            )
+
+            itemDao.updateProject(ownerUserId, id, projectId, projectName)
+            itemDao.insertItem(
+                ItemMapper.dtoToEntity(
+                    updated,
+                    projectId = projectId,
+                    projectName = projectName,
+                    ownerUserId = ownerUserId
                 )
-                api.updateItem(id, dto)
-            }
-
-            if (projectUpdateResult.isSuccess) {
-                val updated = projectUpdateResult.getOrNull()
-                itemDao.updateProject(id, projectId, projectName)
-                if (updated != null) {
-                    itemDao.insertItem(
-                        ItemMapper.dtoToEntity(
-                            updated,
-                            projectId = projectId,
-                            projectName = projectName
-                        )
-                    )
-                }
-                return Result.success(Unit)
-            }
-
-            Result.failure(projectUpdateResult.exceptionOrNull() ?: Exception("更新项目失败"))
+            )
+            Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     override suspend fun deleteItem(id: String): Result<Unit> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
         return try {
-            itemDao.deleteItemById(id)
+            itemDao.deleteItemById(ownerUserId, id)
             runCatching { api.deleteItem(id) }
             Result.success(Unit)
         } catch (e: Exception) {

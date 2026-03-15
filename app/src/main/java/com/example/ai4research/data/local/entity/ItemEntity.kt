@@ -20,6 +20,9 @@ data class ItemEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
     val id: String,
+
+    @ColumnInfo(name = "owner_user_id")
+    val ownerUserId: String,
     
     @ColumnInfo(name = "type")
     val type: String,  // paper, competition, insight, voice
@@ -72,6 +75,9 @@ data class ProjectEntity(
     @PrimaryKey
     @ColumnInfo(name = "id")
     val id: String,
+
+    @ColumnInfo(name = "owner_user_id")
+    val ownerUserId: String,
     
     @ColumnInfo(name = "name")
     val name: String,

@@ -11,17 +11,13 @@ import com.example.ai4research.data.local.entity.ItemEntity
 import com.example.ai4research.data.local.entity.ProjectEntity
 import com.example.ai4research.data.local.entity.UserEntity
 
-/**
- * Room Database 定义
- * Version: 3 (添加 isStarred 字段)
- */
 @Database(
     entities = [
         ItemEntity::class,
         ProjectEntity::class,
         UserEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(RoomConverters::class)
@@ -29,9 +25,8 @@ abstract class AI4ResearchDatabase : RoomDatabase() {
     abstract fun itemDao(): ItemDao
     abstract fun projectDao(): ProjectDao
     abstract fun userDao(): UserDao
-    
+
     companion object {
         const val DATABASE_NAME = "ai4research_db"
     }
 }
-

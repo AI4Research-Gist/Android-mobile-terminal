@@ -19,6 +19,7 @@
   <img src="https://img.shields.io/badge/Language-Kotlin-blue.svg"/>
   <img src="https://img.shields.io/badge/UI-Hybrid%20(WebView%20%2B%20Compose)-orange.svg"/>
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean-purple.svg"/>
+  <img src="https://img.shields.io/badge/Version-v0.0.3-red.svg"/>
   <img src="https://img.shields.io/badge/Min%20SDK-26-gray.svg"/>
 </p>
 
@@ -39,6 +40,7 @@
 - **研究卡片管理**：paper / competition / insight / voice 统一列表，支持搜索、过滤、项目归属、星标、阅读状态。
 - **详情页**：Markdown 渲染、编辑保存、标记已读/星标/删除、项目归属同步。
 - **账号系统**：NocoDB 用户表注册/登录；本地 EncryptedSharedPreferences 缓存 token。
+- **比赛版用户分离**：按当前登录用户隔离 `items/projects`；新账号默认空数据；历史数据统一归档到测试账号。
 - **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接；AI 解析入库。
 - **语音采集**：语音录制 + 本地识别 + AI 润色优化，快速记录灵感。
 - **AI 能力**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
@@ -97,6 +99,9 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 ## 目录结构
 
 ```
+changelog/                  # 版本更新日志（按版本号拆分）
+├─ v0.0.1.md
+└─ v0.0.3.md
 app/src/main/
 ├─ assets/                 # Web 前端资源
 │  ├─ main_ui.html         # 主界面（React）
@@ -125,14 +130,43 @@ app/src/main/
 3. 连接设备或启动模拟器。
 4. 运行 `app`。
 
+## 当前版本
+
+- 当前版本：`v0.0.3`
+- 本版本重点：比赛版用户分离 MVP、历史数据归档、测试账号落地
+- 更新日志入口：[`CHANGELOG.md`](c:\Users\Lenovo\Desktop\Android-mobile-terminal\CHANGELOG.md)
+- 版本明细目录：[`changelog/`](c:\Users\Lenovo\Desktop\Android-mobile-terminal\changelog)
+
 ## 配置说明（开发环境）
 
 - 截至 2026-03-15，NocoDB 已迁移到新服务器，当前 Base URL 为 `http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/`。
 - NocoDB：在 `app/src/main/java/com/example/ai4research/core/util/Constants.kt` 设置 `NOCO_BASE_URL` 与 `NOCO_TOKEN`。
+- 比赛版用户归属字段：现网 NocoDB 当前使用物理字段 `ownerId`。
 - SiliconFlow：在 `app/src/main/java/com/example/ai4research/service/AIService.kt` 设置 `API_KEY`。
 - `app/src/main/res/xml/network_security_config.xml` 当前已按迁移后的 NocoDB IP 放行明文 HTTP。
 
+### 比赛测试账号
+
+- 用户名：`gist_demo_archive`
+- 邮箱：`gist_demo_archive@example.com`
+- 密码：`GistDemo@2026!`
+
+说明：
+- 按当前比赛版用户分离方案，历史测试数据统一归档到该账号。
+- 新注册账号默认从空数据开始。
+- 演示完整历史数据时，统一使用该账号登录。
+- 当前已归档历史数据：
+  - `items` 40 条
+  - `projects` 3 条
+
 > 生产环境建议将密钥移至安全配置（例如 `local.properties` + CI 注入），避免硬编码。
+
+## 当前说明
+
+- 当前项目已完成比赛版“用户分离”最小可用方案。
+- 测试账号可直接用于演示历史数据。
+- 新账号创建后应默认看到空数据，再逐步生成自己的项目和条目。
+- 当前现网 NocoDB 仍为直连模式，正式产品化建议后续升级认证体系与配置安全性。
 
 ## 权限说明
 

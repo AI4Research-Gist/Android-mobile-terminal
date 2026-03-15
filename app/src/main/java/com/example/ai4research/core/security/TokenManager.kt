@@ -40,6 +40,13 @@ class TokenManager @Inject constructor(
     fun getAuthToken(): String? {
         return sharedPreferences.getString(KEY_AUTH_TOKEN, null)
     }
+
+    /**
+     * 当前阶段 auth token 实际保存的是当前用户 ID。
+     */
+    fun getCurrentUserId(): String? {
+        return getAuthToken()
+    }
     
     /**
      * 保存密码（用于生物识别快速登录）
