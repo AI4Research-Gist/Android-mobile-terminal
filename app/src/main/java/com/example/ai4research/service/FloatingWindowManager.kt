@@ -2,6 +2,7 @@ package com.example.ai4research.service
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -14,13 +15,8 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// DataStore 扩展
 private val Context.floatingWindowDataStore: DataStore<Preferences> by preferencesDataStore(name = "floating_window_settings")
 
-/**
- * 悬浮窗管理器
- * 负责管理悬浮窗的显示/隐藏、权限检查、用户设置等
- */
 @Singleton
 class FloatingWindowManager @Inject constructor(
     @ApplicationContext private val context: Context
@@ -29,24 +25,15 @@ class FloatingWindowManager @Inject constructor(
         private val KEY_FLOATING_ENABLED = booleanPreferencesKey("floating_window_enabled")
     }
 
-    /**
-     * 检查是否有悬浮窗权限
-     */
     fun hasOverlayPermission(): Boolean {
         return Settings.canDrawOverlays(context)
     }
 
-    /**
-     * 获取用户悬浮窗开关设置
-     */
     val isFloatingWindowEnabled: Flow<Boolean> = context.floatingWindowDataStore.data
         .map { preferences ->
             preferences[KEY_FLOATING_ENABLED] ?: false
         }
 
-    /**
-     * 设置用户悬浮窗开关
-     */
     suspend fun setFloatingWindowEnabled(enabled: Boolean) {
         context.floatingWindowDataStore.edit { preferences ->
             preferences[KEY_FLOATING_ENABLED] = enabled
@@ -57,9 +44,6 @@ class FloatingWindowManager @Inject constructor(
         }
     }
 
-    /**
-     * 显示悬浮窗
-     */
     fun showFloatingWindow() {
         if (hasOverlayPermission()) {
             val intent = Intent(context, FloatingWindowService::class.java).apply {
@@ -69,9 +53,6 @@ class FloatingWindowManager @Inject constructor(
         }
     }
 
-    /**
-     * 隐藏悬浮窗
-     */
     fun hideFloatingWindow() {
         val intent = Intent(context, FloatingWindowService::class.java).apply {
             action = FloatingWindowService.ACTION_HIDE
@@ -79,9 +60,31 @@ class FloatingWindowManager @Inject constructor(
         context.startService(intent)
     }
 
-    /**
-     * 停止悬浮窗服务
-     */
+    fun openQuickLinkCapture() {
+        if (hasOverlayPermission()) {
+            val intent = Intent(context, FloatingWindowService::class.java).apply {
+                action = FloatingWindowService.ACTION_SHOW_LINK_INPUT
+            }
+            context.startService(intent)
+            return
+        }
+
+        val permissionIntent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}")
+        ).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(permissionIntent)
+    }
+
+    fun startQuickScanCapture() {
+        val intent = Intent(context, FloatingWindowService::class.java).apply {
+            action = FloatingWindowService.ACTION_SCREENSHOT
+        }
+        context.startService(intent)
+    }
+
     fun stopFloatingWindowService() {
         val intent = Intent(context, FloatingWindowService::class.java)
         context.stopService(intent)

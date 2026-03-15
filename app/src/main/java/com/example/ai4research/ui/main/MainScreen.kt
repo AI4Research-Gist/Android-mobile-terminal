@@ -1,5 +1,6 @@
 package com.example.ai4research.ui.main
 
+import android.app.AlertDialog
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -143,7 +144,9 @@ fun MainScreen(
             viewModel = viewModel,
             onLogout = onLogout,
             onNavigateToDetail = onNavigateToDetail,
-            onNavigateToVoiceRecording = onNavigateToVoiceRecording
+            onNavigateToVoiceRecording = onNavigateToVoiceRecording,
+            onOpenLinkCapture = { floatingWindowManager.openQuickLinkCapture() },
+            onStartScanCapture = { floatingWindowManager.startQuickScanCapture() }
         )
     }
     
@@ -335,8 +338,21 @@ class MainAppInterface(
     private val viewModel: MainViewModel,
     private val onLogout: () -> Unit,
     private val onNavigateToDetail: (String) -> Unit,
-    private val onNavigateToVoiceRecording: () -> Unit = {}
+    private val onNavigateToVoiceRecording: () -> Unit = {},
+    private val onOpenLinkCapture: () -> Unit = {},
+    private val onStartScanCapture: () -> Unit = {}
 ) {
+    private val quickCaptureBridge = QuickCaptureBridge(
+        postToMainThread = { block ->
+            android.os.Handler(android.os.Looper.getMainLooper()).post(block)
+        },
+        hasOverlayPermission = { floatingWindowManager.hasOverlayPermission() },
+        onOpenLinkCapture = onOpenLinkCapture,
+        onShowLinkPermissionPrompt = { showLinkOverlayPermissionPrompt() },
+        onStartScanCapture = onStartScanCapture,
+        onStartVoiceRecording = onNavigateToVoiceRecording
+    )
+
     @JavascriptInterface
     fun logout() {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -432,8 +448,29 @@ class MainAppInterface(
     @JavascriptInterface
     fun startVoiceRecording() {
         android.util.Log.d("MainAppInterface", "startVoiceRecording called")
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            onNavigateToVoiceRecording()
-        }
+        quickCaptureBridge.startVoiceRecording()
+    }
+
+    @JavascriptInterface
+    fun openLinkCapture() {
+        android.util.Log.d("MainAppInterface", "openLinkCapture called")
+        quickCaptureBridge.openLinkCapture()
+    }
+
+    @JavascriptInterface
+    fun startScanCapture() {
+        android.util.Log.d("MainAppInterface", "startScanCapture called")
+        quickCaptureBridge.startScanCapture()
+    }
+
+    private fun showLinkOverlayPermissionPrompt() {
+        AlertDialog.Builder(context)
+            .setTitle("需要悬浮窗权限")
+            .setMessage("添加链接需要悬浮窗权限，用来显示链接输入框。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("去授权") { _, _ ->
+                requestFloatingWindowPermission()
+            }
+            .show()
     }
 }

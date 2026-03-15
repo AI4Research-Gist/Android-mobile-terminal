@@ -58,6 +58,7 @@ class FloatingWindowService : Service() {
         const val ACTION_SHOW = "com.example.ai4research.action.SHOW_FLOATING"
         const val ACTION_HIDE = "com.example.ai4research.action.HIDE_FLOATING"
         const val ACTION_SCREENSHOT = "com.example.ai4research.action.SCREENSHOT"
+        const val ACTION_SHOW_LINK_INPUT = "com.example.ai4research.action.SHOW_LINK_INPUT"
         
         // 截图完成广播
         const val ACTION_CAPTURE_COMPLETED = "com.example.ai4research.action.CAPTURE_COMPLETED"
@@ -133,6 +134,7 @@ class FloatingWindowService : Service() {
             ACTION_SHOW -> showFloatingBall()
             ACTION_HIDE -> hideFloatingBall()
             ACTION_SCREENSHOT -> triggerScreenshot()
+            ACTION_SHOW_LINK_INPUT -> showLinkInputWindow()
         }
         return START_STICKY
     }

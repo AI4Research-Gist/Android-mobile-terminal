@@ -1172,10 +1172,12 @@
                     if (item.action === 'voice' && window.AndroidInterface && window.AndroidInterface.startVoiceRecording) {
                       window.AndroidInterface.startVoiceRecording();
                       setShowQuickCapture(false);
-                    } else if (item.action === 'link') {
-                      // TODO: 链接采集
-                    } else if (item.action === 'scan') {
-                      // TODO: 扫描采集
+                    } else if (item.action === 'link' && window.AndroidInterface && window.AndroidInterface.openLinkCapture) {
+                      window.AndroidInterface.openLinkCapture();
+                      setShowQuickCapture(false);
+                    } else if (item.action === 'scan' && window.AndroidInterface && window.AndroidInterface.startScanCapture) {
+                      window.AndroidInterface.startScanCapture();
+                      setShowQuickCapture(false);
                     }
                   }}
                 >
