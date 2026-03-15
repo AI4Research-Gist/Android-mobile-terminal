@@ -1,5 +1,17 @@
 package com.example.ai4research
 
+/**
+ * MainActivity 是应用的入口 Activity，负责：
+ * 1. 显示启动屏和主题设置
+ * 2. 处理身份验证状态并决定初始导航目标
+ * 3. 管理悬浮窗服务的生命周期
+ * 4. 处理从悬浮窗跳转的意图（Intent）
+ * 5. 注册广播接收器以响应后台服务的事件
+ *
+ * 使用 Hilt 进行依赖注入，注入 AuthRepository、ThemeManager 和 FloatingWindowManager。
+ * 采用 Jetpack Compose 构建 UI，使用 Navigation Graph 进行导航。
+ */
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -62,6 +74,14 @@ class MainActivity : ComponentActivity() {
     var targetTab by mutableStateOf<String?>(null)
         private set
 
+    /**
+     * Activity 创建时调用，负责：
+     * 1. 设置启动屏（Splash Screen）
+     * 2. 处理从悬浮窗跳转的 Intent
+     * 3. 启用边缘到边缘（Edge-to-Edge）显示
+     * 4. 设置 Compose 内容，包括主题和导航图
+     * 5. 并行执行初始化任务：WebView 预热、预加载登录页、检查登录状态
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -199,6 +219,11 @@ class MainActivity : ComponentActivity() {
         handleTargetTabIntent(intent)
     }
     
+    /**
+     * 处理从悬浮窗跳转的 Intent，解析 target_type 并设置目标 Tab。
+     * 悬浮窗服务通过 Intent extra 传递 target_type（PAPER, COMPETITION, INSIGHT 等），
+     * 此方法将其映射到前端导航栏对应的 Tab ID。
+     */
     private fun handleTargetTabIntent(intent: Intent?) {
         intent?.getStringExtra("target_type")?.let { typeStr ->
             // 将 ItemType 转换为 Tab 名称（与前端 NavBar 的 id 一致）

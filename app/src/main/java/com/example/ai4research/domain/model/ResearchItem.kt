@@ -3,8 +3,15 @@ package com.example.ai4research.domain.model
 import java.util.Date
 
 /**
- * Domain Layer - 纯业务模型
- * UI 层使用的清洁数据类
+ * 领域层：核心业务模型 - ResearchItem
+ * 代表一个研究条目（论文、比赛、灵感、语音等），包含：
+ * 1. 基本属性：ID、标题、摘要、类型、状态等
+ * 2. 内容：Markdown 格式正文、原始链接、音频链接
+ * 3. 元数据：使用密封类 ItemMetaData 表示不同类型的具体字段
+ * 4. 阅读状态：未读、在读、已读
+ * 5. 项目关联：可归属于某个项目（Project）
+ *
+ * 这是 UI 层直接使用的清洁数据类，不包含任何平台相关依赖。
  */
 data class ResearchItem(
     val id: String,

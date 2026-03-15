@@ -9,8 +9,14 @@ import com.example.ai4research.data.remote.dto.NocoUserListResponse
 import retrofit2.http.*
 
 /**
- * NocoDB API 接口定义
- * Base URL: http://47.109.158.254:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/
+ * 远程数据层：NocoDB API 接口定义（使用 Retrofit）
+ * 负责与后端 NocoDB 服务通信，提供：
+ * 1. Items 管理：增删改查、按类型筛选
+ * 2. Projects 管理：获取项目列表
+ * 3. 用户认证：注册、登录、用户信息查询
+ *
+ * Base URL: http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/
+ * 每个端点对应 NocoDB 中的一个数据表（Table）。
  */
 interface NocoApiService {
     /**

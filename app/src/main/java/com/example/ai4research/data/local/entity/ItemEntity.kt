@@ -7,8 +7,12 @@ import androidx.room.TypeConverters
 import com.example.ai4research.data.local.converter.RoomConverters
 
 /**
- * Room Entity - 本地数据库表结构
- * 遵循 Single Source of Truth 原则
+ * 数据层：Room 实体类 - 本地数据库表结构
+ * 对应数据库中的 "items" 表，存储从远程 API 同步的研究条目。
+ * 遵循 Single Source of Truth 原则，作为本地数据的唯一来源。
+ *
+ * 使用 @TypeConverters 处理复杂类型（如 JSON）的序列化。
+ * 包含与 ResearchItem 领域模型对应的字段，但使用字符串存储枚举值。
  */
 @Entity(tableName = "items")
 @TypeConverters(RoomConverters::class)

@@ -58,7 +58,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - **详情页**：Markdown 渲染、编辑保存、标记已读、星标、删除、项目归属同步。
 - **账号系统**：NocoDB 用户表注册/登录；本地使用 EncryptedSharedPreferences 缓存 token。
 - **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接。
-- **语音采集**：语音录制 → SpeechRecognizer 本地识别 → AI 优化润色 → 保存为语音卡片。
+- **语音采集**：语音录制 → SiliconFlow ASR 转写 → AI 优化润色 → 保存为语音卡片。
 - **AI 解析**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
@@ -74,7 +74,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 | 录音状态 | `service/VoiceRecordingState.kt` | Idle/Recording/Processing/Completed/Error 五种状态 |
 | 录音工具 | `service/AudioRecorderHelper.kt` | MediaRecorder 封装，支持获取振幅、时长 |
 | 录音界面 | `ui/voice/VoiceRecordingScreen.kt` | iOS 风格 Compose UI，脉冲动画、实时计时 |
-| 状态管理 | `ui/voice/VoiceRecordingViewModel.kt` | 整合 SpeechRecognizer + AI 优化 + 保存逻辑 |
+| 状态管理 | `ui/voice/VoiceRecordingViewModel.kt` | 整合录音、SiliconFlow ASR 转写、AI 优化与保存逻辑 |
 | AI 优化 | `service/AIService.kt#enhanceTranscription` | 使用 Qwen2.5 润色语音识别结果 |
 | 路由定义 | `navigation/GistNavigation.kt` | `Screen.VoiceRecording` 路由 |
 | JS Bridge | `ui/main/MainScreen.kt#startVoiceRecording` | WebView 调用入口 |
@@ -84,7 +84,8 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 用户点击语音按钮 → JS Bridge.startVoiceRecording()
     → NavigationGraph 导航到 VoiceRecordingScreen
     → 用户开始录音
-    → AudioRecorderHelper 录制音频 + SpeechRecognizer 识别
+    → AudioRecorderHelper 录制音频
+    → AIService.transcribeAudio() 调用 SiliconFlow ASR 转写
     → AIService.enhanceTranscription() 优化文本
     → 用户编辑确认 → ItemRepository.createVoiceItem() 保存
     → 返回主页面
@@ -208,6 +209,10 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 ### 9.4 NocoDB 数据结构
 Base ID：`p8bhzq1ltutm8zr`
 
+当前迁移后服务地址（截至 2026-03-15）：
+- Base URL：`http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/`
+- 旧地址 `http://47.109.158.254:8080/...` 已不再作为当前文档基准。
+
 **items 表（`mez4qicxcudfwnc`）**
 - `Id`（Int 主键）
 - `title`, `type`, `summary`, `content_md`
@@ -292,7 +297,7 @@ Base ID：`p8bhzq1ltutm8zr`
 
 ## 15. 网络与安全
 - `NocoAuthInterceptor` 自动添加 `xc-token`。
-- `network_security_config.xml` 允许对 `47.109.158.254` 明文通信。
+- `network_security_config.xml` 允许对迁移后的 NocoDB 服务器 `8.152.222.163` 明文通信。
 - **硬编码密钥/Token**：
   - `Constants.kt`：`NOCO_BASE_URL`, `NOCO_TOKEN`
   - `AIService.kt`：`API_KEY`
@@ -359,7 +364,7 @@ app/src/main/
 
 ## 20. 注意事项 / 风险点
 - **密钥硬编码**：NocoDB Token、SiliconFlow API Key 直接写在代码中。
-- **明文 HTTP**：允许对固定 IP 明文访问（`network_security_config.xml`）。
+- **明文 HTTP**：当前仍允许对固定 IP `8.152.222.163` 明文访问（`network_security_config.xml`）。
 - **Web UI 依赖网络**：CDN/ESM 加载 React/Tailwind/Framer Motion。
 - **编码问题**：部分注释出现乱码（编码非 UTF-8）。
 - **Proguard 规则**：保留类名中存在 `AI4ResearchApplication` 但实际为 `AI4ResearchApp`（需校正）。

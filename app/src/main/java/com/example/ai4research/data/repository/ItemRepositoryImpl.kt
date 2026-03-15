@@ -17,6 +17,15 @@ import kotlinx.serialization.json.JsonElement
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * 数据层：ItemRepository 实现类，负责：
+ * 1. 协调本地数据（Room）与远程数据（NocoDB API）的同步
+ * 2. 提供对 ResearchItem 的增删改查（CRUD）操作
+ * 3. 处理数据转换：DTO → Entity → Domain Model
+ * 4. 实现离线优先策略：本地更新立即生效，远程同步尽力而为
+ *
+ * 使用 @Singleton 注解确保全局唯一实例，通过 Hilt 注入依赖。
+ */
 @Singleton
 class ItemRepositoryImpl @Inject constructor(
     private val api: NocoApiService,
@@ -68,6 +77,15 @@ class ItemRepositoryImpl @Inject constructor(
             .map { list -> list.map(ItemMapper::entityToDomain) }
     }
 
+    /**
+     * 从远程 API 刷新数据到本地数据库，执行以下步骤：
+     * 1. 同步项目数据（用于项目名称解析）
+     * 2. 同步条目数据
+     * 3. 过滤无效数据（标题或类型为空）
+     * 4. 使用 ItemMapper 进行 DTO → Entity 转换
+     * 5. 批量插入到 Room 数据库
+     * 6. 返回成功或失败结果
+     */
     override suspend fun refreshItems(): Result<Unit> {
         return try {
             android.util.Log.d("ItemRepository", "Starting data refresh from NocoDB...")
@@ -269,12 +287,11 @@ class ItemRepositoryImpl @Inject constructor(
             Result.failure(e)
         }
     }
-    
+
     override suspend fun updateItemType(id: String, type: ItemType): Result<Unit> {
         return try {
             val local = itemDao.getItemById(id) ?: return Result.failure(Exception("Item not found"))
-            
-            // 更新远端
+
             val dto = NocoItemDto(
                 id = local.id.toIntOrNull(),
                 title = local.title,
@@ -288,10 +305,9 @@ class ItemRepositoryImpl @Inject constructor(
                 projectId = local.projectId?.toIntOrNull(),
                 metaJson = parseMetaJson(local.metaJson)
             )
-            
+
             val updated = api.updateItem(id, dto)
-            
-            // 更新本地
+
             itemDao.insertItem(
                 ItemMapper.dtoToEntity(
                     updated,
@@ -299,7 +315,7 @@ class ItemRepositoryImpl @Inject constructor(
                     projectName = local.projectName
                 )
             )
-            
+
             android.util.Log.d("ItemRepository", "Item type updated: id=$id, newType=$type")
             Result.success(Unit)
         } catch (e: Exception) {
@@ -310,10 +326,8 @@ class ItemRepositoryImpl @Inject constructor(
 
     override suspend fun updateReadStatus(id: String, readStatus: ReadStatus): Result<Unit> {
         return try {
-            // Local first (better UX)
             itemDao.updateReadStatus(id, readStatus.toServerString())
 
-            // Best-effort remote sync
             val local = itemDao.getItemById(id)
             if (local != null) {
                 val dto = NocoItemDto(
@@ -344,10 +358,9 @@ class ItemRepositoryImpl @Inject constructor(
             Result.failure(e)
         }
     }
-    
+
     override suspend fun updateStarred(id: String, isStarred: Boolean): Result<Unit> {
         return try {
-            // 本地更新（仅本地存储，无需同步远端）
             itemDao.updateStarred(id, isStarred)
             Result.success(Unit)
         } catch (e: Exception) {
@@ -366,14 +379,12 @@ class ItemRepositoryImpl @Inject constructor(
         return try {
             val local = itemDao.getItemById(id) ?: return Result.failure(Exception("Item not found"))
 
-            // 处理 metaJson - 如果传入新值则使用新值，否则保留原值
             val finalMetaJson = if (metaJson != null) {
                 parseMetaJson(metaJson)
             } else {
                 parseMetaJson(local.metaJson)
             }
 
-            // Prepare update DTO
             val dto = NocoItemDto(
                 id = local.id.toIntOrNull(),
                 title = title ?: local.title,
@@ -389,10 +400,8 @@ class ItemRepositoryImpl @Inject constructor(
                 metaJson = finalMetaJson
             )
 
-            // Remote update
             val updated = api.updateItem(id, dto)
 
-            // Local update
             itemDao.insertItem(
                 ItemMapper.dtoToEntity(
                     updated,
@@ -415,8 +424,6 @@ class ItemRepositoryImpl @Inject constructor(
             }
 
             val projectName = projectId?.let { projectDao.getProjectById(it)?.name }
-
-            // 优先按新模型：更新 items.project_id
             val projectIdInt = projectId?.toIntOrNull()
             val projectUpdateResult = runCatching {
                 val dto = NocoItemDto(
@@ -458,9 +465,7 @@ class ItemRepositoryImpl @Inject constructor(
 
     override suspend fun deleteItem(id: String): Result<Unit> {
         return try {
-            // Local delete first
             itemDao.deleteItemById(id)
-            // Best-effort remote delete
             runCatching { api.deleteItem(id) }
             Result.success(Unit)
         } catch (e: Exception) {

@@ -14,8 +14,14 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Application 类
- * @HiltAndroidApp 触发 Hilt 的代码生成
+ * 自定义 Application 类，负责：
+ * 1. 作为 Hilt 依赖注入的入口点（@HiltAndroidApp）
+ * 2. 管理应用前后台状态，控制悬浮窗的显示/隐藏
+ * 3. 注册 Activity 生命周期回调以跟踪应用可见性
+ * 4. 提供应用级别的协程作用域（applicationScope）
+ *
+ * 当应用进入后台且用户已启用悬浮窗权限时，显示悬浮窗；
+ * 当应用回到前台时，隐藏悬浮窗以提供沉浸式体验。
  */
 @HiltAndroidApp
 class AI4ResearchApp : Application() {
@@ -29,6 +35,10 @@ class AI4ResearchApp : Application() {
     private var activityCount = 0
     private var isInForeground = false
     
+    /**
+     * Application 初始化时注册 Activity 生命周期回调，
+     * 用于跟踪应用前后台状态变化。
+     */
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(AppLifecycleCallbacks())

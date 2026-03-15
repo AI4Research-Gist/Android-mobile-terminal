@@ -127,8 +127,10 @@ app/src/main/
 
 ## 配置说明（开发环境）
 
+- 截至 2026-03-15，NocoDB 已迁移到新服务器，当前 Base URL 为 `http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/`。
 - NocoDB：在 `app/src/main/java/com/example/ai4research/core/util/Constants.kt` 设置 `NOCO_BASE_URL` 与 `NOCO_TOKEN`。
 - SiliconFlow：在 `app/src/main/java/com/example/ai4research/service/AIService.kt` 设置 `API_KEY`。
+- `app/src/main/res/xml/network_security_config.xml` 当前已按迁移后的 NocoDB IP 放行明文 HTTP。
 
 > 生产环境建议将密钥移至安全配置（例如 `local.properties` + CI 注入），避免硬编码。
 
