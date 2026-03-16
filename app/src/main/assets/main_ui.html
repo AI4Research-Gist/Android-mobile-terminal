@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
@@ -222,7 +222,7 @@
       Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut
     } = LucideReact;
 
-    // --- 数据接收桥接 ---
+    // --- 鏁版嵁鎺ユ敹妗ユ帴 ---
     window.receivePapers = (jsonStr) => {
       console.log("receivePapers called with:", typeof jsonStr, Array.isArray(jsonStr) ? `array[${jsonStr.length}]` : (typeof jsonStr === 'string' ? jsonStr.substring(0, 100) : "object"));
       try {
@@ -245,13 +245,13 @@
             authors = meta.authors;
           }
 
-          // 解析来源信息
+          // 瑙ｆ瀽鏉ユ簮淇℃伅
           let source = "";
           if (meta.source && meta.source.length > 0) {
             source = meta.source;
           }
           if (meta.conference && meta.conference.length > 0) {
-            source = source ? `${source} · ${meta.conference}` : meta.conference;
+            source = source ? `${source} 路 ${meta.conference}` : meta.conference;
           }
           if (meta.year && meta.year.length > 0) {
             source = source ? `${source} ${meta.year}` : meta.year;
@@ -260,21 +260,21 @@
             source = "未知来源";
           }
 
-          // 解析双语摘要
+          // 瑙ｆ瀽鍙岃鎽樿
           const summaryEn = meta.summary_en || "";
           const summaryZh = meta.summary_zh || "";
           let displaySummary = item.summary || "暂无摘要";
           let summaryObj = { en: summaryEn, zh: summaryZh, display: displaySummary };
-          // 如果有双语摘要，优先使用中文
+          // 濡傛灉鏈夊弻璇憳瑕侊紝浼樺厛浣跨敤涓枃
           if (summaryZh) {
             displaySummary = summaryZh;
           }
 
-          // 解析 read_status，去掉括号内的中文说明
+          // 瑙ｆ瀽 read_status锛屽幓鎺夋嫭鍙峰唴鐨勪腑鏂囪鏄?
           const rawReadStatus = item.read_status || 'unread';
           const readStatus = rawReadStatus.split(' ')[0].toLowerCase();
 
-          // 解析 status，去掉括号内的中文说明
+          // 瑙ｆ瀽 status锛屽幓鎺夋嫭鍙峰唴鐨勪腑鏂囪鏄?
           const rawStatus = item.status || 'processing';
           const status = rawStatus.split(' ')[0].toLowerCase();
 
@@ -298,12 +298,12 @@
         window.dispatchEvent(new CustomEvent('papers-updated', { detail: mapped }));
       } catch (e) { console.error("Error parsing papers", e); }
     };
-
     window.receiveCompetitions = (jsonStr) => {
       console.log("receiveCompetitions called with:", typeof jsonStr, jsonStr ? String(jsonStr).substring(0, 200) : "null");
       try {
         const data = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
         console.log("Parsed competitions data:", data.length, "items");
+        const now = new Date();
         const mapped = data.map(item => {
           let meta = {};
           try {
@@ -314,27 +314,36 @@
             }
           } catch (e) { }
 
-          let daysLeft = 0;
-          if (meta.deadline) {
-            const diff = new Date(meta.deadline) - new Date();
-            daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
-          }
+          const rawDeadline = item.deadline || meta.deadline;
+          const diffDays = rawDeadline
+            ? Math.ceil((new Date(rawDeadline) - now) / (1000 * 60 * 60 * 24))
+            : null;
+          const absDays = diffDays == null ? 0 : Math.abs(diffDays);
+          const fallbackText = diffDays == null
+            ? "时间待补充"
+            : (diffDays < 0 ? ("已过 " + absDays + " 天") : ("距截止时间 " + absDays + " 天"));
+          const fallbackSortKey = diffDays == null
+            ? Number.MAX_SAFE_INTEGER
+            : (diffDays < 0 ? 1000000 + absDays : absDays);
 
           return {
             id: item.Id || item.id,
             title: item.title,
-            organizer: meta.organizer || "主办方未知",
-            deadline: meta.deadline,
-            daysLeft: daysLeft,
-            status: daysLeft > 0 ? "registered" : "ended",
-            tags: item.tags ? item.tags.split(/[,，]/) : []
+            organizer: item.organizer || meta.organizer || "主办方未知",
+            deadline: rawDeadline,
+            urgencyText: item.urgency_text || fallbackText,
+            urgencyDays: typeof item.urgency_days === 'number' ? item.urgency_days : absDays,
+            urgencyAnchor: item.urgency_anchor || null,
+            status: item.is_overdue || (diffDays != null && diffDays < 0) ? "overdue" : "active",
+            sortKey: typeof item.sort_key === 'number' ? item.sort_key : fallbackSortKey,
+            tags: Array.isArray(meta.tags) ? meta.tags : []
           };
         });
-        console.log("Dispatching competitions-updated event with", mapped.length, "items");
-        window.dispatchEvent(new CustomEvent('competitions-updated', { detail: mapped }));
+        const sorted = mapped.sort((a, b) => a.sortKey - b.sortKey);
+        console.log("Dispatching competitions-updated event with", sorted.length, "items");
+        window.dispatchEvent(new CustomEvent('competitions-updated', { detail: sorted }));
       } catch (e) { console.error("Error parsing comps", e); }
     };
-
     window.receiveProjects = (jsonStr) => {
       console.log("receiveProjects called with:", typeof jsonStr, jsonStr ? String(jsonStr).substring(0, 200) : "null");
       try {
@@ -400,11 +409,11 @@
           const rawStatus = item.status || 'done';
           const status = rawStatus.split(' ')[0].toLowerCase();
 
-          // 格式化时长
+          // 鏍煎紡鍖栨椂闀?
           const duration = meta.duration || 0;
           const minutes = Math.floor(duration / 60);
           const seconds = duration % 60;
-          const durationStr = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
+          const durationStr = minutes > 0 ? `${minutes}分 ${seconds}秒` : `${seconds}秒`;
 
           return {
             id: item.Id || item.id,
@@ -423,10 +432,10 @@
       } catch (e) { console.error("Error parsing voice items", e); }
     };
 
-    // --- 主题上下文配置 ---
+    // --- 涓婚涓婁笅鏂囬厤缃?---
     const ThemeContext = createContext({ isDark: true, toggleTheme: () => { } });
 
-    // --- 基础组件 ---
+    // --- 鍩虹缁勪欢 ---
     const GlassCard = ({ children, className = "", delay = 0, noPadding = false, ...props }) => {
       const { isDark } = useContext(ThemeContext);
 
@@ -507,21 +516,20 @@
       );
     };
 
-    // --- 页面视图 ---
+    // --- 椤甸潰瑙嗗浘 ---
 
     const HomeView = ({ papers, competitions, insights, voiceItems }) => {
       const { isDark } = useContext(ThemeContext);
 
-      // 合并insights和voiceItems，统一显示在"最近动态"区域
-      // 按时间排序，最新的在最上面
+      // 鍚堝苟insights鍜寁oiceItems锛岀粺涓€鏄剧ず鍦?鏈€杩戝姩鎬?鍖哄煙
+      // 鎸夋椂闂存帓搴忥紝鏈€鏂扮殑鍦ㄦ渶涓婇潰
       const allDynamics = [
         ...(insights || []).map(i => ({ ...i, itemType: i.itemType || 'insight' })),
         ...(voiceItems || []).map(v => ({ ...v, itemType: 'voice' }))
       ].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 
-      // 竞赛按时间排序，最新的在最左边
-      const sortedCompetitions = [...(competitions || [])]
-        .sort((a, b) => new Date(b.CreatedAt || 0) - new Date(a.CreatedAt || 0));
+      // 绔炶禌鎸夋椂闂存帓搴忥紝鏈€鏂扮殑鍦ㄦ渶宸﹁竟
+      const sortedCompetitions = [...(competitions || [])];
 
       const today = new Date();
       const dateStr = today.toLocaleDateString('zh-CN', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -547,7 +555,7 @@
             </div>
           </div>
 
-          {/* 最近捕获 Section - 显示动态和语音 */}
+          {/* 鏈€杩戞崟鑾?Section - 鏄剧ず鍔ㄦ€佸拰璇煶 */}
           <SectionHeader icon={Lightbulb} title="最近动态" colorClass="text-amber-400" />
 
           {allDynamics.length > 0 ? (
@@ -558,7 +566,7 @@
                     window.AndroidInterface.navigateToDetail(String(item.id));
                   }
                 }}>
-                  {/* 顶部状态指示器 */}
+                  {/* 椤堕儴鐘舵€佹寚绀哄櫒 */}
                   <div className={`absolute top-0 right-0 p-3 transition-opacity duration-500 ${isDark ? 'opacity-50' : 'opacity-100'}`}>
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-bold tracking-wider uppercase ${item.status === 'done'
@@ -579,7 +587,7 @@
                   </div>
 
                   <div className="flex items-start gap-4 mb-3">
-                    {/* 根据类型显示不同图标：voice用麦克风，insight用灯泡 */}
+                    {/* 鏍规嵁绫诲瀷鏄剧ず涓嶅悓鍥炬爣锛歷oice鐢ㄩ害鍏嬮锛宨nsight鐢ㄧ伅娉?*/}
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg ${item.itemType === 'voice'
                       ? 'shadow-orange-500/20 bg-gradient-to-br from-orange-500 to-red-500'
                       : 'shadow-amber-500/20 bg-gradient-to-br from-amber-500 to-orange-500'
@@ -591,12 +599,12 @@
                         {item.title}
                       </h3>
                       <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        {item.itemType === 'voice' ? `语音 · ${item.durationStr || ''}` : (item.source || '灵感')}
+                        {item.itemType === 'voice' ? `语音 路 ${item.durationStr || ''}` : (item.source || '灵感')}
                       </p>
                     </div>
                   </div>
 
-                  {/* 内容区域 - voice显示转写文本，insight显示摘要 */}
+                  {/* 鍐呭鍖哄煙 - voice鏄剧ず杞啓鏂囨湰锛宨nsight鏄剧ず鎽樿 */}
                   {item.summary && (
                     <div className={`p-3 rounded-xl border transition-all duration-500 ${item.itemType === 'voice'
                       ? (isDark ? 'bg-orange-900/20 border-orange-500/10' : 'bg-orange-50/50 border-orange-100')
@@ -606,7 +614,7 @@
                         }`}>
                         {item.itemType === 'voice' ? <Mic className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
                         <span>{item.itemType === 'voice' ? '语音转写' : 'AI 核心摘要'}</span>
-                        {/* 双语切换按钮 - 仅insight有 */}
+                        {/* 鍙岃鍒囨崲鎸夐挳 - 浠卛nsight鏈?*/}
                         {item.itemType === 'insight' && item.summaryEn && item.summaryZh && (
                           <div className="ml-auto flex gap-1">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}
@@ -633,7 +641,7 @@
                     </div>
                   )}
 
-                  {/* 底部状态标签 */}
+                  {/* 搴曢儴鐘舵€佹爣绛?*/}
                   <div className="flex items-center justify-between mt-3">
                     <div className="flex gap-2">
                       <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${item.readStatus === 'read'
@@ -672,9 +680,9 @@
                   <div className="flex justify-between items-start mb-3">
                     <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
                       }`}>
-                      剩余 {comp.daysLeft} 天
+                      {comp.urgencyText}
                     </span>
-                    <div className={`w-2 h-2 rounded-full ${comp.status === 'registered' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-slate-300'}`} />
+                    <div className={`w-2 h-2 rounded-full ${comp.status === 'active' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-amber-400 shadow-[0_0_8px_#F59E0B]'}`} />
                   </div>
 
                   <h3 className={`text-base font-bold mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
@@ -702,7 +710,7 @@
       const [showSearch, setShowSearch] = useState(false);
       const [searchQuery, setSearchQuery] = useState("");
       const [activeFilterIndex, setActiveFilterIndex] = useState(0);
-      const [menuOpenId, setMenuOpenId] = useState(null);  // 跟踪哪个卡片的菜单打开
+      const [menuOpenId, setMenuOpenId] = useState(null);  // 璺熻釜鍝釜鍗＄墖鐨勮彍鍗曟墦寮€
 
       const handleSearch = (e) => {
         const query = e.target.value;
@@ -714,7 +722,7 @@
 
       const handleToggleSearch = () => {
         if (showSearch) {
-          // 收回时先清空搜索
+          // 鏀跺洖鏃跺厛娓呯┖鎼滅储
           setSearchQuery("");
           if (window.AndroidInterface && window.AndroidInterface.search) {
             window.AndroidInterface.search("");
@@ -723,11 +731,11 @@
         setShowSearch(!showSearch);
       };
 
-      // 构建筛选按钮列表：全部、未读、标星 + 动态项目列表
+      // 鏋勫缓绛涢€夋寜閽垪琛細鍏ㄩ儴銆佹湭璇汇€佹爣鏄?+ 鍔ㄦ€侀」鐩垪琛?
       const filters = [
         { label: "全部", type: "all", projectId: null },
         { label: "未读", type: "unread", projectId: null },
-        { label: "标星", type: "starred", projectId: null },
+        { label: "星标", type: "starred", projectId: null },
         ...projects.map(p => ({ label: p.name, type: "project", projectId: p.id }))
       ];
 
@@ -784,7 +792,7 @@
             </button>
           </div>
 
-          {/* 搜索框 - 液态玻璃效果 */}
+          {/* 鎼滅储妗?- 娑叉€佺幓鐠冩晥鏋?*/}
           {showSearch && (
             <div className="px-1 mb-2">
               <input
@@ -863,10 +871,10 @@
                   }
                 }}
               >
-                {/* 顶部状态区域 */}
+                {/* 椤堕儴鐘舵€佸尯鍩?*/}
                 <div className="flex justify-between items-start">
                   <div className="flex gap-2 flex-wrap">
-                    {/* 阅读状态标签 */}
+                    {/* 闃呰鐘舵€佹爣绛?*/}
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${paper.readStatus === 'read'
                       ? (isDark ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200')
                       : paper.readStatus === 'reading'
@@ -875,7 +883,7 @@
                       }`}>
                       {paper.readStatus === 'read' ? '已读' : paper.readStatus === 'reading' ? '在读' : '未读'}
                     </span>
-                    {/* 解析状态标签 */}
+                    {/* 瑙ｆ瀽鐘舵€佹爣绛?*/}
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${paper.status === 'done'
                       ? (isDark ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' : 'bg-teal-50 text-teal-600 border border-teal-200')
                       : paper.status === 'failed'
@@ -884,14 +892,14 @@
                       }`}>
                       {paper.status === 'done' ? '已解析' : paper.status === 'failed' ? '解析失败' : '解析中'}
                     </span>
-                    {/* 项目归属标签 */}
+                    {/* 椤圭洰褰掑睘鏍囩 */}
                     {paper.projectName && (
                       <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-cyan-50 text-cyan-600 border border-cyan-200'}`}>
                         {paper.projectName}
                       </span>
                     )}
                   </div>
-                  {/* 三个点菜单 */}
+                  {/* 涓変釜鐐硅彍鍗?*/}
                   <div className="relative">
                     <button
                       onClick={(e) => handleMenuClick(e, paper.id)}
@@ -899,7 +907,7 @@
                     >
                       <MoreHorizontal className="w-5 h-5" />
                     </button>
-                    {/* 下拉菜单 */}
+                    {/* 涓嬫媺鑿滃崟 */}
                     {menuOpenId === paper.id && (
                       <div
                         className={`absolute right-0 top-8 z-50 min-w-[120px] rounded-xl overflow-hidden shadow-lg`}
@@ -919,26 +927,26 @@
                           onClick={(e) => handleEditClick(e, paper.id)}
                           className={`w-full px-4 py-2.5 text-sm text-left flex items-center gap-2 ${isDark ? 'text-white hover:bg-white/10' : 'text-slate-700 hover:bg-slate-50'}`}
                         >
-                          <span>📝</span> 编辑
+                          <span>编辑</span>
                         </button>
                         <button
                           onClick={(e) => handleDeleteClick(e, paper.id)}
                           className={`w-full px-4 py-2.5 text-sm text-left flex items-center gap-2 ${isDark ? 'text-red-400 hover:bg-red-500/10' : 'text-red-500 hover:bg-red-50'}`}
                         >
-                          <span>🗑️</span> 删除
+                          <span>删除</span>
                         </button>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* 标题和作者 */}
+                {/* 鏍囬鍜屼綔鑰?*/}
                 <div className="flex-1">
                   <h3 className={`text-lg font-bold leading-snug mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                     {paper.title}
                   </h3>
                   <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                    {paper.author} · {paper.source || '来源未知'}
+                    {paper.author} 路 {paper.source || '来源未知'}
                   </p>
                 </div>
 
@@ -968,12 +976,12 @@
       return (
         <div className="space-y-4 pb-28">
           <div className="flex justify-between items-end mb-6 px-2">
-            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>竞赛活动</h1>
+            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>比赛活动</h1>
           </div>
 
           {competitions.length === 0 ? (
             <div className={`text-center py-20 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
-              <p>暂无竞赛信息</p>
+              <p>暂无比赛信息</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
@@ -987,9 +995,9 @@
                   <div className="flex justify-between items-start mb-3">
                     <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
                       }`}>
-                      剩余 {comp.daysLeft} 天
+                      {comp.urgencyText}
                     </span>
-                    <div className={`w-2 h-2 rounded-full ${comp.status === 'registered' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-slate-300'}`} />
+                    <div className={`w-2 h-2 rounded-full ${comp.status === 'active' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-amber-400 shadow-[0_0_8px_#F59E0B]'}`} />
                   </div>
 
                   <h3 className={`text-xl font-bold mb-2 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
@@ -1015,7 +1023,7 @@
       const [floatingEnabled, setFloatingEnabled] = useState(false);
       const [hasFloatingPermission, setHasFloatingPermission] = useState(false);
 
-      // 检查悬浮窗状态
+      // 妫€鏌ユ偓娴獥鐘舵€?
       useEffect(() => {
         if (window.AndroidInterface && window.AndroidInterface.checkFloatingWindowStatus) {
           const status = window.AndroidInterface.checkFloatingWindowStatus();
@@ -1029,12 +1037,12 @@
 
       const handleFloatingToggle = () => {
         if (!hasFloatingPermission) {
-          // 没有权限，跳转到系统设置
+          // 娌℃湁鏉冮檺锛岃烦杞埌绯荤粺璁剧疆
           if (window.AndroidInterface && window.AndroidInterface.requestFloatingWindowPermission) {
             window.AndroidInterface.requestFloatingWindowPermission();
           }
         } else {
-          // 切换开关
+          // 鍒囨崲寮€鍏?
           const newState = !floatingEnabled;
           setFloatingEnabled(newState);
           if (window.AndroidInterface && window.AndroidInterface.setFloatingWindowEnabled) {
@@ -1057,7 +1065,7 @@
             <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>设置</h1>
           </div>
 
-          {/* 悬浮窗设置 */}
+          {/* 鎮诞绐楄缃?*/}
           <GlassCard>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1067,7 +1075,7 @@
                 <div>
                   <span className={`font-medium block ${isDark ? 'text-white' : 'text-slate-900'}`}>悬浮窗助手</span>
                   <span className={`text-xs ${hasFloatingPermission ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-amber-400' : 'text-amber-600')}`}>
-                    {hasFloatingPermission ? '已授权' : '点击授权权限'}
+                    {hasFloatingPermission ? '已授权' : '点击授予权限'}
                   </span>
                 </div>
               </div>
@@ -1087,7 +1095,7 @@
             )}
           </GlassCard>
 
-          {/* 深色模式 */}
+          {/* 娣辫壊妯″紡 */}
           <GlassCard>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1115,7 +1123,7 @@
       );
     };
 
-    // --- 全局悬浮组件 (FAB & Nav) ---
+    // --- 鍏ㄥ眬鎮诞缁勪欢 (FAB & Nav) ---
 
     const CaptureModal = ({ isOpen, onClose }) => {
       const { isDark } = useContext(ThemeContext);
@@ -1295,7 +1303,7 @@
             </div>
 
             <div className="flex flex-1 justify-around">
-              <NavButton id="competitions" icon={Trophy} label="竞赛" />
+              <NavButton id="competitions" icon={Trophy} label="比赛" />
               <NavButton id="settings" icon={Settings} label="设置" />
             </div>
           </div>
@@ -1353,7 +1361,7 @@
           window.AndroidInterface.requestData();
         }
 
-        // 获取项目列表
+        // 鑾峰彇椤圭洰鍒楄〃
         if (window.AndroidInterface && window.AndroidInterface.getProjects) {
           try {
             const projectsJson = window.AndroidInterface.getProjects();
@@ -1374,7 +1382,7 @@
         };
       }, []);
 
-      // 暴露 setActiveTab 到全局，供 Android 调用
+      // 鏆撮湶 setActiveTab 鍒板叏灞€锛屼緵 Android 璋冪敤
       useEffect(() => {
         window.setActiveTab = (tab) => {
           console.log('React: setActiveTab called from Android:', tab);
@@ -1385,7 +1393,7 @@
         };
       }, [setActiveTab]);
 
-      // Status Bar - 增加顶部安全区域，为系统状态栏留出空间
+      // Status Bar - 澧炲姞椤堕儴瀹夊叏鍖哄煙锛屼负绯荤粺鐘舵€佹爮鐣欏嚭绌洪棿
       const StatusBar = () => (
         <div className={`flex justify-between items-center px-6 pt-10 pb-2 text-xs font-medium sticky top-0 z-50 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
           <span></span>
@@ -1398,7 +1406,7 @@
         <ThemeContext.Provider value={{ isDark, toggleTheme }}>
           <div className={`h-full flex flex-col overflow-hidden font-sans transition-colors duration-700 ease-in-out ${isDark ? 'bg-[#09090b]' : 'bg-[#F2F2F7]'}`}>
 
-            {/* 动态背景层 (Dynamic Ambient Background) */}
+            {/* 鍔ㄦ€佽儗鏅眰 (Dynamic Ambient Background) */}
             <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
               {/* Tech Grid Overlay */}
               <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${isDark ? 'opacity-[0.15]' : 'opacity-[0.03]'}`}

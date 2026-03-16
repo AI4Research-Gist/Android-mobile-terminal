@@ -108,6 +108,35 @@ fun DetailScreen(
     var editTheme by remember(competitionMeta) { mutableStateOf(competitionMeta?.theme ?: "") }
     var editCompetitionType by remember(competitionMeta) { mutableStateOf(competitionMeta?.competitionType ?: "") }
     var editPrizePool by remember(competitionMeta) { mutableStateOf(competitionMeta?.prizePool ?: "") }
+    var editWebsite by remember(competitionMeta) { mutableStateOf(competitionMeta?.website ?: "") }
+    var editRegistrationUrl by remember(competitionMeta) { mutableStateOf(competitionMeta?.registrationUrl ?: "") }
+    var editRegistrationDeadline by remember(competitionMeta) {
+        mutableStateOf(
+            competitionMeta?.timeline
+                ?.firstOrNull { it.name.contains("报名截止") }
+                ?.date
+                ?.let { formatTimelineDate(it) }
+                ?: ""
+        )
+    }
+    var editSubmissionDeadline by remember(competitionMeta) {
+        mutableStateOf(
+            competitionMeta?.timeline
+                ?.firstOrNull { it.name.contains("提交截止") }
+                ?.date
+                ?.let { formatTimelineDate(it) }
+                ?: ""
+        )
+    }
+    var editResultDate by remember(competitionMeta) {
+        mutableStateOf(
+            competitionMeta?.timeline
+                ?.firstOrNull { it.name.contains("结果公布") }
+                ?.date
+                ?.let { formatTimelineDate(it) }
+                ?: ""
+        )
+    }
     
     // 语音特有字段编辑状态
     var editTranscription by remember(voiceMeta) { mutableStateOf(voiceMeta?.transcription ?: item?.summary ?: "") }
@@ -194,7 +223,12 @@ fun DetailScreen(
                                     deadline = editDeadline,
                                     theme = editTheme,
                                     competitionType = editCompetitionType,
-                                    prizePool = editPrizePool
+                                    prizePool = editPrizePool,
+                                    website = editWebsite,
+                                    registrationUrl = editRegistrationUrl,
+                                    registrationDeadline = editRegistrationDeadline,
+                                    submissionDeadline = editSubmissionDeadline,
+                                    resultDate = editResultDate
                                 )
                                 ItemType.VOICE -> buildVoiceMetaJson(
                                     transcription = editTranscription,
@@ -458,6 +492,52 @@ fun DetailScreen(
                                 value = editPrizePool,
                                 onValueChange = { editPrizePool = it },
                                 label = { Text("奖金池") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editWebsite,
+                                onValueChange = { editWebsite = it },
+                                label = { Text("官网链接") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editRegistrationUrl,
+                                onValueChange = { editRegistrationUrl = it },
+                                label = { Text("报名链接") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editRegistrationDeadline,
+                                onValueChange = { editRegistrationDeadline = it },
+                                label = { Text("报名截止 (YYYY-MM-DD)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editSubmissionDeadline,
+                                onValueChange = { editSubmissionDeadline = it },
+                                label = { Text("提交截止 (YYYY-MM-DD)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            OutlinedTextField(
+                                value = editResultDate,
+                                onValueChange = { editResultDate = it },
+                                label = { Text("结果公布 (YYYY-MM-DD)") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true
                             )
@@ -743,7 +823,12 @@ private fun buildCompetitionMetaJson(
     deadline: String,
     theme: String,
     competitionType: String,
-    prizePool: String
+    prizePool: String,
+    website: String,
+    registrationUrl: String,
+    registrationDeadline: String,
+    submissionDeadline: String,
+    resultDate: String
 ): String {
     val metaMap = mutableMapOf<String, Any>()
     if (organizer.isNotBlank()) metaMap["organizer"] = organizer
@@ -751,6 +836,14 @@ private fun buildCompetitionMetaJson(
     if (theme.isNotBlank()) metaMap["theme"] = theme
     if (competitionType.isNotBlank()) metaMap["competitionType"] = competitionType
     if (prizePool.isNotBlank()) metaMap["prizePool"] = prizePool
+    if (website.isNotBlank()) metaMap["website"] = website
+    if (registrationUrl.isNotBlank()) metaMap["registrationUrl"] = registrationUrl
+
+    val timeline = mutableListOf<Map<String, Any>>()
+    if (registrationDeadline.isNotBlank()) timeline += mapOf("name" to "报名截止", "date" to registrationDeadline, "isPassed" to false)
+    if (submissionDeadline.isNotBlank()) timeline += mapOf("name" to "提交截止", "date" to submissionDeadline, "isPassed" to false)
+    if (resultDate.isNotBlank()) timeline += mapOf("name" to "结果公布", "date" to resultDate, "isPassed" to false)
+    if (timeline.isNotEmpty()) metaMap["timeline"] = timeline
     
     return try {
         org.json.JSONObject(metaMap as Map<*, *>).toString()
@@ -790,6 +883,12 @@ private fun CompetitionInfoCard(
         meta.deadline?.takeIf { it.isNotBlank() }?.let {
             CompetitionInfoRow("截止日期", it, isDark)
         }
+        meta.website?.takeIf { it.isNotBlank() }?.let {
+            CompetitionInfoRow("官网链接", it, isDark)
+        }
+        meta.registrationUrl?.takeIf { it.isNotBlank() }?.let {
+            CompetitionInfoRow("报名链接", it, isDark)
+        }
         meta.theme?.takeIf { it.isNotBlank() }?.let {
             CompetitionInfoRow("竞赛主题", it, isDark)
         }
@@ -799,7 +898,15 @@ private fun CompetitionInfoCard(
         meta.prizePool?.takeIf { it.isNotBlank() }?.let {
             CompetitionInfoRow("奖金池", it, isDark)
         }
+        meta.timeline?.forEach { event ->
+            CompetitionInfoRow(event.name, formatTimelineDate(event.date), isDark)
+        }
     }
+}
+
+private fun formatTimelineDate(date: java.util.Date): String {
+    val format = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    return format.format(date)
 }
 
 @Composable

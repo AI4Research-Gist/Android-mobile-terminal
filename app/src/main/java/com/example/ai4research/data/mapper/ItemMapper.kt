@@ -10,6 +10,7 @@ import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
 import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
+import com.example.ai4research.domain.model.TimelineEvent
 import com.google.gson.Gson
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -140,13 +141,31 @@ object ItemMapper {
                     )
                 }
 
-                "competition" -> ItemMetaData.CompetitionMeta(
-                    organizer = map["organizer"]?.toString(),
-                    prizePool = map["prizePool"]?.toString(),
-                    deadline = map["deadline"]?.toString(),
-                    theme = map["theme"]?.toString(),
-                    competitionType = map["competitionType"]?.toString()
-                )
+                "competition" -> {
+                    val timeline = (map["timeline"] as? List<*>)?.mapNotNull { raw ->
+                        val entry = raw as? Map<*, *> ?: return@mapNotNull null
+                        val name = entry["name"]?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        val dateStr = entry["date"]?.toString()
+                        val date = Date(parseDate(dateStr))
+                        val isPassed = when (val passedRaw = entry["isPassed"]) {
+                            is Boolean -> passedRaw
+                            is String -> passedRaw.toBoolean()
+                            else -> false
+                        }
+                        TimelineEvent(name = name, date = date, isPassed = isPassed)
+                    }
+
+                    ItemMetaData.CompetitionMeta(
+                        organizer = map["organizer"]?.toString(),
+                        prizePool = map["prizePool"]?.toString(),
+                        deadline = map["deadline"]?.toString(),
+                        theme = map["theme"]?.toString(),
+                        competitionType = map["competitionType"]?.toString(),
+                        website = map["website"]?.toString(),
+                        registrationUrl = map["registrationUrl"]?.toString(),
+                        timeline = timeline
+                    )
+                }
 
                 "insight" -> {
                     val tags = when (val tagsRaw = map["tags"]) {

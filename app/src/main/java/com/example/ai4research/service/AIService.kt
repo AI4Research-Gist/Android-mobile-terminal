@@ -86,7 +86,14 @@ class AIService @Inject constructor(
     "conference": "会议名称（如有）",
     "year": "年份（如有）",
     "platform": "平台名称（如有）"
-  }
+  },
+  "organizer": "竞赛主办方（仅competition）",
+  "prize_pool": "奖金池（仅competition）",
+  "competition_type": "竞赛类型（仅competition）",
+  "theme": "竞赛主题（仅competition）",
+  "website": "官网链接（仅competition）",
+  "registration_url": "报名链接（仅competition）",
+  "timeline": [{"name": "报名截止", "date": "YYYY-MM-DD"}]
 }
 
 注意：
@@ -498,7 +505,14 @@ class AIService @Inject constructor(
     "conference": "会议/期刊名称（如有）",
     "year": "发表年份（如有）",
     "platform": "平台名称（如有）"
-  }
+  },
+  "organizer": "竞赛主办方（仅competition）",
+  "prize_pool": "奖金池（仅competition）",
+  "competition_type": "竞赛类型（仅competition）",
+  "theme": "竞赛主题（仅competition）",
+  "website": "官网链接（仅competition）",
+  "registration_url": "报名链接（仅competition）",
+  "timeline": [{"name": "报名截止", "date": "YYYY-MM-DD"}]
 }
 
 注意：
@@ -548,6 +562,23 @@ class AIService @Inject constructor(
                 val summary = jsonObj["summary"]?.jsonPrimitive?.content
                     ?: summaryZh ?: summaryEn ?: webContent.abstract ?: "已抓取内容，待总结"
                 
+                val organizer = jsonObj["organizer"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("organizer")?.jsonPrimitive?.content
+                val prizePool = jsonObj["prize_pool"]?.jsonPrimitive?.content
+                    ?: jsonObj["prizePool"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("prizePool")?.jsonPrimitive?.content
+                val theme = jsonObj["theme"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("theme")?.jsonPrimitive?.content
+                val competitionType = jsonObj["competition_type"]?.jsonPrimitive?.content
+                    ?: jsonObj["competitionType"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("competitionType")?.jsonPrimitive?.content
+                val website = jsonObj["website"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("website")?.jsonPrimitive?.content
+                val registrationUrl = jsonObj["registration_url"]?.jsonPrimitive?.content
+                    ?: jsonObj["registrationUrl"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("registrationUrl")?.jsonPrimitive?.content
+                val timeline = parseCompetitionTimeline(jsonObj, metaObj)
+
                 val result = FullLinkParseResult(
                     title = jsonObj["title"]?.jsonPrimitive?.content 
                         ?: webContent.title.ifEmpty { "未命名链接" },
@@ -565,7 +596,14 @@ class AIService @Inject constructor(
                     originalUrl = originalUrl,
                     conference = metaObj?.get("conference")?.jsonPrimitive?.content,
                     year = metaObj?.get("year")?.jsonPrimitive?.content,
-                    platform = metaObj?.get("platform")?.jsonPrimitive?.content
+                    platform = metaObj?.get("platform")?.jsonPrimitive?.content,
+                    organizer = organizer,
+                    prizePool = prizePool,
+                    theme = theme,
+                    competitionType = competitionType,
+                    website = website,
+                    registrationUrl = registrationUrl,
+                    timeline = timeline
                 )
                 
                 android.util.Log.d("AIService", "✅ 解析完成: ${result.title}")
@@ -578,6 +616,21 @@ class AIService @Inject constructor(
             android.util.Log.e("AIService", "AI 解析失败，使用原始抓取内容: ${e.message}")
             return Result.success(createResultFromWebContent(webContent, originalUrl))
         }
+    }
+
+    private fun parseCompetitionTimeline(
+        jsonObj: JsonObject,
+        metaObj: JsonObject?
+    ): List<CompetitionTimelineNode>? {
+        val element = jsonObj["timeline"] ?: metaObj?.get("timeline") ?: return null
+        val array = element as? kotlinx.serialization.json.JsonArray ?: return null
+        val nodes = array.mapNotNull { entry ->
+            val obj = entry as? JsonObject ?: return@mapNotNull null
+            val name = obj["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            val date = obj["date"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            CompetitionTimelineNode(name = name, date = date)
+        }
+        return nodes.ifEmpty { null }
     }
     
     /**
@@ -634,6 +687,23 @@ class AIService @Inject constructor(
                     try { element as? JsonObject } catch (e: Exception) { null }
                 }
                 
+                val organizer = jsonObj["organizer"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("organizer")?.jsonPrimitive?.content
+                val prizePool = jsonObj["prize_pool"]?.jsonPrimitive?.content
+                    ?: jsonObj["prizePool"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("prizePool")?.jsonPrimitive?.content
+                val theme = jsonObj["theme"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("theme")?.jsonPrimitive?.content
+                val competitionType = jsonObj["competition_type"]?.jsonPrimitive?.content
+                    ?: jsonObj["competitionType"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("competitionType")?.jsonPrimitive?.content
+                val website = jsonObj["website"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("website")?.jsonPrimitive?.content
+                val registrationUrl = jsonObj["registration_url"]?.jsonPrimitive?.content
+                    ?: jsonObj["registrationUrl"]?.jsonPrimitive?.content
+                    ?: metaObj?.get("registrationUrl")?.jsonPrimitive?.content
+                val timeline = parseCompetitionTimeline(jsonObj, metaObj)
+                
                 return Result.success(FullLinkParseResult(
                     title = jsonObj["title"]?.jsonPrimitive?.content ?: "未命名链接",
                     authors = jsonObj["authors"]?.jsonPrimitive?.content,
@@ -647,7 +717,14 @@ class AIService @Inject constructor(
                     originalUrl = link,
                     conference = metaObj?.get("conference")?.jsonPrimitive?.content,
                     year = metaObj?.get("year")?.jsonPrimitive?.content,
-                    platform = metaObj?.get("platform")?.jsonPrimitive?.content
+                    platform = metaObj?.get("platform")?.jsonPrimitive?.content,
+                    organizer = organizer,
+                    prizePool = prizePool,
+                    theme = theme,
+                    competitionType = competitionType,
+                    website = website,
+                    registrationUrl = registrationUrl,
+                    timeline = timeline
                 ))
             }
             return Result.success(createFallbackResult(link))
@@ -764,6 +841,11 @@ data class LiteratureInfo(
     val summary: String?
 )
 
+data class CompetitionTimelineNode(
+    val name: String,
+    val date: String
+)
+
 /**
  * 完整链接解析结果 - 包含创建卡片所需的所有信息
  */
@@ -780,7 +862,14 @@ data class FullLinkParseResult(
     val originalUrl: String,
     val conference: String?,
     val year: String?,
-    val platform: String?
+    val platform: String?,
+    val organizer: String? = null,
+    val prizePool: String? = null,
+    val theme: String? = null,
+    val competitionType: String? = null,
+    val website: String? = null,
+    val registrationUrl: String? = null,
+    val timeline: List<CompetitionTimelineNode>? = null
 ) {
     /**
      * 获取双语摘要格式（用于显示）
@@ -855,9 +944,19 @@ data class FullLinkParseResult(
             summaryEn?.let { metaMap["summary_en"] = it }
             summaryZh?.let { metaMap["summary_zh"] = it }
             if (tags.isNotEmpty()) metaMap["tags"] = tags
+            organizer?.let { metaMap["organizer"] = it }
+            prizePool?.let { metaMap["prizePool"] = it }
+            theme?.let { metaMap["theme"] = it }
+            competitionType?.let { metaMap["competitionType"] = it }
+            website?.let { metaMap["website"] = it }
+            registrationUrl?.let { metaMap["registrationUrl"] = it }
+            timeline?.let { nodes ->
+                metaMap["timeline"] = nodes.map { node ->
+                    mapOf("name" to node.name, "date" to node.date, "isPassed" to false)
+                }
+            }
             
-            // 使用 org.json 安全序列化
-            org.json.JSONObject(metaMap).toString()
+            com.google.gson.Gson().toJson(metaMap)
         } catch (e: Exception) {
             android.util.Log.w("FullLinkParseResult", "toMetaJson 失败: ${e.message}")
             null

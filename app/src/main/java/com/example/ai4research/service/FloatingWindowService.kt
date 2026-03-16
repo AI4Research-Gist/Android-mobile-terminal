@@ -46,6 +46,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import kotlin.math.abs
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 /**
  * 高科技悬浮窗服务
@@ -82,6 +84,7 @@ class FloatingWindowService : Service() {
     private var floatingMenu: FloatingMenuView? = null
     private var inputView: View? = null
     private var resultView: View? = null
+    private var competitionInputView: View? = null
     
     private var ballLayoutParams: WindowManager.LayoutParams? = null
     private var menuLayoutParams: WindowManager.LayoutParams? = null
@@ -639,8 +642,15 @@ class FloatingWindowService : Service() {
                 // 2. 保存解析结果，显示分类选择界面
                 withContext(Dispatchers.Main) {
                     floatingBall?.isProcessing = false
-                    pendingParseResult = parseResult
-                    showCategorySelectionDialog(parseResult)
+                    if (needsCompetitionFallback(parseResult)) {
+                        showCompetitionFallbackWindow(parseResult) { updated ->
+                            pendingParseResult = updated
+                            showCategorySelectionDialog(updated)
+                        }
+                    } else {
+                        pendingParseResult = parseResult
+                        showCategorySelectionDialog(parseResult)
+                    }
                 }
                 
             } catch (e: Exception) {
@@ -1002,6 +1012,190 @@ class FloatingWindowService : Service() {
         }
         categoryDialogView = null
     }
+
+    private fun needsCompetitionFallback(parseResult: FullLinkParseResult): Boolean {
+        return CompetitionImportDecider.needsManualFallback(parseResult)
+    }
+
+    private fun showCompetitionFallbackWindow(
+        parseResult: FullLinkParseResult,
+        onResult: (FullLinkParseResult) -> Unit
+    ) {
+        if (competitionInputView != null) return
+
+        val dpToPx = { dp: Float ->
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics).toInt()
+        }
+
+        val padding16 = dpToPx(16f)
+        val padding12 = dpToPx(12f)
+        val corner12 = dpToPx(12f).toFloat()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding16, padding16, padding16, padding16)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1F2937"))
+                cornerRadius = corner12
+            }
+            layoutParams = FrameLayout.LayoutParams(
+                dpToPx(320f),
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val titleView = TextView(this).apply {
+            text = "补全竞赛关键时间"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, 0, padding12)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        container.addView(titleView)
+
+        val registerDeadlineInput = EditText(this).apply {
+            hint = "报名截止 (YYYY-MM-DD)"
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setPadding(padding12, padding12, padding12, padding12)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33FFFFFF"))
+                cornerRadius = corner12
+            }
+        }
+        container.addView(registerDeadlineInput)
+
+        val submitDeadlineInput = EditText(this).apply {
+            hint = "提交截止 (YYYY-MM-DD)"
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setPadding(padding12, padding12, padding12, padding12)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33FFFFFF"))
+                cornerRadius = corner12
+            }
+        }
+        container.addView(submitDeadlineInput)
+
+        val resultDateInput = EditText(this).apply {
+            hint = "结果公布 (YYYY-MM-DD)"
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setPadding(padding12, padding12, padding12, padding12)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33FFFFFF"))
+                cornerRadius = corner12
+            }
+        }
+        container.addView(resultDateInput)
+
+        val websiteInput = EditText(this).apply {
+            hint = "官网链接"
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setPadding(padding12, padding12, padding12, padding12)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33FFFFFF"))
+                cornerRadius = corner12
+            }
+        }
+        container.addView(websiteInput)
+
+        val registrationInput = EditText(this).apply {
+            hint = "报名链接"
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            setPadding(padding12, padding12, padding12, padding12)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33FFFFFF"))
+                cornerRadius = corner12
+            }
+        }
+        container.addView(registrationInput)
+
+        val buttonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        val cancelButton = Button(this).apply {
+            text = "取消"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                cornerRadius = corner12
+            }
+            setOnClickListener {
+                hideCompetitionFallbackWindow()
+            }
+        }
+        val confirmButton = Button(this).apply {
+            text = "保存"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#10B981"))
+                cornerRadius = corner12
+            }
+            setOnClickListener {
+                val timeline = mutableListOf<CompetitionTimelineNode>()
+                registerDeadlineInput.text.toString().trim().takeIf { it.isNotBlank() }?.let {
+                    timeline += CompetitionTimelineNode("报名截止", it)
+                }
+                submitDeadlineInput.text.toString().trim().takeIf { it.isNotBlank() }?.let {
+                    timeline += CompetitionTimelineNode("提交截止", it)
+                }
+                resultDateInput.text.toString().trim().takeIf { it.isNotBlank() }?.let {
+                    timeline += CompetitionTimelineNode("结果公布", it)
+                }
+
+                val updated = parseResult.copy(
+                    website = websiteInput.text.toString().trim().ifBlank { parseResult.website },
+                    registrationUrl = registrationInput.text.toString().trim().ifBlank { parseResult.registrationUrl },
+                    timeline = if (timeline.isEmpty()) parseResult.timeline else timeline
+                )
+                hideCompetitionFallbackWindow()
+                onResult(updated)
+            }
+        }
+
+        buttonRow.addView(cancelButton)
+        buttonRow.addView(confirmButton)
+        container.addView(buttonRow)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+            dimAmount = 0.6f
+        }
+
+        competitionInputView = container
+        try {
+            windowManager.addView(competitionInputView, params)
+        } catch (e: Exception) {
+            competitionInputView = null
+            android.util.Log.e("FloatingWindow", "Failed to show competition fallback: ${e.message}", e)
+        }
+    }
+
+    private fun hideCompetitionFallbackWindow() {
+        competitionInputView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        competitionInputView = null
+    }
     
     /**
      * 构建 metaJson，包含作者和来源信息
@@ -1058,6 +1252,20 @@ class FloatingWindowService : Service() {
         parseResult.summaryZh?.let { zh ->
             if (zh.isNotEmpty()) {
                 metaMap["summary_zh"] = zh
+            }
+        }
+
+        if (parseResult.contentType.equals("competition", ignoreCase = true)) {
+            parseResult.organizer?.let { if (it.isNotEmpty()) metaMap["organizer"] = it }
+            parseResult.prizePool?.let { if (it.isNotEmpty()) metaMap["prizePool"] = it }
+            parseResult.theme?.let { if (it.isNotEmpty()) metaMap["theme"] = it }
+            parseResult.competitionType?.let { if (it.isNotEmpty()) metaMap["competitionType"] = it }
+            parseResult.website?.let { if (it.isNotEmpty()) metaMap["website"] = it }
+            parseResult.registrationUrl?.let { if (it.isNotEmpty()) metaMap["registrationUrl"] = it }
+            parseResult.timeline?.let { timeline ->
+                metaMap["timeline"] = timeline.map { node ->
+                    mapOf("name" to node.name, "date" to node.date, "isPassed" to false)
+                }
             }
         }
         

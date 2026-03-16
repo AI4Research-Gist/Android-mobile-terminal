@@ -2,6 +2,7 @@ package com.example.ai4research.ui.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai4research.domain.model.ItemMetaData
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
 import com.example.ai4research.domain.model.ReadStatus
@@ -232,6 +233,8 @@ class MainViewModel @Inject constructor(
 
     fun getCompetitionsJson(): String {
         val compDtos = _competitions.value.map { item ->
+            val competitionMeta = item.metaData as? ItemMetaData.CompetitionMeta
+            val timelineSummary = CompetitionTimelineFormatter.summarize(competitionMeta)
             mapOf(
                 "Id" to item.id,
                 "id" to item.id,
@@ -245,7 +248,13 @@ class MainViewModel @Inject constructor(
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
-                "tags" to (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta)?.organizer,
+                "organizer" to competitionMeta?.organizer,
+                "deadline" to competitionMeta?.deadline,
+                "urgency_text" to timelineSummary.displayText,
+                "urgency_days" to timelineSummary.daysDelta,
+                "urgency_anchor" to timelineSummary.anchorName,
+                "is_overdue" to timelineSummary.isOverdue,
+                "sort_key" to timelineSummary.sortKey,
                 "meta_json" to serializeMetaData(item),
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
@@ -330,7 +339,16 @@ class MainViewModel @Inject constructor(
                     "prizePool" to meta.prizePool,
                     "deadline" to (meta.deadline ?: meta.timeline?.firstOrNull()?.date?.toString()),
                     "theme" to meta.theme,
-                    "competitionType" to meta.competitionType
+                    "competitionType" to meta.competitionType,
+                    "website" to meta.website,
+                    "registrationUrl" to meta.registrationUrl,
+                    "timeline" to meta.timeline?.map { event ->
+                        mapOf(
+                            "name" to event.name,
+                            "date" to event.date.toInstant().toString(),
+                            "isPassed" to event.isPassed
+                        )
+                    }
                 ))
             }
             is com.example.ai4research.domain.model.ItemMetaData.InsightMeta -> {

@@ -4,19 +4,13 @@ import android.Manifest
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,16 +51,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,10 +65,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.service.VoiceRecordingState
 
-/**
- * 语音录制页面
- * iOS风格液态玻璃设计
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoiceRecordingScreen(
@@ -91,32 +77,33 @@ fun VoiceRecordingScreen(
     val editableText by viewModel.editableText.collectAsState()
     val hasPermission by viewModel.hasRecordPermission.collectAsState()
     val savedItemId by viewModel.savedItemId.collectAsState()
-    
-    // 权限请求
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         viewModel.updatePermissionStatus()
         if (!isGranted) {
-            Toast.makeText(context, "需要录音权限才能使用语音功能", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                context,
+                "需要录音权限才能使用语音功能",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
-    
-    // 检查权限并请求
+
     LaunchedEffect(Unit) {
         if (!hasPermission) {
             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
-    
-    // 保存成功后回调
+
     LaunchedEffect(savedItemId) {
         savedItemId?.let { itemId ->
             Toast.makeText(context, "语音已保存", Toast.LENGTH_SHORT).show()
             onSaveSuccess(itemId)
         }
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -156,7 +143,7 @@ fun VoiceRecordingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(40.dp))
-                
+
                 when (val state = recordingState) {
                     is VoiceRecordingState.Idle -> {
                         IdleContent(
@@ -167,7 +154,7 @@ fun VoiceRecordingScreen(
                             onStartRecording = { viewModel.startRecording() }
                         )
                     }
-                    
+
                     is VoiceRecordingState.Recording -> {
                         RecordingContent(
                             duration = state.durationSeconds,
@@ -176,11 +163,11 @@ fun VoiceRecordingScreen(
                             onCancel = { viewModel.cancelRecording() }
                         )
                     }
-                    
+
                     is VoiceRecordingState.Processing -> {
                         ProcessingContent(stage = state.stage)
                     }
-                    
+
                     is VoiceRecordingState.Completed -> {
                         CompletedContent(
                             transcription = editableText,
@@ -190,7 +177,7 @@ fun VoiceRecordingScreen(
                             onRetry = { viewModel.reset() }
                         )
                     }
-                    
+
                     is VoiceRecordingState.Error -> {
                         ErrorContent(
                             message = state.message,
@@ -203,9 +190,6 @@ fun VoiceRecordingScreen(
     }
 }
 
-/**
- * 空闲状态 - 显示录音按钮
- */
 @Composable
 private fun IdleContent(
     hasPermission: Boolean,
@@ -217,7 +201,6 @@ private fun IdleContent(
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.fillMaxSize()
     ) {
-        // 麦克风图标
         Box(
             modifier = Modifier
                 .size(120.dp)
@@ -239,17 +222,17 @@ private fun IdleContent(
                 tint = Color.White
             )
         }
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         Text(
-            text = if (hasPermission) "点击开始录音" else "请授予录音权限",
+            text = if (hasPermission) "点击开始录音" else "请先授予录音权限",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
         )
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Button(
             onClick = {
                 if (hasPermission) {
@@ -278,9 +261,9 @@ private fun IdleContent(
                 fontWeight = FontWeight.SemiBold
             )
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         Text(
             text = "录音完成后会自动转换为文字",
             style = MaterialTheme.typography.bodySmall,
@@ -289,9 +272,6 @@ private fun IdleContent(
     }
 }
 
-/**
- * 录音中状态 - 显示波形动画和时长
- */
 @Composable
 private fun RecordingContent(
     duration: Int,
@@ -309,13 +289,12 @@ private fun RecordingContent(
         ),
         label = "scale"
     )
-    
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.fillMaxSize()
     ) {
-        // 录音动画
         Box(
             modifier = Modifier
                 .size(160.dp)
@@ -339,32 +318,29 @@ private fun RecordingContent(
                 tint = Color.White
             )
         }
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
-        // 录音时长
+
         Text(
             text = formatDuration(duration),
             style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.Bold,
             color = Color(0xFFFF5722)
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         Text(
             text = "正在录音...",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
         )
-        
+
         Spacer(modifier = Modifier.height(48.dp))
-        
-        // 操作按钮
+
         Row(
             horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // 取消按钮
             IconButton(
                 onClick = onCancel,
                 modifier = Modifier
@@ -379,8 +355,7 @@ private fun RecordingContent(
                     modifier = Modifier.size(32.dp)
                 )
             }
-            
-            // 停止按钮
+
             IconButton(
                 onClick = onStop,
                 modifier = Modifier
@@ -399,9 +374,6 @@ private fun RecordingContent(
     }
 }
 
-/**
- * 处理中状态 - 显示加载动画
- */
 @Composable
 private fun ProcessingContent(stage: String) {
     Column(
@@ -414,9 +386,9 @@ private fun ProcessingContent(stage: String) {
             color = Color(0xFFFF8A00),
             strokeWidth = 4.dp
         )
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Text(
             text = stage,
             style = MaterialTheme.typography.titleMedium,
@@ -425,9 +397,6 @@ private fun ProcessingContent(stage: String) {
     }
 }
 
-/**
- * 完成状态 - 显示转写结果和编辑
- */
 @Composable
 private fun CompletedContent(
     transcription: String,
@@ -437,13 +406,12 @@ private fun CompletedContent(
     onRetry: () -> Unit
 ) {
     val scrollState = rememberScrollState()
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
     ) {
-        // 录音信息卡片
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -471,9 +439,9 @@ private fun CompletedContent(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                
+
                 Spacer(modifier = Modifier.width(16.dp))
-                
+
                 Column {
                     Text(
                         text = "录音完成",
@@ -488,17 +456,16 @@ private fun CompletedContent(
                 }
             }
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
-        // 转写文本编辑
+
         Text(
             text = "语音转写内容",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             modifier = Modifier.padding(bottom = 8.dp)
         )
-        
+
         OutlinedTextField(
             value = transcription,
             onValueChange = onTextChange,
@@ -512,31 +479,28 @@ private fun CompletedContent(
             ),
             shape = RoundedCornerShape(12.dp)
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         Text(
             text = "可编辑修正识别结果",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
         )
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
-        // 操作按钮
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 重录按钮
             TextButton(
                 onClick = onRetry,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("重新录音", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
             }
-            
-            // 保存按钮
+
             Button(
                 onClick = onSave,
                 modifier = Modifier.weight(1f),
@@ -551,9 +515,6 @@ private fun CompletedContent(
     }
 }
 
-/**
- * 错误状态
- */
 @Composable
 private fun ErrorContent(
     message: String,
@@ -565,21 +526,22 @@ private fun ErrorContent(
         modifier = Modifier.fillMaxSize()
     ) {
         Text(
-            text = "😕",
-            fontSize = 64.sp
+            text = "出错了",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.SemiBold
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         Text(
             text = message,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center
         )
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Button(
             onClick = onRetry,
             colors = ButtonDefaults.buttonColors(
@@ -591,9 +553,6 @@ private fun ErrorContent(
     }
 }
 
-/**
- * 格式化时长
- */
 private fun formatDuration(seconds: Int): String {
     val minutes = seconds / 60
     val secs = seconds % 60
