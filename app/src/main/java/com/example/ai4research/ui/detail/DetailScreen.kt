@@ -51,7 +51,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -76,6 +78,10 @@ fun DetailScreen(
 ) {
     val viewModel: DetailViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val summaryPrefs = remember {
+        context.getSharedPreferences("paper_summary_prefs", android.content.Context.MODE_PRIVATE)
+    }
 
     LaunchedEffect(itemId) {
         viewModel.load(itemId)
@@ -103,6 +109,7 @@ fun DetailScreen(
     var editNote by remember(item) { mutableStateOf(item?.note ?: "") }
     var editContent by remember(item) { mutableStateOf(item?.contentMarkdown ?: "") }
     var showProjectSheet by remember { mutableStateOf(false) }  // 改用底部弹出面板
+    var showMoreMenu by remember { mutableStateOf(false) }
     
     // 竞赛特有字段编辑状态
     var editOrganizer by remember(competitionMeta) { mutableStateOf(competitionMeta?.organizer ?: "") }
@@ -250,8 +257,25 @@ fun DetailScreen(
                             Icon(Icons.Default.Edit, contentDescription = "编辑")
                         }
                     }
-                    IconButton(onClick = { /* TODO */ }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                    Box {
+                        IconButton(onClick = { showMoreMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                        }
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false }
+                        ) {
+                            if (type == ItemType.PAPER) {
+                                DropdownMenuItem(
+                                    text = { Text(if (uiState.isRegeneratingSummary) "重新生成中..." else "重新生成双语摘要") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        viewModel.regeneratePaperBilingualSummary()
+                                    },
+                                    enabled = !uiState.isRegeneratingSummary
+                                )
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -425,7 +449,8 @@ fun DetailScreen(
                 PaperIndexInfoCard(
                     item = item,
                     meta = paperMeta,
-                    isDark = isDarkTheme
+                    isDark = isDarkTheme,
+                    summaryPrefs = summaryPrefs
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -845,7 +870,8 @@ private fun getItemAccent(type: ItemType): Color = when (type) {
 private fun PaperIndexInfoCard(
     item: com.example.ai4research.domain.model.ResearchItem,
     meta: com.example.ai4research.domain.model.ItemMetaData.PaperMeta,
-    isDark: Boolean
+    isDark: Boolean,
+    summaryPrefs: android.content.SharedPreferences
 ) {
     val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF2F6DFF)
@@ -853,6 +879,15 @@ private fun PaperIndexInfoCard(
     val authorText = meta.authors.joinToString(", ").ifBlank { "未知作者" }
     val keywords = meta.keywords.ifEmpty { meta.tags }
     val summaryShort = meta.summaryShort?.takeIf { it.isNotBlank() } ?: item.summary.takeIf { it.isNotBlank() }
+    val hasBilingualSummary = !meta.summaryZh.isNullOrBlank() && !meta.summaryEn.isNullOrBlank()
+    var showEnglishSummary by rememberSaveable(item.id, meta.summaryZh, meta.summaryEn) {
+        mutableStateOf(summaryPrefs.getString("paper_summary_language", "zh") == "en")
+    }
+    val displayedSummary = when {
+        hasBilingualSummary && showEnglishSummary -> meta.summaryEn
+        !meta.summaryZh.isNullOrBlank() -> meta.summaryZh
+        else -> summaryShort
+    }
 
     Column(
         modifier = Modifier
@@ -874,9 +909,33 @@ private fun PaperIndexInfoCard(
         meta.identifier?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("标识符", it, isDark) }
         item.originUrl?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("原始链接", it, isDark) }
 
-        summaryShort?.let {
+        displayedSummary?.let {
             Spacer(modifier = Modifier.height(12.dp))
-            PaperSummarySection("Preprint 总结", it, isDark)
+            PaperSummarySection(
+                label = if (hasBilingualSummary) {
+                    if (showEnglishSummary) "English 摘要" else "中文摘要"
+                } else {
+                    "Preprint 总结"
+                },
+                value = it,
+                isDark = isDark
+            )
+        }
+
+        if (hasBilingualSummary) {
+            Spacer(modifier = Modifier.height(10.dp))
+            SummaryLanguageToggle(
+                isDark = isDark,
+                showEnglish = showEnglishSummary,
+                onSelectChinese = {
+                    showEnglishSummary = false
+                    summaryPrefs.edit().putString("paper_summary_language", "zh").apply()
+                },
+                onSelectEnglish = {
+                    showEnglishSummary = true
+                    summaryPrefs.edit().putString("paper_summary_language", "en").apply()
+                }
+            )
         }
 
         if (meta.domainTags.isNotEmpty()) {
@@ -893,6 +952,67 @@ private fun PaperIndexInfoCard(
             Spacer(modifier = Modifier.height(12.dp))
             PaperTagSection("方法标签", meta.methodTags, isDark)
         }
+    }
+}
+
+@Composable
+private fun SummaryLanguageToggle(
+    isDark: Boolean,
+    showEnglish: Boolean,
+    onSelectChinese: () -> Unit,
+    onSelectEnglish: () -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SummaryLanguageChip(
+            label = "中文",
+            selected = !showEnglish,
+            isDark = isDark,
+            onClick = onSelectChinese
+        )
+        SummaryLanguageChip(
+            label = "English",
+            selected = showEnglish,
+            isDark = isDark,
+            onClick = onSelectEnglish
+        )
+    }
+}
+
+@Composable
+private fun SummaryLanguageChip(
+    label: String,
+    selected: Boolean,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    val background = if (selected) {
+        if (isDark) Color(0xFF2F6DFF).copy(alpha = 0.28f) else Color(0xFF2F6DFF).copy(alpha = 0.12f)
+    } else {
+        if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
+    }
+    val textColor = if (selected) {
+        if (isDark) Color(0xFF9CC2FF) else Color(0xFF2F6DFF)
+    } else {
+        if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.6f)
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(background)
+            .border(
+                width = 1.dp,
+                color = if (selected) textColor.copy(alpha = 0.5f) else Color.Transparent,
+                shape = RoundedCornerShape(999.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = textColor
+        )
     }
 }
 

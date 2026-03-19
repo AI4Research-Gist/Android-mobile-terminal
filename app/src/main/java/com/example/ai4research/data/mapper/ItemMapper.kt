@@ -176,6 +176,8 @@ object ItemMapper {
                 if (meta.methodTags.isNotEmpty()) existing["method_tags"] = meta.methodTags
                 meta.dedupKey?.let { existing["dedup_key"] = it }
                 meta.summaryShort?.let { existing["summary_short"] = it }
+                meta.summaryEn?.let { existing["summary_en"] = it }
+                meta.summaryZh?.let { existing["summary_zh"] = it }
             }
 
             is ItemMetaData.CompetitionMeta -> {
@@ -238,7 +240,9 @@ object ItemMapper {
                         keywords = keywords,
                         methodTags = methodTags,
                         dedupKey = map["dedup_key"]?.toString(),
-                        summaryShort = map["summary_short"]?.toString()
+                        summaryShort = map["summary_short"]?.toString(),
+                        summaryEn = map["summary_en"]?.toString(),
+                        summaryZh = map["summary_zh"]?.toString()
                     )
                 }
 

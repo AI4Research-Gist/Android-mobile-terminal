@@ -4,6 +4,7 @@
 
 当前版本：
 
+- [v0.1.1.md](./changelog/v0.1.1.md)
 - [v0.1.0.md](./changelog/v0.1.0.md)
 - [v0.0.5.md](./changelog/v0.0.5.md)
 - [v0.0.4.md](./changelog/v0.0.4.md)

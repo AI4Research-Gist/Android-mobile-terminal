@@ -7,6 +7,9 @@ import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.repository.ItemRepository
 import com.example.ai4research.domain.repository.ProjectRepository
+import com.example.ai4research.service.AIService
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,17 +23,20 @@ data class DetailUiState(
     val projects: List<Project> = emptyList(),
     val isProjectSaving: Boolean = false,
     val isCreatingProject: Boolean = false,
+    val isRegeneratingSummary: Boolean = false,
     val errorMessage: String? = null
 )
 
 @HiltViewModel
 class DetailViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
-    private val projectRepository: ProjectRepository
+    private val projectRepository: ProjectRepository,
+    private val aiService: AIService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DetailUiState())
     val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
+    private val gson = Gson()
 
     init {
         viewModelScope.launch {
@@ -49,23 +55,19 @@ class DetailViewModel @Inject constructor(
                 item = item,
                 projects = _uiState.value.projects,
                 isProjectSaving = false,
+                isRegeneratingSummary = false,
                 errorMessage = if (item == null) "未找到该条目" else null
             )
-            
-            // 自动标记为已读（如果当前是未读状态）
+
             if (item != null && item.readStatus == ReadStatus.UNREAD) {
                 markAsReadInternal(itemId)
             }
         }
     }
-    
-    /**
-     * 内部方法：标记已读，不重新加载（避免循环）
-     */
+
     private fun markAsReadInternal(itemId: String) {
         viewModelScope.launch {
             itemRepository.updateReadStatus(itemId, ReadStatus.READ)
-            // 更新当前 item 的状态
             _uiState.value.item?.let { currentItem ->
                 _uiState.value = _uiState.value.copy(
                     item = currentItem.copy(readStatus = ReadStatus.READ)
@@ -79,17 +81,12 @@ class DetailViewModel @Inject constructor(
             projectRepository.refreshProjects()
         }
     }
-    
-    /**
-     * 删除项目
-     */
+
     fun deleteProject(projectId: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isProjectSaving = true, errorMessage = null)
             val result = projectRepository.deleteProject(projectId)
             if (result.isSuccess) {
-                android.util.Log.d("DetailViewModel", "项目删除成功: $projectId")
-                // 如果当前 item 属于被删除的项目，更新其项目归属为 null
                 val item = _uiState.value.item
                 if (item != null && item.projectId == projectId) {
                     itemRepository.updateItemProject(item.id, null)
@@ -128,7 +125,7 @@ class DetailViewModel @Inject constructor(
             load(item.id)
         }
     }
-    
+
     fun toggleStar() {
         val item = _uiState.value.item ?: return
         viewModelScope.launch {
@@ -141,7 +138,6 @@ class DetailViewModel @Inject constructor(
         val item = _uiState.value.item ?: return
         viewModelScope.launch {
             itemRepository.deleteItem(item.id)
-            // 由 UI 负责返回上一页
         }
     }
 
@@ -156,7 +152,7 @@ class DetailViewModel @Inject constructor(
                 content = content,
                 metaJson = metaJson
             )
-            
+
             if (result.isSuccess) {
                 load(item.id)
             } else {
@@ -167,34 +163,93 @@ class DetailViewModel @Inject constructor(
             }
         }
     }
-    
-    /**
-     * 创建新项目并自动关联当前条目
-     */
+
+    fun regeneratePaperBilingualSummary() {
+        val item = _uiState.value.item ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRegeneratingSummary = true, errorMessage = null)
+
+            val content = item.contentMarkdown.ifBlank { item.summary }
+            val result = aiService.generateBilingualSummary(
+                title = item.title,
+                sourceContent = content,
+                existingSummary = item.summary
+            )
+
+            result.onSuccess { summary ->
+                val mergedMetaJson = mergeSummaryIntoMetaJson(
+                    existingMetaJson = item.rawMetaJson,
+                    summaryZh = summary.summaryZh,
+                    summaryEn = summary.summaryEn,
+                    summaryShort = summary.summaryShort
+                )
+
+                val updateResult = itemRepository.updateItem(
+                    id = item.id,
+                    note = item.note,
+                    metaJson = mergedMetaJson
+                )
+
+                if (updateResult.isSuccess) {
+                    load(item.id)
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isRegeneratingSummary = false,
+                        errorMessage = "重新生成摘要失败: ${updateResult.exceptionOrNull()?.message}"
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    isRegeneratingSummary = false,
+                    errorMessage = "重新生成摘要失败: ${error.message}"
+                )
+            }
+        }
+    }
+
+    private fun mergeSummaryIntoMetaJson(
+        existingMetaJson: String?,
+        summaryZh: String?,
+        summaryEn: String?,
+        summaryShort: String?
+    ): String {
+        val type = object : TypeToken<MutableMap<String, Any?>>() {}.type
+        val map: MutableMap<String, Any?> = if (existingMetaJson.isNullOrBlank()) {
+            mutableMapOf()
+        } else {
+            runCatching { gson.fromJson(existingMetaJson, type) as MutableMap<String, Any?> }
+                .getOrElse { mutableMapOf() }
+        }
+
+        summaryZh?.let { map["summary_zh"] = it }
+        summaryEn?.let { map["summary_en"] = it }
+        summaryShort?.let { map["summary_short"] = it }
+
+        return gson.toJson(map)
+    }
+
     fun createProject(name: String, autoAssign: Boolean = true) {
         if (name.isBlank()) {
             _uiState.value = _uiState.value.copy(errorMessage = "项目名称不能为空")
             return
         }
-        
+
         val item = _uiState.value.item
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isCreatingProject = true, errorMessage = null)
-            
+
             val result = projectRepository.createProject(name)
-            
+
             result.onSuccess { newProject ->
-                // 刷新项目列表
                 projectRepository.refreshProjects()
-                
-                // 如果需要自动关联且有当前条目，则更新条目的项目归属
+
                 if (autoAssign && item != null) {
                     val updateResult = itemRepository.updateItemProject(item.id, newProject.id)
                     if (updateResult.isSuccess) {
                         load(item.id)
                     }
                 }
-                
+
                 _uiState.value = _uiState.value.copy(isCreatingProject = false)
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
@@ -205,9 +260,3 @@ class DetailViewModel @Inject constructor(
         }
     }
 }
-
-
-
-
-
-

@@ -345,6 +345,8 @@ class MainViewModel @Inject constructor(
                     "method_tags" to meta.methodTags,
                     "dedup_key" to meta.dedupKey,
                     "summary_short" to meta.summaryShort,
+                    "summary_en" to meta.summaryEn,
+                    "summary_zh" to meta.summaryZh,
                     "tags" to meta.tags,
                     "note" to item.note
                 ))

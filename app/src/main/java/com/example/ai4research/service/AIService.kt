@@ -57,7 +57,9 @@ Priorities:
 Rules:
 - Be conservative and factual.
 - Do not invent user intent, notes, project, priority, or recommendations.
-- summary_short must be at most 2 sentences.
+- summary_short must be a Chinese short summary and at most 2 sentences.
+- summary_zh should be the concise Chinese display summary.
+- summary_en should preserve the English research tone when possible.
 - keywords should be concise and searchable.
 - method_tags should be method-oriented, not evaluative.
 - If unknown, return null or [].
@@ -68,6 +70,8 @@ Return JSON in this shape:
   "authors": "string",
   "summary": "string",
   "summary_short": "string",
+  "summary_zh": "string",
+  "summary_en": "string",
   "content_type": "paper|competition|article|insight",
   "source": "arxiv|doi|wechat|kaggle|web",
   "identifier": "string",
@@ -96,12 +100,16 @@ Return strict JSON only with the fields below:
   "keywords": ["string"],
   "method_tags": ["string"],
   "dedup_key": "string|null",
-  "summary_short": "string|null"
+  "summary_short": "string|null",
+  "summary_zh": "string|null",
+  "summary_en": "string|null"
 }
 
 Rules:
 - Prefer precision over coverage.
-- summary_short must be at most 2 sentences.
+- summary_short must be a Chinese short summary and at most 2 sentences.
+- summary_zh should be concise Chinese.
+- summary_en should preserve the English research tone when possible.
 - keywords should be concise and useful for retrieval.
 - If a field cannot be supported by evidence, return null or [].
 """
@@ -441,6 +449,70 @@ Rules:
             Result.failure(e)
         }
     }
+
+    suspend fun generateBilingualSummary(
+        title: String,
+        sourceContent: String,
+        existingSummary: String? = null
+    ): Result<BilingualSummaryResult> = withContext(Dispatchers.IO) {
+        try {
+            val prompt = buildString {
+                appendLine("Generate a bilingual academic summary for mobile reading.")
+                appendLine("Title: $title")
+                existingSummary?.takeIf { it.isNotBlank() }?.let {
+                    appendLine("Existing summary: $it")
+                }
+                appendLine()
+                appendLine("Source content:")
+                appendLine(sourceContent.take(6000))
+            }
+
+            val systemPrompt = """
+You are an academic summary assistant.
+Produce bilingual summaries for mobile reading.
+
+Return strict JSON only:
+{
+  "summary_zh": "Chinese summary, concise and accurate",
+  "summary_en": "English summary that preserves academic tone",
+  "summary_short": "Chinese short summary, at most 2 sentences"
+}
+
+Rules:
+- summary_zh should read naturally in Chinese.
+- summary_en should preserve research tone and terminology.
+- summary_short must be Chinese and at most 2 sentences.
+- do not output markdown.
+- do not output any explanation outside JSON.
+""".trimIndent()
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = prompt)
+                ),
+                maxTokens = 900,
+                temperature = 0.3
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return@withContext Result.failure(Exception("Summary generation returned empty content"))
+            val cleanJson = extractJsonFromResponse(content)
+            val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+
+            Result.success(
+                BilingualSummaryResult(
+                    summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.contentOrNull,
+                    summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.contentOrNull,
+                    summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.contentOrNull
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
     
     // ==================== 结构化解析方法 ====================
     
@@ -616,7 +688,9 @@ Rules:
         keywords: List<String>,
         methodTags: List<String>,
         dedupKey: String?,
-        summaryShort: String?
+        summaryShort: String?,
+        summaryZh: String?,
+        summaryEn: String?
     ): FullLinkParseResult {
         val mergedConference = base.conference ?: conference
         val mergedYear = base.year ?: year
@@ -624,6 +698,8 @@ Rules:
         val mergedKeywords = if (base.keywords.isNotEmpty()) base.keywords else keywords
         val mergedMethodTags = if (base.methodTags.isNotEmpty()) base.methodTags else methodTags
         val mergedSummaryShort = base.summaryShort ?: summaryShort
+        val mergedSummaryZh = base.summaryZh ?: summaryZh
+        val mergedSummaryEn = base.summaryEn ?: summaryEn
         val mergedDedupKey = base.dedupKey ?: dedupKey ?: buildDedupKey(base.identifier, base.title, mergedYear)
         val mergedTags = (base.tags + mergedDomainTags + mergedKeywords + mergedMethodTags)
             .filter { it.isNotBlank() }
@@ -638,6 +714,8 @@ Rules:
             methodTags = mergedMethodTags,
             dedupKey = mergedDedupKey,
             summaryShort = mergedSummaryShort,
+            summaryZh = mergedSummaryZh,
+            summaryEn = mergedSummaryEn,
             tags = mergedTags
         )
     }
@@ -689,6 +767,8 @@ Rules:
             val completedMethodTags = readStringList(jsonObj, "method_tags")
             val completedDedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.contentOrNull
             val completedSummaryShort = jsonObj["summary_short"]?.jsonPrimitive?.contentOrNull
+            val completedSummaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.contentOrNull
+            val completedSummaryEn = jsonObj["summary_en"]?.jsonPrimitive?.contentOrNull
 
             mergePaperIndexCompletion(
                 base = draft,
@@ -698,7 +778,9 @@ Rules:
                 keywords = completedKeywords,
                 methodTags = completedMethodTags,
                 dedupKey = completedDedupKey,
-                summaryShort = completedSummaryShort
+                summaryShort = completedSummaryShort,
+                summaryZh = completedSummaryZh,
+                summaryEn = completedSummaryEn
             )
         } catch (e: Exception) {
             android.util.Log.w("AIService", "Second-pass paper index completion failed: ${e.message}")
@@ -1137,6 +1219,12 @@ data class LiteratureInfo(
     val authors: String?,
     val doi: String?,
     val summary: String?
+)
+
+data class BilingualSummaryResult(
+    val summaryZh: String?,
+    val summaryEn: String?,
+    val summaryShort: String?
 )
 
 data class CompetitionTimelineNode(

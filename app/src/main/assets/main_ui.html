@@ -980,6 +980,16 @@
                       {paper.identifier}
                     </div>
                   )}
+                  {paper.summaryEn && paper.summaryZh && (
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-blue-500/20 text-blue-200 border border-blue-500/30' : 'bg-blue-50 text-blue-600 border border-blue-200'}`}>
+                        EN
+                      </span>
+                      <span className={`text-[10px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                        支持中英切换
+                      </span>
+                    </div>
+                  )}
                   <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
                     {paper.summary || '暂无极短摘要'}
                   </p>

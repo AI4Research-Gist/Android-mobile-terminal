@@ -134,7 +134,9 @@ sealed class ItemMetaData {
         val keywords: List<String> = emptyList(),
         val methodTags: List<String> = emptyList(),
         val dedupKey: String? = null,
-        val summaryShort: String? = null
+        val summaryShort: String? = null,
+        val summaryEn: String? = null,
+        val summaryZh: String? = null
     ) : ItemMetaData()
     
     /**
