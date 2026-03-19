@@ -21,10 +21,10 @@ interface SiliconFlowApiService {
     companion object {
         const val BASE_URL = "https://api.siliconflow.cn/v1/"
         
-        // 模型名称
-        const val MODEL_TEXT = "Qwen/Qwen2.5-14B-Instruct"  // 文本总结
-        const val MODEL_VISION = "Qwen/Qwen2.5-VL-32B-Instruct"  // 图像识别
-        const val MODEL_ASR = "FunAudioLLM/SenseVoiceSmall"  // 语音识别
+        // 当前默认模型配置
+        const val MODEL_TEXT = "Qwen/Qwen3.5-397B-A17B"  // 文本结构化解析
+        const val MODEL_VISION = "Pro/moonshotai/Kimi-K2.5"  // 视觉识别 / OCR
+        const val MODEL_ASR = "FunAudioLLM/SenseVoiceSmall"  // 语音转写
     }
 
     /**

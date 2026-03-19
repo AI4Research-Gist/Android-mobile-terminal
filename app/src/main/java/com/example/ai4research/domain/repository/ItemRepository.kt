@@ -58,6 +58,7 @@ interface ItemRepository {
         type: ItemType,
         status: ItemStatus = ItemStatus.DONE,
         metaJson: String? = null,
+        note: String? = null,
         tags: List<String>? = null
     ): Result<ResearchItem>
 
@@ -87,6 +88,7 @@ interface ItemRepository {
         id: String,
         title: String? = null,
         summary: String? = null,
+        note: String? = null,
         content: String? = null,
         tags: List<String>? = null,
         metaJson: String? = null

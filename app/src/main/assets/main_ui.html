@@ -222,7 +222,7 @@
       Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut
     } = LucideReact;
 
-    // --- 鏁版嵁鎺ユ敹妗ユ帴 ---
+    // --- 数据接收桥接 ---
     window.receivePapers = (jsonStr) => {
       console.log("receivePapers called with:", typeof jsonStr, Array.isArray(jsonStr) ? `array[${jsonStr.length}]` : (typeof jsonStr === 'string' ? jsonStr.substring(0, 100) : "object"));
       try {
@@ -245,7 +245,16 @@
             authors = meta.authors;
           }
 
-          // 瑙ｆ瀽鏉ユ簮淇℃伅
+          const year = meta.year ? String(meta.year) : "";
+          const venue = meta.conference || meta.source || "";
+          const identifier = meta.identifier || "";
+          const domainTags = Array.isArray(meta.domain_tags) ? meta.domain_tags : [];
+          const keywords = Array.isArray(meta.keywords) ? meta.keywords : [];
+          const methodTags = Array.isArray(meta.method_tags) ? meta.method_tags : [];
+          const note = item.note || meta.note || "";
+          const summaryShort = meta.summary_short || "";
+
+          // 解析来源信息
           let source = "";
           if (meta.source && meta.source.length > 0) {
             source = meta.source;
@@ -260,21 +269,24 @@
             source = "未知来源";
           }
 
-          // 瑙ｆ瀽鍙岃鎽樿
+          // 解析双语摘要
           const summaryEn = meta.summary_en || "";
           const summaryZh = meta.summary_zh || "";
           let displaySummary = item.summary || "暂无摘要";
           let summaryObj = { en: summaryEn, zh: summaryZh, display: displaySummary };
-          // 濡傛灉鏈夊弻璇憳瑕侊紝浼樺厛浣跨敤涓枃
+          // 如果有双语摘要，优先使用中文
           if (summaryZh) {
             displaySummary = summaryZh;
           }
+          if (summaryShort) {
+            displaySummary = summaryShort;
+          }
 
-          // 瑙ｆ瀽 read_status锛屽幓鎺夋嫭鍙峰唴鐨勪腑鏂囪鏄?
+          // 解析 read_status，去掉括号内的中文说明
           const rawReadStatus = item.read_status || 'unread';
           const readStatus = rawReadStatus.split(' ')[0].toLowerCase();
 
-          // 瑙ｆ瀽 status锛屽幓鎺夋嫭鍙峰唴鐨勪腑鏂囪鏄?
+          // 解析 status，去掉括号内的中文说明
           const rawStatus = item.status || 'processing';
           const status = rawStatus.split(' ')[0].toLowerCase();
 
@@ -283,10 +295,19 @@
             title: item.title,
             author: authors,
             source: source,
+            venue: venue,
+            year: year,
+            identifier: identifier,
             summary: displaySummary,
             summaryEn: summaryEn,
             summaryZh: summaryZh,
-            tags: item.tags ? item.tags.split(/[,，]/) : [],
+            note: note,
+            domainTags: domainTags,
+            keywords: keywords,
+            methodTags: methodTags,
+            tags: keywords.length > 0
+              ? keywords
+              : (item.tags ? item.tags.split(/[,，]/) : []),
             readStatus: readStatus,   // unread | reading | read
             status: status,           // processing | done | failed
             projectId: item.project_id,
@@ -409,7 +430,7 @@
           const rawStatus = item.status || 'done';
           const status = rawStatus.split(' ')[0].toLowerCase();
 
-          // 鏍煎紡鍖栨椂闀?
+          // 格式化时长
           const duration = meta.duration || 0;
           const minutes = Math.floor(duration / 60);
           const seconds = duration % 60;
@@ -432,10 +453,10 @@
       } catch (e) { console.error("Error parsing voice items", e); }
     };
 
-    // --- 涓婚涓婁笅鏂囬厤缃?---
+    // --- 主题上下文配置 ---
     const ThemeContext = createContext({ isDark: true, toggleTheme: () => { } });
 
-    // --- 鍩虹缁勪欢 ---
+    // --- 基础组件 ---
     const GlassCard = ({ children, className = "", delay = 0, noPadding = false, ...props }) => {
       const { isDark } = useContext(ThemeContext);
 
@@ -516,19 +537,19 @@
       );
     };
 
-    // --- 椤甸潰瑙嗗浘 ---
+    // --- 页面视图 ---
 
     const HomeView = ({ papers, competitions, insights, voiceItems }) => {
       const { isDark } = useContext(ThemeContext);
 
-      // 鍚堝苟insights鍜寁oiceItems锛岀粺涓€鏄剧ず鍦?鏈€杩戝姩鎬?鍖哄煙
-      // 鎸夋椂闂存帓搴忥紝鏈€鏂扮殑鍦ㄦ渶涓婇潰
+      // 合并 insights 和 voiceItems，统一显示在最近动态区域
+      // 按时间排序，最新的显示在最上面
       const allDynamics = [
         ...(insights || []).map(i => ({ ...i, itemType: i.itemType || 'insight' })),
         ...(voiceItems || []).map(v => ({ ...v, itemType: 'voice' }))
       ].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 
-      // 绔炶禌鎸夋椂闂存帓搴忥紝鏈€鏂扮殑鍦ㄦ渶宸﹁竟
+      // 竞赛数据在桥接阶段已排序，这里直接复用
       const sortedCompetitions = [...(competitions || [])];
 
       const today = new Date();
@@ -555,7 +576,7 @@
             </div>
           </div>
 
-          {/* 鏈€杩戞崟鑾?Section - 鏄剧ず鍔ㄦ€佸拰璇煶 */}
+          {/* 最近动态区块，显示动态和语音 */}
           <SectionHeader icon={Lightbulb} title="最近动态" colorClass="text-amber-400" />
 
           {allDynamics.length > 0 ? (
@@ -566,7 +587,7 @@
                     window.AndroidInterface.navigateToDetail(String(item.id));
                   }
                 }}>
-                  {/* 椤堕儴鐘舵€佹寚绀哄櫒 */}
+                  {/* 顶部状态指示器 */}
                   <div className={`absolute top-0 right-0 p-3 transition-opacity duration-500 ${isDark ? 'opacity-50' : 'opacity-100'}`}>
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-bold tracking-wider uppercase ${item.status === 'done'
@@ -587,7 +608,7 @@
                   </div>
 
                   <div className="flex items-start gap-4 mb-3">
-                    {/* 鏍规嵁绫诲瀷鏄剧ず涓嶅悓鍥炬爣锛歷oice鐢ㄩ害鍏嬮锛宨nsight鐢ㄧ伅娉?*/}
+                    {/* 根据类型显示不同图标：voice 用麦克风，insight 用灯泡 */}
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg ${item.itemType === 'voice'
                       ? 'shadow-orange-500/20 bg-gradient-to-br from-orange-500 to-red-500'
                       : 'shadow-amber-500/20 bg-gradient-to-br from-amber-500 to-orange-500'
@@ -604,7 +625,7 @@
                     </div>
                   </div>
 
-                  {/* 鍐呭鍖哄煙 - voice鏄剧ず杞啓鏂囨湰锛宨nsight鏄剧ず鎽樿 */}
+                  {/* 内容区域：voice 显示转写文本，insight 显示摘要 */}
                   {item.summary && (
                     <div className={`p-3 rounded-xl border transition-all duration-500 ${item.itemType === 'voice'
                       ? (isDark ? 'bg-orange-900/20 border-orange-500/10' : 'bg-orange-50/50 border-orange-100')
@@ -614,7 +635,7 @@
                         }`}>
                         {item.itemType === 'voice' ? <Mic className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
                         <span>{item.itemType === 'voice' ? '语音转写' : 'AI 核心摘要'}</span>
-                        {/* 鍙岃鍒囨崲鎸夐挳 - 浠卛nsight鏈?*/}
+                        {/* 双语切换按钮，仅 insight 显示 */}
                         {item.itemType === 'insight' && item.summaryEn && item.summaryZh && (
                           <div className="ml-auto flex gap-1">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}
@@ -641,7 +662,7 @@
                     </div>
                   )}
 
-                  {/* 搴曢儴鐘舵€佹爣绛?*/}
+                  {/* 底部状态标签 */}
                   <div className="flex items-center justify-between mt-3">
                     <div className="flex gap-2">
                       <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${item.readStatus === 'read'
@@ -710,7 +731,7 @@
       const [showSearch, setShowSearch] = useState(false);
       const [searchQuery, setSearchQuery] = useState("");
       const [activeFilterIndex, setActiveFilterIndex] = useState(0);
-      const [menuOpenId, setMenuOpenId] = useState(null);  // 璺熻釜鍝釜鍗＄墖鐨勮彍鍗曟墦寮€
+      const [menuOpenId, setMenuOpenId] = useState(null);  // 跟踪哪个卡片的菜单已打开
 
       const handleSearch = (e) => {
         const query = e.target.value;
@@ -722,7 +743,7 @@
 
       const handleToggleSearch = () => {
         if (showSearch) {
-          // 鏀跺洖鏃跺厛娓呯┖鎼滅储
+          // 收起时先清空搜索
           setSearchQuery("");
           if (window.AndroidInterface && window.AndroidInterface.search) {
             window.AndroidInterface.search("");
@@ -731,7 +752,7 @@
         setShowSearch(!showSearch);
       };
 
-      // 鏋勫缓绛涢€夋寜閽垪琛細鍏ㄩ儴銆佹湭璇汇€佹爣鏄?+ 鍔ㄦ€侀」鐩垪琛?
+      // 构建筛选按钮列表：全部、未读、星标和项目列表
       const filters = [
         { label: "全部", type: "all", projectId: null },
         { label: "未读", type: "unread", projectId: null },
@@ -792,7 +813,7 @@
             </button>
           </div>
 
-          {/* 鎼滅储妗?- 娑叉€佺幓鐠冩晥鏋?*/}
+          {/* 搜索框，使用液态玻璃效果 */}
           {showSearch && (
             <div className="px-1 mb-2">
               <input
@@ -871,10 +892,10 @@
                   }
                 }}
               >
-                {/* 椤堕儴鐘舵€佸尯鍩?*/}
+                {/* 顶部状态区域 */}
                 <div className="flex justify-between items-start">
                   <div className="flex gap-2 flex-wrap">
-                    {/* 闃呰鐘舵€佹爣绛?*/}
+                    {/* 阅读状态标签 */}
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${paper.readStatus === 'read'
                       ? (isDark ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200')
                       : paper.readStatus === 'reading'
@@ -883,7 +904,7 @@
                       }`}>
                       {paper.readStatus === 'read' ? '已读' : paper.readStatus === 'reading' ? '在读' : '未读'}
                     </span>
-                    {/* 瑙ｆ瀽鐘舵€佹爣绛?*/}
+                    {/* 解析状态标签 */}
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${paper.status === 'done'
                       ? (isDark ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30' : 'bg-teal-50 text-teal-600 border border-teal-200')
                       : paper.status === 'failed'
@@ -892,14 +913,14 @@
                       }`}>
                       {paper.status === 'done' ? '已解析' : paper.status === 'failed' ? '解析失败' : '解析中'}
                     </span>
-                    {/* 椤圭洰褰掑睘鏍囩 */}
+                    {/* 项目归属标签 */}
                     {paper.projectName && (
                       <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-cyan-50 text-cyan-600 border border-cyan-200'}`}>
                         {paper.projectName}
                       </span>
                     )}
                   </div>
-                  {/* 涓変釜鐐硅彍鍗?*/}
+                  {/* 三点菜单 */}
                   <div className="relative">
                     <button
                       onClick={(e) => handleMenuClick(e, paper.id)}
@@ -907,7 +928,7 @@
                     >
                       <MoreHorizontal className="w-5 h-5" />
                     </button>
-                    {/* 涓嬫媺鑿滃崟 */}
+                    {/* 下拉菜单 */}
                     {menuOpenId === paper.id && (
                       <div
                         className={`absolute right-0 top-8 z-50 min-w-[120px] rounded-xl overflow-hidden shadow-lg`}
@@ -940,23 +961,41 @@
                   </div>
                 </div>
 
-                {/* 鏍囬鍜屼綔鑰?*/}
+                {/* 标题和作者 */}
                 <div className="flex-1">
                   <h3 className={`text-lg font-bold leading-snug mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                     {paper.title}
                   </h3>
                   <p className={`text-xs transition-colors duration-500 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                    {paper.author} 路 {paper.source || '来源未知'}
+                    {paper.author}
                   </p>
                 </div>
 
-                <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
-                  {paper.summary}
-                </p>
+                <div className={`rounded-2xl border p-3 space-y-2 ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`text-xs ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
+                    {(paper.venue || paper.source) ? `${paper.venue || paper.source}${paper.year ? ` · ${paper.year}` : ''}` : (paper.year || '来源待补充')}
+                  </div>
+                  {paper.identifier && (
+                    <div className={`text-[11px] font-medium break-all ${isDark ? 'text-cyan-200' : 'text-cyan-700'}`}>
+                      {paper.identifier}
+                    </div>
+                  )}
+                  <p className={`text-sm leading-relaxed line-clamp-2 transition-colors duration-500 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                    {paper.summary || '暂无极短摘要'}
+                  </p>
+                  {paper.note && (
+                    <div className={`text-xs leading-relaxed rounded-xl px-3 py-2 ${isDark ? 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
+                      备注: {paper.note}
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex items-center justify-between pt-2 border-t border-dashed border-white/10">
                   <div className="flex gap-2">
-                    {paper.tags.map(tag => <TagBadge key={tag} text={tag} color="purple" />)}
+                    {[...(paper.domainTags || []), ...(paper.tags || []), ...(paper.methodTags || [])]
+                      .filter((tag, index, arr) => tag && arr.indexOf(tag) === index)
+                      .slice(0, 4)
+                      .map(tag => <TagBadge key={tag} text={tag} color="purple" />)}
                   </div>
                   <div className={`flex items-center gap-1.5 text-xs font-medium ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
                     <Clock className="w-3.5 h-3.5" />
@@ -1023,7 +1062,7 @@
       const [floatingEnabled, setFloatingEnabled] = useState(false);
       const [hasFloatingPermission, setHasFloatingPermission] = useState(false);
 
-      // 妫€鏌ユ偓娴獥鐘舵€?
+      // 检查悬浮窗状态
       useEffect(() => {
         if (window.AndroidInterface && window.AndroidInterface.checkFloatingWindowStatus) {
           const status = window.AndroidInterface.checkFloatingWindowStatus();
@@ -1037,12 +1076,12 @@
 
       const handleFloatingToggle = () => {
         if (!hasFloatingPermission) {
-          // 娌℃湁鏉冮檺锛岃烦杞埌绯荤粺璁剧疆
+          // 没有权限时跳转到系统设置
           if (window.AndroidInterface && window.AndroidInterface.requestFloatingWindowPermission) {
             window.AndroidInterface.requestFloatingWindowPermission();
           }
         } else {
-          // 鍒囨崲寮€鍏?
+          // 切换开关
           const newState = !floatingEnabled;
           setFloatingEnabled(newState);
           if (window.AndroidInterface && window.AndroidInterface.setFloatingWindowEnabled) {
@@ -1065,7 +1104,7 @@
             <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>设置</h1>
           </div>
 
-          {/* 鎮诞绐楄缃?*/}
+          {/* 悬浮窗设置 */}
           <GlassCard>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1095,7 +1134,7 @@
             )}
           </GlassCard>
 
-          {/* 娣辫壊妯″紡 */}
+          {/* 深色模式 */}
           <GlassCard>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1123,7 +1162,7 @@
       );
     };
 
-    // --- 鍏ㄥ眬鎮诞缁勪欢 (FAB & Nav) ---
+    // --- 全局悬浮组件 (FAB & Nav) ---
 
     const CaptureModal = ({ isOpen, onClose }) => {
       const { isDark } = useContext(ThemeContext);
@@ -1361,7 +1400,7 @@
           window.AndroidInterface.requestData();
         }
 
-        // 鑾峰彇椤圭洰鍒楄〃
+        // 获取项目列表
         if (window.AndroidInterface && window.AndroidInterface.getProjects) {
           try {
             const projectsJson = window.AndroidInterface.getProjects();
@@ -1382,7 +1421,7 @@
         };
       }, []);
 
-      // 鏆撮湶 setActiveTab 鍒板叏灞€锛屼緵 Android 璋冪敤
+      // 暴露 setActiveTab 到全局，供 Android 调用
       useEffect(() => {
         window.setActiveTab = (tab) => {
           console.log('React: setActiveTab called from Android:', tab);
@@ -1393,7 +1432,7 @@
         };
       }, [setActiveTab]);
 
-      // Status Bar - 澧炲姞椤堕儴瀹夊叏鍖哄煙锛屼负绯荤粺鐘舵€佹爮鐣欏嚭绌洪棿
+      // Status Bar - 增加顶部安全区域，为系统状态栏留出空间
       const StatusBar = () => (
         <div className={`flex justify-between items-center px-6 pt-10 pb-2 text-xs font-medium sticky top-0 z-50 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
           <span></span>
@@ -1406,7 +1445,7 @@
         <ThemeContext.Provider value={{ isDark, toggleTheme }}>
           <div className={`h-full flex flex-col overflow-hidden font-sans transition-colors duration-700 ease-in-out ${isDark ? 'bg-[#09090b]' : 'bg-[#F2F2F7]'}`}>
 
-            {/* 鍔ㄦ€佽儗鏅眰 (Dynamic Ambient Background) */}
+            {/* 动态背景层 (Dynamic Ambient Background) */}
             <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
               {/* Tech Grid Overlay */}
               <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${isDark ? 'opacity-[0.15]' : 'opacity-[0.03]'}`}

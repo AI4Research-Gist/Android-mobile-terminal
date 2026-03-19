@@ -89,6 +89,7 @@ fun DetailScreen(
     val markdownContent = item?.contentMarkdown?.takeIf { it.isNotBlank() } ?: item?.summary.orEmpty()
     val projectName = item?.projectName?.takeIf { it.isNotBlank() } ?: "未归属"
     val projects = uiState.projects
+    val paperMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta
     
     // 解析竞赛元数据
     val competitionMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta
@@ -99,6 +100,7 @@ fun DetailScreen(
     // Edit state
     var isEditing by remember { mutableStateOf(false) }
     var editSummary by remember(item) { mutableStateOf(item?.summary ?: "") }
+    var editNote by remember(item) { mutableStateOf(item?.note ?: "") }
     var editContent by remember(item) { mutableStateOf(item?.contentMarkdown ?: "") }
     var showProjectSheet by remember { mutableStateOf(false) }  // 改用底部弹出面板
     
@@ -238,7 +240,7 @@ fun DetailScreen(
                             }
                             // 语音类型使用转写文本作为summary
                             val summaryToSave = if (type == ItemType.VOICE) editTranscription else editSummary
-                            viewModel.saveContent(summaryToSave, editContent, metaJson)
+                            viewModel.saveContent(summaryToSave, editNote.ifBlank { null }, editContent, metaJson)
                             isEditing = false
                         }) {
                             Icon(Icons.Default.Check, contentDescription = "保存")
@@ -418,6 +420,15 @@ fun DetailScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+
+            if (type == ItemType.PAPER && paperMeta != null && item != null) {
+                PaperIndexInfoCard(
+                    item = item,
+                    meta = paperMeta,
+                    isDark = isDarkTheme
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
             
             // Content Card (Lyrics style) - Liquid Glass Effect
             val cardBackground = if (isDarkTheme) {
@@ -589,11 +600,21 @@ fun DetailScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                         }
+
+                        OutlinedTextField(
+                            value = editNote,
+                            onValueChange = { editNote = it },
+                            label = { Text("备注") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            placeholder = { Text("记录为什么存它、和哪个项目有关、之后要在电脑端怎么处理") }
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                         
                         OutlinedTextField(
                             value = editSummary,
                             onValueChange = { editSummary = it },
-                            label = { Text("摘要") },
+                            label = { Text(if (type == ItemType.PAPER) "极短摘要" else "摘要") },
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 3
                         )
@@ -615,6 +636,11 @@ fun DetailScreen(
                         // 如果是语音，显示语音信息卡片
                         if (type == ItemType.VOICE && voiceMeta != null) {
                             VoiceInfoCard(voiceMeta, isDarkTheme)
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+
+                        item?.note?.takeIf { it.isNotBlank() }?.let { note ->
+                            NoteCard(note = note, isDark = isDarkTheme)
                             Spacer(modifier = Modifier.height(16.dp))
                         }
                         
@@ -813,6 +839,138 @@ private fun getItemAccent(type: ItemType): Color = when (type) {
     ItemType.INSIGHT -> Color(0xFFB24DFF)
     ItemType.VOICE -> Color(0xFFFF8A00)
     ItemType.COMPETITION -> Color(0xFFFF2D55)
+}
+
+@Composable
+private fun PaperIndexInfoCard(
+    item: com.example.ai4research.domain.model.ResearchItem,
+    meta: com.example.ai4research.domain.model.ItemMetaData.PaperMeta,
+    isDark: Boolean
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFF2F6DFF)
+    val venue = meta.conference ?: meta.source ?: item.originUrl
+    val authorText = meta.authors.joinToString(", ").ifBlank { "未知作者" }
+    val keywords = meta.keywords.ifEmpty { meta.tags }
+    val summaryShort = meta.summaryShort?.takeIf { it.isNotBlank() } ?: item.summary.takeIf { it.isNotBlank() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "论文索引",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        PaperIndexRow("作者", authorText, isDark)
+        meta.year?.let { PaperIndexRow("年份", it.toString(), isDark) }
+        venue?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("来源", it, isDark) }
+        meta.identifier?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("标识符", it, isDark) }
+        item.originUrl?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("原始链接", it, isDark) }
+
+        summaryShort?.let {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperSummarySection("Preprint 总结", it, isDark)
+        }
+
+        if (meta.domainTags.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperTagSection("领域标签", meta.domainTags, isDark)
+        }
+
+        if (keywords.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperTagSection("关键词", keywords, isDark)
+        }
+
+        if (meta.methodTags.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperTagSection("方法标签", meta.methodTags, isDark)
+        }
+    }
+}
+
+@Composable
+private fun PaperSummarySection(label: String, value: String, isDark: Boolean) {
+    Column {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
+}
+
+@Composable
+private fun PaperIndexRow(label: String, value: String, isDark: Boolean) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
+}
+
+@Composable
+private fun PaperTagSection(label: String, values: List<String>, isDark: Boolean) {
+    Column {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = values.joinToString(" · "),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
+}
+
+@Composable
+private fun NoteCard(note: String, isDark: Boolean) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFF00A86B)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "备注",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = note,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
 }
 
 /**

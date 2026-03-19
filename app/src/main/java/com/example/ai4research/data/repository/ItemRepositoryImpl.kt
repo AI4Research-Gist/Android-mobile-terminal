@@ -11,6 +11,7 @@ import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.repository.ItemRepository
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -26,6 +27,8 @@ class ItemRepositoryImpl @Inject constructor(
     private val projectDao: ProjectDao,
     private val tokenManager: TokenManager
 ) : ItemRepository {
+
+    private val gson = Gson()
 
     private fun currentUserId(): String? = tokenManager.getCurrentUserId()
 
@@ -43,8 +46,47 @@ class ItemRepositoryImpl @Inject constructor(
         return runCatching { Json.parseToJsonElement(metaJson) }.getOrNull()
     }
 
+    private fun mergeMetaJson(
+        existingMetaJson: String?,
+        incomingMetaJson: String?,
+        note: String?
+    ): String? {
+        val merged = mutableMapOf<String, Any?>()
+
+        fun merge(json: String?) {
+            if (json.isNullOrBlank()) return
+            val parsed = runCatching {
+                gson.fromJson(json, Map::class.java) as? Map<String, Any?>
+            }.getOrNull() ?: return
+            merged.putAll(parsed)
+        }
+
+        merge(existingMetaJson)
+        merge(incomingMetaJson)
+        note?.let { merged["note"] = it }
+
+        return if (merged.isEmpty()) null else gson.toJson(merged)
+    }
+
     private fun buildOwnerWhereClause(ownerUserId: String): String {
         return "(ownerId,eq,$ownerUserId)"
+    }
+
+    private fun mergeServerItem(remote: NocoItemDto, fallback: NocoItemDto): NocoItemDto {
+        return remote.copy(
+            ownerUserId = remote.ownerUserId ?: fallback.ownerUserId,
+            title = remote.title ?: fallback.title,
+            type = remote.type ?: fallback.type,
+            summary = remote.summary ?: fallback.summary,
+            contentMd = remote.contentMd ?: fallback.contentMd,
+            originUrl = remote.originUrl ?: fallback.originUrl,
+            audioUrl = remote.audioUrl ?: fallback.audioUrl,
+            status = remote.status ?: fallback.status,
+            readStatus = remote.readStatus ?: fallback.readStatus,
+            tags = remote.tags ?: fallback.tags,
+            projectId = remote.projectId ?: fallback.projectId,
+            metaJson = remote.metaJson ?: fallback.metaJson
+        )
     }
 
     private fun buildItemDto(local: com.example.ai4research.data.local.entity.ItemEntity): NocoItemDto {
@@ -165,16 +207,16 @@ class ItemRepositoryImpl @Inject constructor(
                 ownerUserId = ownerUserId,
                 title = title?.takeIf { it.isNotBlank() } ?: "待解析链接",
                 type = type.toServerString(),
-                summary = note?.orEmpty(),
+                summary = "",
                 contentMd = "",
                 originUrl = url,
                 audioUrl = null,
                 status = ItemStatus.PROCESSING.toServerString(),
                 readStatus = ReadStatus.UNREAD.toServerString(),
-                metaJson = null
+                metaJson = parseMetaJson(mergeMetaJson(null, null, note))
             )
 
-            val created = api.createItem(dto)
+            val created = mergeServerItem(api.createItem(dto), dto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
@@ -204,7 +246,7 @@ class ItemRepositoryImpl @Inject constructor(
                 readStatus = ReadStatus.UNREAD.toServerString(),
                 metaJson = null
             )
-            val created = api.createItem(dto)
+            val created = mergeServerItem(api.createItem(dto), dto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
@@ -229,7 +271,7 @@ class ItemRepositoryImpl @Inject constructor(
                 readStatus = ReadStatus.UNREAD.toServerString(),
                 metaJson = null
             )
-            val created = api.createItem(dto)
+            val created = mergeServerItem(api.createItem(dto), dto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
@@ -246,6 +288,7 @@ class ItemRepositoryImpl @Inject constructor(
         type: ItemType,
         status: ItemStatus,
         metaJson: String?,
+        note: String?,
         tags: List<String>?
     ): Result<ResearchItem> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
@@ -262,10 +305,10 @@ class ItemRepositoryImpl @Inject constructor(
                 status = status.toServerString(),
                 readStatus = ReadStatus.UNREAD.toServerString(),
                 tags = tags?.joinToString(","),
-                metaJson = parseMetaJson(metaJson)
+                metaJson = parseMetaJson(mergeMetaJson(null, metaJson, note))
             )
 
-            val created = api.createItem(dto)
+            val created = mergeServerItem(api.createItem(dto), dto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
@@ -280,10 +323,11 @@ class ItemRepositoryImpl @Inject constructor(
 
         return try {
             val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
-            val updated = api.updateItem(
+            val requestDto = buildItemDto(local).copy(type = type.toServerString())
+            val updated = mergeServerItem(api.updateItem(
                 id,
-                buildItemDto(local).copy(type = type.toServerString())
-            )
+                requestDto
+            ), requestDto)
             itemDao.insertItem(
                 ItemMapper.dtoToEntity(
                     updated,
@@ -306,10 +350,11 @@ class ItemRepositoryImpl @Inject constructor(
             itemDao.updateReadStatus(ownerUserId, id, readStatus.toServerString())
             val local = itemDao.getItemById(ownerUserId, id)
             if (local != null) {
-                val updated = api.updateItem(
+                val requestDto = buildItemDto(local).copy(readStatus = readStatus.toServerString())
+                val updated = mergeServerItem(api.updateItem(
                     id,
-                    buildItemDto(local).copy(readStatus = readStatus.toServerString())
-                )
+                    requestDto
+                ), requestDto)
                 itemDao.insertItem(
                     ItemMapper.dtoToEntity(
                         updated,
@@ -340,6 +385,7 @@ class ItemRepositoryImpl @Inject constructor(
         id: String,
         title: String?,
         summary: String?,
+        note: String?,
         content: String?,
         tags: List<String>?,
         metaJson: String?
@@ -353,10 +399,10 @@ class ItemRepositoryImpl @Inject constructor(
                 summary = summary ?: local.summary,
                 contentMd = content ?: local.contentMarkdown,
                 tags = tags?.joinToString(","),
-                metaJson = metaJson?.let { parseMetaJson(it) } ?: parseMetaJson(local.metaJson)
+                metaJson = parseMetaJson(mergeMetaJson(local.metaJson, metaJson, note))
             )
 
-            val updated = api.updateItem(id, dto)
+            val updated = mergeServerItem(api.updateItem(id, dto), dto)
             itemDao.insertItem(
                 ItemMapper.dtoToEntity(
                     updated,
@@ -382,10 +428,11 @@ class ItemRepositoryImpl @Inject constructor(
             }
 
             val projectName = projectId?.let { projectDao.getProjectById(ownerUserId, it)?.name }
-            val updated = api.updateItem(
+            val requestDto = buildItemDto(local).copy(projectId = projectId?.toIntOrNull())
+            val updated = mergeServerItem(api.updateItem(
                 id,
-                buildItemDto(local).copy(projectId = projectId?.toIntOrNull())
-            )
+                requestDto
+            ), requestDto)
 
             itemDao.updateProject(ownerUserId, id, projectId, projectName)
             itemDao.insertItem(

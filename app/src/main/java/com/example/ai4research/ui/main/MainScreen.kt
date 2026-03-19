@@ -415,7 +415,7 @@ class MainAppInterface(
     fun checkFloatingWindowStatus(): String {
         val hasPermission = android.provider.Settings.canDrawOverlays(context)
         var isEnabled = false
-        // 浣跨敤 runBlocking 鑾峰彇褰撳墠璁剧疆鐘舵€?(浠呯敤浜庡悓姝avaScript璋冪敤)
+        // 使用 runBlocking 获取当前设置状态，仅供同步 JavaScript 调用
         kotlinx.coroutines.runBlocking {
             isEnabled = floatingWindowManager.isFloatingWindowEnabled.first()
         }

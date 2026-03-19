@@ -17,6 +17,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 object ItemMapper {
     private val gson = Gson()
@@ -37,6 +40,53 @@ object ItemMapper {
         }
         android.util.Log.w("ItemMapper", "Unable to parse date: $dateStr")
         return System.currentTimeMillis()
+    }
+
+    private fun parseStringList(value: Any?): List<String> {
+        return when (value) {
+            is List<*> -> value.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotBlank) }
+            is String -> value.split(",", "，")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            else -> emptyList()
+        }
+    }
+
+    private fun parseInt(value: Any?): Int? {
+        return when (value) {
+            is Number -> value.toInt()
+            is String -> value.trim().toIntOrNull()
+            else -> null
+        }
+    }
+
+    private fun parseMetaMap(metaJson: String?): Map<String, Any?>? {
+        if (metaJson.isNullOrBlank() || metaJson == "{}") return null
+        return try {
+            val normalizedMetaJson = if (metaJson.startsWith("\"") && metaJson.endsWith("\"")) {
+                runCatching { gson.fromJson(metaJson, String::class.java) }.getOrNull() ?: metaJson
+            } else {
+                metaJson
+            }
+            gson.fromJson(normalizedMetaJson, Map::class.java) as? Map<String, Any?>
+        } catch (e: Exception) {
+            android.util.Log.w("ItemMapper", "Failed to parse metaJson: $metaJson, error: ${e.message}")
+            null
+        }
+    }
+
+    private fun normalizeMetaJson(element: JsonElement?): String? {
+        return when (element) {
+            null -> null
+            is JsonPrimitive -> {
+                if (element.isString) {
+                    element.contentOrNull?.takeIf { it.isNotBlank() }
+                } else {
+                    element.toString()
+                }
+            }
+            else -> element.toString()
+        }
     }
 
     fun dtoToEntity(
@@ -62,7 +112,7 @@ object ItemMapper {
             projectId = dto.projectId?.toString() ?: projectId,
             projectName = projectName,
             isStarred = false,
-            metaJson = dto.metaJson?.toString(),
+            metaJson = normalizeMetaJson(dto.metaJson),
             createdAt = createdAt,
             syncedAt = System.currentTimeMillis()
         )
@@ -74,6 +124,7 @@ object ItemMapper {
             type = ItemType.fromString(entity.type),
             title = entity.title,
             summary = entity.summary,
+            note = parseMetaMap(entity.metaJson)?.get("note")?.toString(),
             contentMarkdown = entity.contentMarkdown,
             originUrl = entity.originUrl,
             audioUrl = entity.audioUrl,
@@ -103,41 +154,91 @@ object ItemMapper {
             projectId = item.projectId,
             projectName = item.projectName,
             isStarred = item.isStarred,
-            metaJson = item.metaData?.let { gson.toJson(it) },
+            metaJson = buildMetaJson(item),
             createdAt = item.createdAt.time,
             syncedAt = System.currentTimeMillis()
         )
     }
 
+    private fun buildMetaJson(item: ResearchItem): String? {
+        val existing = parseMetaMap(item.rawMetaJson)?.toMutableMap() ?: mutableMapOf()
+
+        when (val meta = item.metaData) {
+            is ItemMetaData.PaperMeta -> {
+                if (meta.authors.isNotEmpty()) existing["authors"] = meta.authors
+                meta.conference?.let { existing["conference"] = it }
+                meta.year?.let { existing["year"] = it }
+                if (meta.tags.isNotEmpty()) existing["tags"] = meta.tags
+                meta.source?.let { existing["source"] = it }
+                meta.identifier?.let { existing["identifier"] = it }
+                if (meta.domainTags.isNotEmpty()) existing["domain_tags"] = meta.domainTags
+                if (meta.keywords.isNotEmpty()) existing["keywords"] = meta.keywords
+                if (meta.methodTags.isNotEmpty()) existing["method_tags"] = meta.methodTags
+                meta.dedupKey?.let { existing["dedup_key"] = it }
+                meta.summaryShort?.let { existing["summary_short"] = it }
+            }
+
+            is ItemMetaData.CompetitionMeta -> {
+                meta.organizer?.let { existing["organizer"] = it }
+                meta.prizePool?.let { existing["prizePool"] = it }
+                meta.deadline?.let { existing["deadline"] = it }
+                meta.theme?.let { existing["theme"] = it }
+                meta.competitionType?.let { existing["competitionType"] = it }
+                meta.website?.let { existing["website"] = it }
+                meta.registrationUrl?.let { existing["registrationUrl"] = it }
+                meta.timeline?.let { timeline ->
+                    existing["timeline"] = timeline.map { event ->
+                        mapOf(
+                            "name" to event.name,
+                            "date" to event.date.toInstant().toString(),
+                            "isPassed" to event.isPassed
+                        )
+                    }
+                }
+            }
+
+            is ItemMetaData.InsightMeta -> {
+                if (meta.tags.isNotEmpty()) existing["tags"] = meta.tags
+            }
+
+            is ItemMetaData.VoiceMeta -> {
+                existing["duration"] = meta.duration
+                meta.transcription?.let { existing["transcription"] = it }
+            }
+
+            null -> Unit
+        }
+
+        item.note?.let { existing["note"] = it }
+
+        return if (existing.isEmpty()) null else gson.toJson(existing)
+    }
+
     private fun parseMetaData(metaJson: String?, type: String): ItemMetaData? {
-        if (metaJson.isNullOrEmpty() || metaJson == "{}") return null
+        val map = parseMetaMap(metaJson) ?: return null
 
         return try {
-            val map = gson.fromJson(metaJson, Map::class.java) as? Map<String, Any?> ?: return null
-
             when (type.lowercase()) {
                 "paper" -> {
-                    val authors = when (val authorsRaw = map["authors"]) {
-                        is List<*> -> authorsRaw.mapNotNull { it?.toString() }
-                        is String -> if (authorsRaw.isNotBlank()) authorsRaw.split(",").map { it.trim() } else emptyList()
-                        else -> emptyList()
-                    }
-                    val tags = when (val tagsRaw = map["tags"]) {
-                        is List<*> -> tagsRaw.mapNotNull { it?.toString() }
-                        is String -> if (tagsRaw.isNotBlank()) tagsRaw.split(",").map { it.trim() } else emptyList()
-                        else -> emptyList()
-                    }
-                    val year = when (val yearRaw = map["year"]) {
-                        is Number -> yearRaw.toInt()
-                        is String -> yearRaw.toIntOrNull()
-                        else -> null
-                    }
+                    val authors = parseStringList(map["authors"])
+                    val tags = parseStringList(map["tags"])
+                    val domainTags = parseStringList(map["domain_tags"]).ifEmpty { tags }
+                    val keywords = parseStringList(map["keywords"]).ifEmpty { tags }
+                    val methodTags = parseStringList(map["method_tags"])
+                    val year = parseInt(map["year"])
 
                     ItemMetaData.PaperMeta(
                         authors = authors,
                         conference = map["conference"]?.toString(),
                         year = year,
-                        tags = tags
+                        tags = tags,
+                        source = map["source"]?.toString(),
+                        identifier = map["identifier"]?.toString(),
+                        domainTags = domainTags,
+                        keywords = keywords,
+                        methodTags = methodTags,
+                        dedupKey = map["dedup_key"]?.toString(),
+                        summaryShort = map["summary_short"]?.toString()
                     )
                 }
 
@@ -168,11 +269,7 @@ object ItemMapper {
                 }
 
                 "insight" -> {
-                    val tags = when (val tagsRaw = map["tags"]) {
-                        is List<*> -> tagsRaw.mapNotNull { it?.toString() }
-                        is String -> if (tagsRaw.isNotBlank()) tagsRaw.split(",").map { it.trim() } else emptyList()
-                        else -> emptyList()
-                    }
+                    val tags = parseStringList(map["tags"])
                     ItemMetaData.InsightMeta(tags = tags)
                 }
 

@@ -1,32 +1,68 @@
-# Gist 云端 / Web 对接接口说明
+# Cloud / Web API Integration Guide
 
-本文档基于当前 Android 代码实现整理，目标读者是云端与 Web 开发同学。
+本文档基于当前安卓端实现整理，面向：
 
-重点说明：
-- Android 当前实际调用了哪些服务端接口
-- 每个接口的路径、请求方式、主要字段和调用习惯
-- NocoDB 表结构与字段契约
-- 客户端对字段值的实际解析规则
+- Web 端开发者
+- 后端开发者
+- 需要与安卓端联调数据结构的同学
 
-不展开 Android 本地 Room 细节，只保留与云端契约有关的同步说明。
+文档目标：
+
+- 说明安卓端当前实际依赖的远端接口
+- 说明安卓端当前使用的数据字段
+- 说明本次 `v0.1.0` 新增的论文索引字段契约
+- 说明 `meta_json` 的兼容规则与消费建议
+
+本文档重点关注“数据契约”和“联调约定”，不展开安卓本地 Room 细节。
+
+---
 
 ## 1. 当前服务概览
 
-当前 Android 端依赖两类远端服务：
+当前安卓端依赖两类远端服务：
 
-1. NocoDB
-   - 用途：研究条目、项目、用户数据的增删改查
-   - Base URL:
-     `http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/`
+### 1.1 NocoDB
 
-2. SiliconFlow
-   - 用途：文本总结、视觉识别、语音转写
-   - Base URL:
-     `https://api.siliconflow.cn/v1/`
+用途：
+
+- `items` 数据增删改查
+- `projects` 数据增删改查
+- `users` 数据注册、登录、更新
+
+当前 Base URL：
+
+```text
+http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/
+```
+
+来源代码：
+
+- [Constants.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/core/util/Constants.kt)
+
+### 1.2 SiliconFlow
+
+用途：
+
+- 文本结构化解析
+- 链接解析
+- 视觉识别 / OCR
+- 语音转写
+
+当前 Base URL：
+
+```text
+https://api.siliconflow.cn/v1/
+```
+
+来源代码：
+
+- [SiliconFlowApiService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/remote/api/SiliconFlowApiService.kt)
+
+---
 
 ## 2. NocoDB 认证方式
 
-Android 对所有 NocoDB 请求统一附带以下 Header：
+安卓端当前对所有 NocoDB 请求统一附带：
 
 ```http
 xc-token: <NOCO_TOKEN>
@@ -35,36 +71,50 @@ Content-Type: application/json
 ```
 
 说明：
-- Token 当前由客户端硬编码在 `Constants.NOCO_TOKEN` 中。
-- 不建议继续沿用“客户端硬编码 Token”方案到正式环境。
-- 若后续云端做统一网关，建议改成应用后端签发临时凭证，或至少把静态 Token 移出客户端代码。
 
-## 3. NocoDB 表与路径映射
+- 当前 token 仍在客户端配置中
+- 这适合比赛/demo 阶段，不适合作为正式生产方案
+- 后续建议迁移为后端代理或正式认证体系
 
-当前 Android 代码固定依赖以下三张表：
+来源代码：
 
-| 业务对象 | NocoDB 表 ID | 路径 |
-|---|---|---|
-| items | `mez4qicxcudfwnc` | `/mez4qicxcudfwnc` |
-| projects | `m14rejhia8w9cf7` | `/m14rejhia8w9cf7` |
-| users | `m1j18kc9fkjhcio` | `/m1j18kc9fkjhcio` |
+- [NocoAuthInterceptor.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/core/network/NocoAuthInterceptor.kt)
+
+---
+
+## 3. 表与路径映射
+
+当前安卓端固定依赖以下三张表：
+
+| 业务对象 | NocoDB 路径 |
+|---|---|
+| items | `/mez4qicxcudfwnc` |
+| projects | `/m14rejhia8w9cf7` |
+| users | `/m1j18kc9fkjhcio` |
+
+来源代码：
+
+- [NocoApiService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/remote/api/NocoApiService.kt)
+
+---
 
 ## 4. Items 接口
 
-### 4.1 获取全部 Items
+## 4.1 获取全部 Items
 
 ```http
 GET /mez4qicxcudfwnc?limit=100&offset=0&sort=-CreatedAt
 ```
 
-用途：
-- Android 启动刷新时拉全量条目
+安卓端用途：
 
-返回结构：
+- 刷新本地条目缓存
+
+返回结构示例：
 
 ```json
 {
-  "list": [ ... ],
+  "list": [],
   "pageInfo": {
     "totalRows": 0,
     "page": 1,
@@ -75,113 +125,121 @@ GET /mez4qicxcudfwnc?limit=100&offset=0&sort=-CreatedAt
 }
 ```
 
-客户端注意：
-- Android 会过滤掉 `title` 为空或 `type` 为空的记录
-- 排序默认按 `CreatedAt` 倒序
+安卓端当前会过滤掉：
 
-### 4.2 按类型查询 Items
+- `title` 为空的记录
+- `type` 为空的记录
 
-```http
-GET /mez4qicxcudfwnc?where=(type,eq,paper)&limit=100
-```
-
-用途：
-- 代码里已定义，但当前主刷新流程主要还是全量拉取后本地筛选
-
-### 4.3 获取单个 Item
+## 4.2 获取单个 Item
 
 ```http
 GET /mez4qicxcudfwnc/{id}
 ```
 
-### 4.4 创建 Item
+## 4.3 创建 Item
 
 ```http
 POST /mez4qicxcudfwnc
 Content-Type: application/json
 ```
 
-Android 当前创建时常用字段：
+安卓端常见请求字段：
 
 ```json
 {
   "title": "示例标题",
   "type": "paper",
-  "summary": "摘要",
+  "summary": "主摘要",
   "content_md": "Markdown 正文",
   "origin_url": "https://example.com",
   "audio_url": null,
-  "status": "processing (解析中)",
+  "status": "done (完成)",
   "read_status": "unread (未读)",
   "tags": "tag1,tag2",
   "project_id": 1,
   "meta_json": {
     "authors": ["A", "B"],
     "conference": "ACL",
-    "year": 2025
+    "year": "2025",
+    "identifier": "10.1000/demo",
+    "domain_tags": ["LLM"],
+    "keywords": ["retrieval"],
+    "method_tags": ["RAG"],
+    "dedup_key": "10.1000/demo",
+    "summary_short": "两句以内的极短摘要",
+    "note": "用户备注"
   }
 }
 ```
 
-客户端注意：
-- Android 发送 JSON 时不会主动带 `Id: null`
-- `meta_json` 是 JSON 对象，不是字符串
-- `tags` 当前走逗号拼接字符串，不是数组
+安卓端注意事项：
 
-### 4.5 更新 Item
+- `meta_json` 当前是重点字段
+- `note` 当前也放在 `meta_json` 中
+- `tags` 仍然使用逗号分隔字符串，尚未改成数组字段
+
+## 4.4 更新 Item
 
 ```http
 PATCH /mez4qicxcudfwnc/{id}
 Content-Type: application/json
 ```
 
-Android 当前更新策略：
-- 大多数更新是“带完整主要字段一起 PATCH”，不是只发改单字段
-- 以下场景会调用：
-  - 修改条目类型
-  - 修改阅读状态
-  - 修改标题 / 摘要 / 正文 / tags / meta_json
-  - 修改项目归属
+安卓端当前更新策略：
 
-建议服务端兼容：
+- 往往不是只 patch 单字段
+- 通常会带主要字段一起提交
+- 安卓端本地已做“远端响应缺字段时回退本地请求体”的兼容，避免 `meta_json` 丢失
+
+建议后端保持：
+
 - PATCH 支持部分字段更新
-- 即使客户端传的是“接近全量”的对象，也不要要求字段顺序或严格全字段
+- 不要求客户端严格传全字段
 
-### 4.6 删除 Item
+## 4.5 删除 Item
 
 ```http
 DELETE /mez4qicxcudfwnc/{id}
 ```
 
-客户端注意：
-- Android 当前是“先删本地，再尽力删远端”
-- 也就是说，远端删除失败时，客户端本地可能已经看不到这条数据
+安卓端当前行为：
+
+- 先删本地
+- 再 best-effort 删除远端
+
+这意味着：
+
+- 如果远端删除失败，本地可能已经看不到这条记录
+
+---
 
 ## 5. Projects 接口
 
-### 5.1 获取全部 Projects
+## 5.1 获取全部 Projects
 
 ```http
 GET /m14rejhia8w9cf7?limit=100
 ```
 
 用途：
-- Android 在刷新 items 前，会先刷新 projects，用于把 `project_id` 映射成 `project_name`
 
-### 5.2 获取单个 Project
+- 安卓端刷新项目列表
+- 用于把 `project_id` 映射成 `project_name`
+
+## 5.2 获取单个 Project
 
 ```http
 GET /m14rejhia8w9cf7/{id}
 ```
 
-### 5.3 创建 Project
+## 5.3 创建 Project
 
 ```http
 POST /m14rejhia8w9cf7
 Content-Type: application/json
 ```
 
-Android 当前请求体：
+安卓端当前请求示例：
 
 ```json
 {
@@ -191,35 +249,39 @@ Android 当前请求体：
 }
 ```
 
-客户端注意：
-- Android 同时写 `Title` 和 `name`
-- 客户端读取时优先用 `name`，如果 `name` 为空则回退到 `Title`
+安卓端读取规则：
 
-### 5.4 删除 Project
+- 优先使用 `name`
+- `name` 为空时回退到 `Title`
+
+## 5.4 删除 Project
 
 ```http
 DELETE /m14rejhia8w9cf7/{id}
 ```
 
+---
+
 ## 6. Users 接口
 
-当前用户体系本质上不是独立认证服务，而是“直接查 NocoDB users 表”。
+当前用户体系本质上仍是直接操作 `users` 表，不是正式认证服务。
 
 这意味着：
-- 注册是直接往表里插入一行
-- 登录是通过 `where` 条件查询用户记录
-- 密码当前是按明文查询
 
-这套方式能跑通，但安全性较弱，正式环境建议后续替换。
+- 注册：直接插表
+- 登录：直接按 where 条件查表
+- 本地保存的是 `user.id`，不是标准 token
 
-### 6.1 注册
+这套方式适合 demo 阶段，不适合正式生产。
+
+## 6.1 注册
 
 ```http
 POST /m1j18kc9fkjhcio
 Content-Type: application/json
 ```
 
-Android 当前请求体：
+安卓端当前请求示例：
 
 ```json
 {
@@ -232,82 +294,45 @@ Android 当前请求体：
 }
 ```
 
-### 6.2 登录
+## 6.2 登录
 
 ```http
 GET /m1j18kc9fkjhcio?where=...
 ```
 
-Android 当前支持三种登录标识：
+安卓端支持三种标识登录：
 
-1. 邮箱登录
+- 邮箱
+- 用户名
+- 手机号
 
-```text
-(email,eq,user@example.com)~and(password,eq,plain_password)
-```
+---
 
-2. 用户名登录
+## 7. `items` 表字段契约
 
-```text
-(username,eq,tester)~and(password,eq,plain_password)
-```
+安卓端当前依赖以下字段：
 
-3. 手机号登录
-
-```text
-(Phonenumber,eq,13800000000)~and(password,eq,plain_password)
-```
-
-客户端注意：
-- Android 登录成功后，把 `user.id` 当作本地 token 保存
-- 当前不是 JWT，也不是 session token，只是用户 ID
-
-### 6.3 检查用户名是否存在
-
-```http
-GET /m1j18kc9fkjhcio?where=(username,eq,tester)
-```
-
-### 6.4 获取用户详情
-
-```http
-GET /m1j18kc9fkjhcio/{id}
-```
-
-### 6.5 更新用户
-
-```http
-PATCH /m1j18kc9fkjhcio/{id}
-Content-Type: application/json
-```
-
-Android 当前主要用在：
-- 更新 `biometric_enabled`
-
-## 7. Items 表字段契约
-
-Android 当前对 `items` 表的字段依赖如下：
-
-| 字段名 | 类型 | 说明 |
+| 字段 | 类型 | 说明 |
 |---|---|---|
-| `Id` | Int | NocoDB 主键 |
-| `title` | String | 标题，不能为空，否则 Android 会过滤 |
-| `type` | String | 条目类型，不能为空，否则 Android 会过滤 |
-| `summary` | String | 摘要 |
+| `Id` | Int | 主键 |
+| `ownerId` | String | 当前条目所属用户 |
+| `title` | String | 标题 |
+| `type` | String | 条目类型 |
+| `summary` | String | 主摘要 |
 | `content_md` | String | Markdown 正文 |
-| `origin_url` | String? | 原始链接或图片地址 |
-| `audio_url` | String? | 语音文件地址 |
+| `origin_url` | String? | 原始链接 |
+| `audio_url` | String? | 音频地址 |
 | `status` | String | 条目状态 |
 | `read_status` | String | 阅读状态 |
 | `tags` | String? | 逗号分隔字符串 |
 | `project_id` | Int? | 项目外键 |
-| `meta_json` | JSON? | 结构化扩展数据 |
+| `meta_json` | JSON / String | 结构化扩展字段 |
 | `CreatedAt` | String | 创建时间 |
 | `UpdatedAt` | String | 更新时间 |
 
 ### 7.1 `type` 枚举
 
-客户端识别以下值：
+安卓端当前识别：
 
 ```text
 paper
@@ -316,11 +341,15 @@ insight
 voice
 ```
 
-未知值会被 Android 回退成 `insight` 处理。
+未知值会回退成：
+
+```text
+insight
+```
 
 ### 7.2 `status` 枚举
 
-Android 当前写入的完整值通常是：
+安卓端当前实际写入通常为：
 
 ```text
 processing (解析中)
@@ -328,7 +357,7 @@ done (完成)
 failed (失败)
 ```
 
-但客户端解析逻辑只看英文前缀，所以服务端至少需要保证前缀稳定：
+但客户端解析只依赖英文前缀，因此服务端只要前缀稳定即可：
 
 ```text
 processing
@@ -338,7 +367,7 @@ failed
 
 ### 7.3 `read_status` 枚举
 
-Android 当前写入的完整值通常是：
+安卓端当前实际写入通常为：
 
 ```text
 unread (未读)
@@ -346,7 +375,7 @@ reading (在读)
 read (已读)
 ```
 
-客户端解析时同样只看英文前缀：
+客户端同样只依赖英文前缀：
 
 ```text
 unread
@@ -354,203 +383,292 @@ reading
 read
 ```
 
-### 7.4 `meta_json` 约定
+---
 
-#### paper
+## 8. `meta_json` 契约
+
+这是当前 `v0.1.0` 最重要的字段。
+
+### 8.1 Paper
+
+推荐结构：
 
 ```json
 {
-  "authors": ["A", "B"],
-  "conference": "ACL",
-  "year": 2025,
-  "tags": ["nlp", "llm"]
+  "authors": ["Ashish Vaswani", "Noam Shazeer"],
+  "conference": "NeurIPS",
+  "year": "2017",
+  "source": "arxiv",
+  "identifier": "1706.03762",
+  "domain_tags": ["LLM", "NLP"],
+  "keywords": ["transformer", "attention"],
+  "method_tags": ["Transformer"],
+  "dedup_key": "1706.03762",
+  "summary_short": "两句以内的极短摘要",
+  "tags": ["transformer", "attention"],
+  "note": "用户备注"
 }
 ```
 
-#### competition
+### 8.2 Competition
 
 ```json
 {
-  "timeline": [],
+  "organizer": "Kaggle",
   "prizePool": "10000 USD",
-  "organizer": "xxx",
   "deadline": "2026-12-31",
   "theme": "AI for Science",
   "competitionType": "algorithm",
   "website": "https://example.com",
-  "registrationUrl": "https://example.com/register"
+  "registrationUrl": "https://example.com/register",
+  "timeline": [
+    {
+      "name": "报名截止",
+      "date": "2026-12-31",
+      "isPassed": false
+    }
+  ]
 }
 ```
 
-#### insight
+### 8.3 Insight
 
 ```json
 {
-  "tags": ["idea", "product"]
+  "source": "灵感",
+  "tags": ["idea", "product"],
+  "note": "用户备注"
 }
 ```
 
-#### voice
+### 8.4 Voice
 
 ```json
 {
   "duration": 90,
-  "transcription": "语音转写文本"
+  "transcription": "语音转写文本",
+  "note": "用户备注"
 }
 ```
 
-客户端兼容性说明：
-- `authors` / `tags` 既兼容数组，也兼容逗号字符串
-- `year` / `duration` 既兼容数字，也兼容数字字符串
+---
 
-## 8. Projects 表字段契约
+## 9. `meta_json` 兼容规则
 
-| 字段名 | 类型 | 说明 |
+安卓端当前兼容以下两种返回形式：
+
+### 9.1 对象形式
+
+```json
+"meta_json": {
+  "identifier": "1706.03762",
+  "year": "2017"
+}
+```
+
+### 9.2 字符串形式
+
+```json
+"meta_json": "{\"identifier\":\"1706.03762\",\"year\":\"2017\"}"
+```
+
+安卓端都会尝试正常解析。
+
+对 Web / 后端的建议：
+
+- 最好统一返回对象形式
+- 但当前如暂时无法统一，字符串 JSON 也可以被安卓兼容
+
+---
+
+## 10. 安卓端当前展示策略
+
+### 10.1 列表页
+
+论文列表卡片当前优先展示：
+
+- `title`
+- 作者
+- `conference/source + year`
+- `identifier`
+- `summary_short`
+- `note`
+- 标签
+
+### 10.2 详情页
+
+论文详情页当前优先展示：
+
+- 论文索引卡
+- `summary_short`
+- `note`
+- 原始 Markdown / 正文内容
+
+### 10.3 类型自动修正
+
+当解析结果带有明显学术特征时，即使模型返回：
+
+- `article`
+- `insight`
+
+安卓端也可能把它归到：
+
+- `paper`
+
+依据包括：
+
+- `identifier`
+- `conference`
+- `year`
+- `arxiv`
+- `doi`
+
+---
+
+## 11. SiliconFlow / 模型说明
+
+当前安卓端通过 SiliconFlow 调用模型。
+
+相关代码：
+
+- [AIService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/service/AIService.kt)
+- [SiliconFlowApiService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/remote/api/SiliconFlowApiService.kt)
+
+### 当前实际生效配置
+
+| 能力 | Provider | 当前模型 |
 |---|---|---|
-| `Id` | Int | 主键 |
-| `Title` | String? | 项目标题 |
-| `name` | String? | 项目名 |
-| `description` | String? | 描述 |
-| `CreatedAt` | String | 创建时间 |
+| 文本结构化解析 | SiliconFlow | `Qwen/Qwen3.5-397B-A17B` |
+| 视觉识别 / OCR | SiliconFlow | `Pro/moonshotai/Kimi-K2.5` |
+| 语音转写 | SiliconFlow | `FunAudioLLM/SenseVoiceSmall` |
 
-客户端读取规则：
-- 优先使用 `name`
-- 若 `name` 为空，则回退到 `Title`
-- 若两者都为空，客户端会把项目名兜底成“未命名项目”
+### 说明
 
-## 9. Users 表字段契约
+- 当前项目仍然通过 **SiliconFlow API** 调用模型
+- 即使模型名是 Qwen 或 Kimi，也不是直连对应官方 SDK
+- 如果需要查看调用日志、计费或用量，应优先查看 SiliconFlow 控制台
+- 模型切换不会改变 Web 端字段名，但可能改变字段完整率与摘要质量
 
-| 字段名 | 类型 | 说明 |
-|---|---|---|
-| `Id` | Int | 主键 |
-| `Phonenumber` | String? | 手机号 |
-| `email` | String | 邮箱 |
-| `password` | String | 当前客户端按明文使用 |
-| `username` | String | 用户名 |
-| `avatar_url` | String? | 头像 |
-| `biometric_enabled` | Boolean? | 是否启用生物识别 |
-| `CreatedAt` | String | 创建时间 |
-| `UpdatedAt` | String | 更新时间 |
+### 配置位置
 
-## 10. 时间字段格式
+- API Key：
+  - [AIService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/service/AIService.kt)
+- 文本模型 / 视觉模型 / ASR 模型：
+  - [SiliconFlowApiService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/remote/api/SiliconFlowApiService.kt)
 
-Android 目前能解析以下时间格式：
+---
 
-```text
-yyyy-MM-dd HH:mm:ssXXX
-yyyy-MM-dd HH:mm:ss
-yyyy-MM-dd'T'HH:mm:ss.SSS'Z'
-yyyy-MM-dd'T'HH:mm:ss'Z'
-```
+## 12. Web 端接入建议
 
-建议云端统一输出：
+### 12.1 不要只消费 `summary`
 
-```text
-yyyy-MM-dd HH:mm:ss+00:00
-```
+如果 Web 端只读：
 
-## 11. Android 当前实际同步行为
+- `title`
+- `summary`
 
-给云端同学最关键的几点：
+会丢掉本次版本最重要的结构化索引能力。
 
-1. 首次刷新时，Android 会先拉 `projects`，再拉 `items`
-2. Android UI 主要消费的是本地缓存，不是每次现查远端
-3. `updateStarred` 当前只改本地，不回写远端
-4. `deleteItem` 是本地先删，远端 best-effort
-5. 登录成功后本地保存的是 `user.id`，不是标准 token
+建议优先消费：
 
-如果你们要做云端 Web 管理台，建议优先统一以下行为：
-- 让 `starred` 也有远端字段
-- 把登录从“查 users 表”升级成真正认证接口
-- 保持 `status` / `read_status` 的英文前缀稳定
+- `meta_json.identifier`
+- `meta_json.conference`
+- `meta_json.year`
+- `meta_json.domain_tags`
+- `meta_json.keywords`
+- `meta_json.method_tags`
+- `meta_json.dedup_key`
+- `meta_json.summary_short`
+- `meta_json.note`
 
-## 12. SiliconFlow 接口
+### 12.2 机器字段与用户字段分离
 
-这部分不是 NocoDB，但 Android 当前也依赖它。
+语义上必须区分：
 
-### 12.1 文本对话
+- 机器字段：索引、标签、去重键、短摘要
+- 用户字段：`note`
 
-```http
-POST /chat/completions
-Authorization: Bearer <API_KEY>
-```
+不要把 `note` 当成摘要字段，也不要让后续自动补全覆盖它。
 
-用途：
-- 文本总结
-- 链接解析
+### 12.3 去重逻辑建议
 
-模型：
+Web / 后端建议优先使用：
 
-```text
-Qwen/Qwen2.5-14B-Instruct
-```
+1. `identifier`
+2. `dedup_key`
+3. 规范化 `title + year`
 
-### 12.2 视觉对话
+安卓端当前只是提供辅助字段，不建议把安卓端结果当成唯一真相来源。
 
-```http
-POST /chat/completions
-Authorization: Bearer <API_KEY>
-```
+---
 
-用途：
-- 截图 OCR / 图片理解
+## 13. 当前已知边界
 
-模型：
+### 13.1 `year / keywords / method_tags` 不是强确定字段
 
-```text
-Qwen/Qwen2.5-VL-32B-Instruct
-```
+这些字段当前仍可能缺失，原因包括：
 
-### 12.3 音频转写
+- 原网页没有明确提供
+- 抓取内容不完整
+- AI 只能做推断而不是纯抽取
 
-```http
-POST /audio/transcriptions
-Authorization: Bearer <API_KEY>
-Content-Type: multipart/form-data
-```
+### 13.2 `summary_short` 更适合入口展示
 
-用途：
-- 语音录制转文本
+它适合：
 
-模型：
+- 列表页
+- 卡片页
+- 手机端快速浏览
 
-```text
-FunAudioLLM/SenseVoiceSmall
-```
+它不适合替代：
 
-## 13. 对云端 / Web 开发的直接建议
+- 原始英文摘要
+- 全部正文内容
 
-### 建议优先保持兼容的部分
+### 13.3 当前仍是安卓端优先
 
-1. 不要改动三张 NocoDB 表的路径 ID
-2. 保持 `items.type` 的四个值不变：
-   - `paper`
-   - `competition`
-   - `insight`
-   - `voice`
-3. 保持 `status` / `read_status` 的英文前缀不变
-4. `meta_json` 保持 JSON 对象，不要强制改成纯字符串
-5. `projects` 表继续兼容 `Title` 和 `name`
+本期还没有完成：
 
-### 建议后续升级的部分
+- Web UI
+- 桌面整理工作台
+- 旧记录批量重建索引
 
-1. 把 users 登录改成正式认证接口，不再直接查表
-2. 不要让客户端继续持有 NocoDB 静态 token
-3. 增加服务端统一业务 API，逐步把客户端从“直连 NocoDB”迁移出去
-4. 给 `items` 增加真正的远端 `is_starred` 字段，和 Android 行为对齐
+---
 
-## 14. 代码来源
+## 14. 关键代码位置
 
-本文档对应当前仓库中的这些实现：
+### 远端 DTO
+- [NocoItemDto.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/remote/dto/NocoItemDto.kt)
 
-- `app/src/main/java/com/example/ai4research/core/util/Constants.kt`
-- `app/src/main/java/com/example/ai4research/core/network/NocoAuthInterceptor.kt`
-- `app/src/main/java/com/example/ai4research/data/remote/api/NocoApiService.kt`
-- `app/src/main/java/com/example/ai4research/data/remote/api/SiliconFlowApiService.kt`
-- `app/src/main/java/com/example/ai4research/data/remote/dto/NocoItemDto.kt`
-- `app/src/main/java/com/example/ai4research/data/remote/dto/NocoUserDto.kt`
-- `app/src/main/java/com/example/ai4research/data/repository/AuthRepository.kt`
-- `app/src/main/java/com/example/ai4research/data/repository/ItemRepositoryImpl.kt`
-- `app/src/main/java/com/example/ai4research/data/repository/ProjectRepositoryImpl.kt`
-- `app/src/main/java/com/example/ai4research/domain/model/ResearchItem.kt`
+### NocoDB 接口
+- [NocoApiService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/remote/api/NocoApiService.kt)
 
+### AI / 结构化解析
+- [AIService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/service/AIService.kt)
+
+### 采集保存入口
+- [FloatingWindowService.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/service/FloatingWindowService.kt)
+
+### 数据映射
+- [ItemMapper.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/mapper/ItemMapper.kt)
+
+### 数据持久化
+- [ItemRepositoryImpl.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/data/repository/ItemRepositoryImpl.kt)
+
+### 列表桥接
+- [MainViewModel.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/ui/main/MainViewModel.kt)
+
+### 详情页展示
+- [DetailScreen.kt](D:/Android-mobile-terminal/app/src/main/java/com/example/ai4research/ui/detail/DetailScreen.kt)
+
+---
+
+## 15. 结论
+
+`v0.1.0` 后，安卓端已经不再只是“标题 + 摘要”的弱结构化采集，而是开始稳定产出论文索引字段。
+
+对于 Web / 后端开发者来说，当前最重要的事情不是复刻安卓 UI，而是：
+
+- 对齐 `meta_json` 字段结构
+- 对齐 `summary_short / note / identifier / dedup_key` 语义
+- 按当前契约继续扩展整理、过滤、去重和深处理能力

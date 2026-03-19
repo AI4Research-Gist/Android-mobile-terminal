@@ -18,6 +18,7 @@ data class ResearchItem(
     val type: ItemType,
     val title: String,
     val summary: String,
+    val note: String? = null,
     val contentMarkdown: String,
     val originUrl: String?,
     val audioUrl: String?,
@@ -123,10 +124,17 @@ sealed class ItemMetaData {
      * 论文元数据
      */
     data class PaperMeta(
-        val authors: List<String>,
-        val conference: String?,
-        val year: Int?,
-        val tags: List<String>
+        val authors: List<String> = emptyList(),
+        val conference: String? = null,
+        val year: Int? = null,
+        val tags: List<String> = emptyList(),
+        val source: String? = null,
+        val identifier: String? = null,
+        val domainTags: List<String> = emptyList(),
+        val keywords: List<String> = emptyList(),
+        val methodTags: List<String> = emptyList(),
+        val dedupKey: String? = null,
+        val summaryShort: String? = null
     ) : ItemMetaData()
     
     /**

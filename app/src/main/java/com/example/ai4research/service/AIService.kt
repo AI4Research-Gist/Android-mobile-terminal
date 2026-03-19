@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -33,8 +34,77 @@ class AIService @Inject constructor(
 ) {
 
     companion object {
-        private const val API_KEY = "sk-reqcxhxadjccraythtsdlzbbprgpbwvqghqshqrgplejcbsh"
+        private const val API_KEY = "sk-devlxlityckbqwlvdtnmfwwxqmrhnlbffjcypryyitbqhkjn"
         private const val AUTH_HEADER = "Bearer $API_KEY"
+        private const val INDEX_PARSE_SYSTEM_PROMPT = """
+You are an academic indexing assistant for a mobile capture app.
+Extract high-quality, objective index fields for papers and articles.
+
+Return strict JSON only.
+
+Priorities:
+1. title
+2. authors
+3. identifier
+4. conference / venue
+5. year
+6. domain_tags
+7. keywords
+8. method_tags
+9. dedup_key
+10. summary_short
+
+Rules:
+- Be conservative and factual.
+- Do not invent user intent, notes, project, priority, or recommendations.
+- summary_short must be at most 2 sentences.
+- keywords should be concise and searchable.
+- method_tags should be method-oriented, not evaluative.
+- If unknown, return null or [].
+
+Return JSON in this shape:
+{
+  "title": "string",
+  "authors": "string",
+  "summary": "string",
+  "summary_short": "string",
+  "content_type": "paper|competition|article|insight",
+  "source": "arxiv|doi|wechat|kaggle|web",
+  "identifier": "string",
+  "domain_tags": ["string"],
+  "keywords": ["string"],
+  "method_tags": ["string"],
+  "dedup_key": "string",
+  "tags": ["string"],
+  "meta": {
+    "conference": "string",
+    "year": "string",
+    "platform": "string"
+  }
+}
+"""
+        private const val INDEX_COMPLETION_SYSTEM_PROMPT = """
+You are a second-pass academic index completion assistant.
+You will receive an existing draft plus source content.
+Only fill missing or weak index fields. Do not rewrite strong existing fields.
+
+Return strict JSON only with the fields below:
+{
+  "conference": "string|null",
+  "year": "string|null",
+  "domain_tags": ["string"],
+  "keywords": ["string"],
+  "method_tags": ["string"],
+  "dedup_key": "string|null",
+  "summary_short": "string|null"
+}
+
+Rules:
+- Prefer precision over coverage.
+- summary_short must be at most 2 sentences.
+- keywords should be concise and useful for retrieval.
+- If a field cannot be supported by evidence, return null or [].
+"""
         
         // 系统提示词
         private const val SYSTEM_PROMPT_SUMMARIZE = """你是一个学术文献助手。请根据提供的内容，提取并总结以下信息：
@@ -122,7 +192,7 @@ class AIService @Inject constructor(
     }
 
     /**
-     * 文本总结 - 使用 Qwen2.5-14B
+     * 文本总结 - 使用当前配置的文本模型
      */
     suspend fun summarizeText(text: String): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -149,7 +219,7 @@ class AIService @Inject constructor(
     }
 
     /**
-     * 链接解析 - 使用 Qwen2.5-14B
+     * 链接解析 - 使用当前配置的文本模型
      */
     suspend fun parseLink(link: String): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -176,7 +246,7 @@ class AIService @Inject constructor(
     }
 
     /**
-     * 图片识别 - 使用 Qwen2.5-VL-32B
+     * 图片识别 - 使用当前配置的视觉模型
      */
     suspend fun recognizeImage(bitmap: Bitmap): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -437,6 +507,205 @@ class AIService @Inject constructor(
         }
     }
 
+    private fun readStringList(jsonObj: JsonObject?, key: String): List<String> {
+        val element = jsonObj?.get(key) ?: return emptyList()
+        return try {
+            when (element) {
+                is kotlinx.serialization.json.JsonArray -> {
+                    element.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
+                        .filter { it.isNotBlank() }
+                }
+                else -> {
+                    element.jsonPrimitive.content.split(",", "，")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun buildDedupKey(identifier: String?, title: String, year: String?): String? {
+        val normalizedIdentifier = identifier?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        if (normalizedIdentifier != null) return normalizedIdentifier
+
+        val normalizedTitle = title.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9\\u4e00-\\u9fff]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .takeIf { it.isNotBlank() }
+            ?: return null
+
+        return listOfNotNull(normalizedTitle, year?.trim()?.takeIf { it.isNotBlank() })
+            .joinToString("#")
+    }
+
+    private fun inferYear(identifier: String?, url: String): String? {
+        val source = identifier ?: url
+        val match = Regex("""(?:arxiv:)?(\d{2})(\d{2})\.\d+""", RegexOption.IGNORE_CASE)
+            .find(source)
+            ?: Regex("""arxiv\.org/abs/(\d{2})(\d{2})\.\d+""", RegexOption.IGNORE_CASE).find(source)
+        val yy = match?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return null
+        return (2000 + yy).toString()
+    }
+
+    private fun inferDomainTags(title: String): List<String> {
+        val lower = title.lowercase()
+        val tags = mutableListOf<String>()
+        if (lower.contains("large language model") || lower.contains("llm")) tags += "LLM"
+        if (lower.contains("language model") || lower.contains("nlp")) tags += "NLP"
+        if (lower.contains("vision") || lower.contains("image") || lower.contains("video")) tags += "CV"
+        if (lower.contains("multimodal")) tags += "Multimodal"
+        if (lower.contains("reinforcement learning") || lower.contains("policy")) tags += "RL"
+        return tags.distinct()
+    }
+
+    private fun inferKeywords(title: String): List<String> {
+        val lower = title.lowercase()
+        val keywords = linkedSetOf<String>()
+
+        val phraseMap = listOf(
+            "large language models" to "large language models",
+            "large language model" to "large language model",
+            "language models" to "language models",
+            "language model" to "language model",
+            "transformer" to "transformer",
+            "reasoning" to "reasoning",
+            "alignment" to "alignment",
+            "retrieval" to "retrieval",
+            "diffusion" to "diffusion",
+            "conformity" to "conformity",
+            "multimodal" to "multimodal"
+        )
+
+        phraseMap.forEach { (pattern, keyword) ->
+            if (lower.contains(pattern)) keywords += keyword
+        }
+
+        if (keywords.isEmpty()) {
+            lower.split(Regex("[^a-z0-9]+"))
+                .filter { it.length >= 5 }
+                .filterNot { it in setOf("think", "models", "paper", "using", "based", "large") }
+                .take(4)
+                .forEach { keywords += it }
+        }
+
+        return keywords.toList()
+    }
+
+    internal fun shouldRunPaperIndexCompletion(result: FullLinkParseResult): Boolean {
+        val paperLike = result.toItemType() == com.example.ai4research.domain.model.ItemType.PAPER
+        if (!paperLike) return false
+
+        return result.conference.isNullOrBlank() ||
+            result.year.isNullOrBlank() ||
+            result.summaryShort.isNullOrBlank() ||
+            result.domainTags.isEmpty() ||
+            result.keywords.isEmpty() ||
+            result.methodTags.isEmpty() ||
+            result.dedupKey.isNullOrBlank()
+    }
+
+    internal fun mergePaperIndexCompletion(
+        base: FullLinkParseResult,
+        conference: String?,
+        year: String?,
+        domainTags: List<String>,
+        keywords: List<String>,
+        methodTags: List<String>,
+        dedupKey: String?,
+        summaryShort: String?
+    ): FullLinkParseResult {
+        val mergedConference = base.conference ?: conference
+        val mergedYear = base.year ?: year
+        val mergedDomainTags = if (base.domainTags.isNotEmpty()) base.domainTags else domainTags
+        val mergedKeywords = if (base.keywords.isNotEmpty()) base.keywords else keywords
+        val mergedMethodTags = if (base.methodTags.isNotEmpty()) base.methodTags else methodTags
+        val mergedSummaryShort = base.summaryShort ?: summaryShort
+        val mergedDedupKey = base.dedupKey ?: dedupKey ?: buildDedupKey(base.identifier, base.title, mergedYear)
+        val mergedTags = (base.tags + mergedDomainTags + mergedKeywords + mergedMethodTags)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(8)
+
+        return base.copy(
+            conference = mergedConference,
+            year = mergedYear,
+            domainTags = mergedDomainTags,
+            keywords = mergedKeywords,
+            methodTags = mergedMethodTags,
+            dedupKey = mergedDedupKey,
+            summaryShort = mergedSummaryShort,
+            tags = mergedTags
+        )
+    }
+
+    private suspend fun completePaperIndexesWithAI(
+        draft: FullLinkParseResult,
+        webContent: WebContent,
+        originalUrl: String
+    ): FullLinkParseResult {
+        if (!shouldRunPaperIndexCompletion(draft)) return draft
+
+        return try {
+            val completionPrompt = buildString {
+                appendLine("Fill the missing academic index fields for this draft.")
+                appendLine("Original URL: $originalUrl")
+                appendLine("Current draft title: ${draft.title}")
+                appendLine("Current draft authors: ${draft.authors ?: "null"}")
+                appendLine("Current draft identifier: ${draft.identifier ?: "null"}")
+                appendLine("Current draft conference: ${draft.conference ?: "null"}")
+                appendLine("Current draft year: ${draft.year ?: "null"}")
+                appendLine("Current draft domain_tags: ${draft.domainTags}")
+                appendLine("Current draft keywords: ${draft.keywords}")
+                appendLine("Current draft method_tags: ${draft.methodTags}")
+                appendLine("Current draft summary_short: ${draft.summaryShort ?: "null"}")
+                appendLine()
+                appendLine("Source content:")
+                appendLine(webContent.content.take(5000))
+            }
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = INDEX_COMPLETION_SYSTEM_PROMPT),
+                    SimpleMessage(role = "user", content = completionPrompt)
+                ),
+                maxTokens = 900,
+                temperature = 0.2
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content ?: return draft
+            val cleanJson = extractJsonFromResponse(content)
+            val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+
+            val completedConference = jsonObj["conference"]?.jsonPrimitive?.contentOrNull
+            val completedYear = jsonObj["year"]?.jsonPrimitive?.contentOrNull
+            val completedDomainTags = readStringList(jsonObj, "domain_tags")
+            val completedKeywords = readStringList(jsonObj, "keywords")
+            val completedMethodTags = readStringList(jsonObj, "method_tags")
+            val completedDedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.contentOrNull
+            val completedSummaryShort = jsonObj["summary_short"]?.jsonPrimitive?.contentOrNull
+
+            mergePaperIndexCompletion(
+                base = draft,
+                conference = completedConference,
+                year = completedYear,
+                domainTags = completedDomainTags,
+                keywords = completedKeywords,
+                methodTags = completedMethodTags,
+                dedupKey = completedDedupKey,
+                summaryShort = completedSummaryShort
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("AIService", "Second-pass paper index completion failed: ${e.message}")
+            draft
+        }
+    }
+
     /**
      * 完整解析链接内容 - 先抓取网页真实内容，再用 AI 结构化解析
      * 
@@ -479,56 +748,27 @@ class AIService @Inject constructor(
      */
     private suspend fun parseContentWithAI(webContent: WebContent, originalUrl: String): Result<FullLinkParseResult> {
         try {
-            // 构建提示词，包含真实抓取的内容
             val contentPrompt = buildString {
-                appendLine("请根据以下网页内容，提取并总结关键信息：")
+                appendLine("Extract academic index fields from this source content.")
                 appendLine()
-                appendLine("【原始链接】$originalUrl")
+                appendLine("Original URL: $originalUrl")
                 appendLine()
-                appendLine("【抓取内容】")
-                appendLine(webContent.content.take(5000)) // 限制长度避免超出 token
+                appendLine("Source title: ${webContent.title}")
+                appendLine("Source authors: ${webContent.authors ?: "null"}")
+                appendLine("Source abstract: ${webContent.abstract ?: "null"}")
+                appendLine()
+                appendLine("Source content:")
+                appendLine(webContent.content.take(7000))
             }
-            
-            val systemPrompt = """你是一个专业的学术内容解析助手。请根据提供的网页内容，提取结构化信息。
-
-请以JSON格式返回，格式如下：
-{
-  "title": "论文/文章标题（从内容中提取）",
-  "authors": "作者列表，用逗号分隔（如有）",
-  "summary_en": "英文摘要，100-150字（如果原文是英文，提取原文摘要；如果是中文，则翻译为英文）",
-  "summary_zh": "中文摘要，100-150字（如果原文是中文，提取原文摘要；如果是英文，则翻译为中文）",
-  "content_type": "paper/competition/article/insight",
-  "source": "arxiv/doi/wechat/kaggle/web",
-  "identifier": "arXiv ID或DOI（如有）",
-  "tags": ["标签1", "标签2", "标签3"],
-  "meta": {
-    "conference": "会议/期刊名称（如有）",
-    "year": "发表年份（如有）",
-    "platform": "平台名称（如有）"
-  },
-  "organizer": "竞赛主办方（仅competition）",
-  "prize_pool": "奖金池（仅competition）",
-  "competition_type": "竞赛类型（仅competition）",
-  "theme": "竞赛主题（仅competition）",
-  "website": "官网链接（仅competition）",
-  "registration_url": "报名链接（仅competition）",
-  "timeline": [{"name": "报名截止", "date": "YYYY-MM-DD"}]
-}
-
-注意：
-- summary_en 和 summary_zh 必须同时提供，形成双语对照
-- 摘要必须根据提供的正文内容生成，不要写"待解析"
-- tags 应该从内容中提取关键词作为标签
-- 如果是学术论文，content_type 为 paper
-- 返回纯JSON，不要包含markdown代码块"""
 
             val request = SimpleChatRequest(
                 model = SiliconFlowApiService.MODEL_TEXT,
                 messages = listOf(
-                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "system", content = INDEX_PARSE_SYSTEM_PROMPT),
                     SimpleMessage(role = "user", content = contentPrompt)
                 ),
-                maxTokens = 1500
+                maxTokens = 1800,
+                temperature = 0.2
             )
             
             val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
@@ -539,14 +779,9 @@ class AIService @Inject constructor(
                 val cleanJson = extractJsonFromResponse(aiContent)
                 val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
                 
-                // 提取tags数组
-                val tagsArray = jsonObj["tags"]?.let { element ->
-                    try {
-                        (element as? kotlinx.serialization.json.JsonArray)?.map { 
-                            it.jsonPrimitive.content 
-                        } ?: emptyList()
-                    } catch (e: Exception) { emptyList() }
-                } ?: emptyList()
+                // 提取索引标签字段，兼容旧 tags 输出
+                val tagsArray = readStringList(jsonObj, "tags")
+                val methodTags = readStringList(jsonObj, "method_tags")
                 
                 // 提取meta对象
                 val metaObj = jsonObj["meta"]?.let { element ->
@@ -561,6 +796,8 @@ class AIService @Inject constructor(
                 // 兼容旧格式的单语摘要
                 val summary = jsonObj["summary"]?.jsonPrimitive?.content
                     ?: summaryZh ?: summaryEn ?: webContent.abstract ?: "已抓取内容，待总结"
+                val summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.content
+                    ?: summary.take(160)
                 
                 val organizer = jsonObj["organizer"]?.jsonPrimitive?.content
                     ?: metaObj?.get("organizer")?.jsonPrimitive?.content
@@ -579,24 +816,45 @@ class AIService @Inject constructor(
                     ?: metaObj?.get("registrationUrl")?.jsonPrimitive?.content
                 val timeline = parseCompetitionTimeline(jsonObj, metaObj)
 
-                val result = FullLinkParseResult(
-                    title = jsonObj["title"]?.jsonPrimitive?.content 
-                        ?: webContent.title.ifEmpty { "未命名链接" },
+                val title = jsonObj["title"]?.jsonPrimitive?.content
+                    ?: webContent.title.ifEmpty { "未命名链接" }
+                val identifier = jsonObj["identifier"]?.jsonPrimitive?.content
+                    ?: extractIdentifierFromUrl(originalUrl)
+                val year = metaObj?.get("year")?.jsonPrimitive?.content
+                    ?: inferYear(identifier, originalUrl)
+                val domainTags = readStringList(jsonObj, "domain_tags")
+                    .ifEmpty { inferDomainTags(title) }
+                val keywords = readStringList(jsonObj, "keywords")
+                    .ifEmpty { tagsArray }
+                    .ifEmpty { inferKeywords(title) }
+                val dedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.content
+                    ?: buildDedupKey(identifier, title, year)
+                val mergedTags = (if (tagsArray.isNotEmpty()) tagsArray else keywords + domainTags + methodTags)
+                    .distinct()
+                    .take(8)
+
+                val draft = FullLinkParseResult(
+                    title = title,
                     authors = jsonObj["authors"]?.jsonPrimitive?.content 
                         ?: webContent.authors,
                     summary = summary,
+                    summaryShort = summaryShort,
                     summaryEn = summaryEn,
                     summaryZh = summaryZh,
                     contentType = jsonObj["content_type"]?.jsonPrimitive?.content 
                         ?: guessContentTypeFromUrl(originalUrl),
                     source = jsonObj["source"]?.jsonPrimitive?.content 
                         ?: webContent.source,
-                    identifier = jsonObj["identifier"]?.jsonPrimitive?.content,
-                    tags = tagsArray,
+                    identifier = identifier,
+                    tags = mergedTags,
                     originalUrl = originalUrl,
                     conference = metaObj?.get("conference")?.jsonPrimitive?.content,
-                    year = metaObj?.get("year")?.jsonPrimitive?.content,
+                    year = year,
                     platform = metaObj?.get("platform")?.jsonPrimitive?.content,
+                    domainTags = domainTags,
+                    keywords = keywords,
+                    methodTags = methodTags,
+                    dedupKey = dedupKey,
                     organizer = organizer,
                     prizePool = prizePool,
                     theme = theme,
@@ -605,7 +863,8 @@ class AIService @Inject constructor(
                     registrationUrl = registrationUrl,
                     timeline = timeline
                 )
-                
+
+                val result = completePaperIndexesWithAI(draft, webContent, originalUrl)
                 android.util.Log.d("AIService", "✅ 解析完成: ${result.title}")
                 return Result.success(result)
             } else {
@@ -637,20 +896,30 @@ class AIService @Inject constructor(
      * 从抓取的网页内容创建结果（AI 解析失败时的备用方案）
      */
     private fun createResultFromWebContent(webContent: WebContent, originalUrl: String): FullLinkParseResult {
+        val title = webContent.title.ifEmpty { extractTitleFromUrl(originalUrl) }
+        val identifier = extractIdentifierFromUrl(originalUrl)
+        val summary = webContent.abstract ?: webContent.content.take(300)
+        val year = inferYear(identifier, originalUrl)
+        val domainTags = inferDomainTags(title)
+        val keywords = inferKeywords(title)
         return FullLinkParseResult(
-            title = webContent.title.ifEmpty { extractTitleFromUrl(originalUrl) },
+            title = title,
             authors = webContent.authors,
-            summary = webContent.abstract ?: webContent.content.take(300),
+            summary = summary,
+            summaryShort = summary.take(160),
             summaryEn = null, // 无法确定原文语言，暂不生成双语
             summaryZh = null,
             contentType = guessContentTypeFromUrl(originalUrl),
             source = webContent.source,
-            identifier = extractIdentifierFromUrl(originalUrl),
-            tags = emptyList(),
+            identifier = identifier,
+            tags = keywords,
             originalUrl = originalUrl,
             conference = null,
-            year = null,
-            platform = null
+            year = year,
+            platform = if (originalUrl.contains("arxiv.org", ignoreCase = true)) "arXiv" else null,
+            domainTags = domainTags,
+            keywords = keywords,
+            dedupKey = buildDedupKey(identifier, title, year)
         )
     }
     
@@ -659,13 +928,18 @@ class AIService @Inject constructor(
      */
     private suspend fun parseUrlOnly(link: String): Result<FullLinkParseResult> {
         try {
+            val urlOnlyPrompt = buildString {
+                appendLine("Extract academic index fields from this URL using URL structure and prior knowledge conservatively.")
+                appendLine("URL: $link")
+            }
             val request = SimpleChatRequest(
                 model = SiliconFlowApiService.MODEL_TEXT,
                 messages = listOf(
-                    SimpleMessage(role = "system", content = SYSTEM_PROMPT_FULL_PARSE),
-                    SimpleMessage(role = "user", content = "请解析这个链接的内容：$link")
+                    SimpleMessage(role = "system", content = INDEX_PARSE_SYSTEM_PROMPT),
+                    SimpleMessage(role = "user", content = urlOnlyPrompt)
                 ),
-                maxTokens = 1024
+                maxTokens = 1200,
+                temperature = 0.2
             )
             
             val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
@@ -675,13 +949,8 @@ class AIService @Inject constructor(
                 val cleanJson = extractJsonFromResponse(content)
                 val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
                 
-                val tagsArray = jsonObj["tags"]?.let { element ->
-                    try {
-                        (element as? kotlinx.serialization.json.JsonArray)?.map { 
-                            it.jsonPrimitive.content 
-                        } ?: emptyList()
-                    } catch (e: Exception) { emptyList() }
-                } ?: emptyList()
+                val tagsArray = readStringList(jsonObj, "tags")
+                val methodTags = readStringList(jsonObj, "method_tags")
                 
                 val metaObj = jsonObj["meta"]?.let { element ->
                     try { element as? JsonObject } catch (e: Exception) { null }
@@ -704,20 +973,40 @@ class AIService @Inject constructor(
                     ?: metaObj?.get("registrationUrl")?.jsonPrimitive?.content
                 val timeline = parseCompetitionTimeline(jsonObj, metaObj)
                 
+                val title = jsonObj["title"]?.jsonPrimitive?.content ?: "未命名链接"
+                val identifier = jsonObj["identifier"]?.jsonPrimitive?.content ?: extractIdentifierFromUrl(link)
+                val year = metaObj?.get("year")?.jsonPrimitive?.content
+                    ?: inferYear(identifier, link)
+                val domainTags = readStringList(jsonObj, "domain_tags")
+                    .ifEmpty { inferDomainTags(title) }
+                val keywords = readStringList(jsonObj, "keywords")
+                    .ifEmpty { tagsArray }
+                    .ifEmpty { inferKeywords(title) }
+                val dedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.content
+                    ?: buildDedupKey(identifier, title, year)
+                val mergedTags = (if (tagsArray.isNotEmpty()) tagsArray else keywords + domainTags + methodTags)
+                    .distinct()
+                    .take(8)
+
                 return Result.success(FullLinkParseResult(
-                    title = jsonObj["title"]?.jsonPrimitive?.content ?: "未命名链接",
+                    title = title,
                     authors = jsonObj["authors"]?.jsonPrimitive?.content,
                     summary = jsonObj["summary"]?.jsonPrimitive?.content ?: "链接已保存",
+                    summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.content,
                     summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.content,
                     summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.content,
                     contentType = jsonObj["content_type"]?.jsonPrimitive?.content ?: "insight",
                     source = jsonObj["source"]?.jsonPrimitive?.content ?: "web",
-                    identifier = jsonObj["identifier"]?.jsonPrimitive?.content,
-                    tags = tagsArray,
+                    identifier = identifier,
+                    tags = mergedTags,
                     originalUrl = link,
                     conference = metaObj?.get("conference")?.jsonPrimitive?.content,
-                    year = metaObj?.get("year")?.jsonPrimitive?.content,
+                    year = year,
                     platform = metaObj?.get("platform")?.jsonPrimitive?.content,
+                    domainTags = domainTags,
+                    keywords = keywords,
+                    methodTags = methodTags,
+                    dedupKey = dedupKey,
                     organizer = organizer,
                     prizePool = prizePool,
                     theme = theme,
@@ -737,20 +1026,29 @@ class AIService @Inject constructor(
      * 创建降级结果
      */
     private fun createFallbackResult(link: String): FullLinkParseResult {
+        val title = extractTitleFromUrl(link)
+        val identifier = extractIdentifierFromUrl(link)
+        val year = inferYear(identifier, link)
+        val domainTags = inferDomainTags(title)
+        val keywords = inferKeywords(title)
         return FullLinkParseResult(
-            title = extractTitleFromUrl(link),
+            title = title,
             authors = null,
             summary = "链接已保存，内容抓取失败",
+            summaryShort = "链接已保存，可在桌面端继续整理。",
             summaryEn = null,
             summaryZh = null,
             contentType = guessContentTypeFromUrl(link),
             source = guessSourceFromUrl(link),
-            identifier = extractIdentifierFromUrl(link),
-            tags = emptyList(),
+            identifier = identifier,
+            tags = keywords,
             originalUrl = link,
             conference = null,
-            year = null,
-            platform = null
+            year = year,
+            platform = if (link.contains("arxiv.org", ignoreCase = true)) "arXiv" else null,
+            domainTags = domainTags,
+            keywords = keywords,
+            dedupKey = buildDedupKey(identifier, title, year)
         )
     }
     
@@ -853,6 +1151,7 @@ data class FullLinkParseResult(
     val title: String,
     val authors: String?,
     val summary: String,          // 主摘要（兼容旧格式）
+    val summaryShort: String? = null,
     val summaryEn: String? = null,  // 英文摘要
     val summaryZh: String? = null,  // 中文摘要
     val contentType: String,  // paper, competition, article, insight
@@ -863,6 +1162,10 @@ data class FullLinkParseResult(
     val conference: String?,
     val year: String?,
     val platform: String?,
+    val domainTags: List<String> = emptyList(),
+    val keywords: List<String> = emptyList(),
+    val methodTags: List<String> = emptyList(),
+    val dedupKey: String? = null,
     val organizer: String? = null,
     val prizePool: String? = null,
     val theme: String? = null,
@@ -889,9 +1192,25 @@ data class FullLinkParseResult(
      * 转换为 ItemType
      */
     fun toItemType(): com.example.ai4research.domain.model.ItemType {
+        val looksLikePaper = identifier != null ||
+            conference != null ||
+            year != null ||
+            source.equals("arxiv", ignoreCase = true) ||
+            source.equals("doi", ignoreCase = true)
+
         return when (contentType.lowercase()) {
             "paper" -> com.example.ai4research.domain.model.ItemType.PAPER
             "competition" -> com.example.ai4research.domain.model.ItemType.COMPETITION
+            "article" -> if (looksLikePaper) {
+                com.example.ai4research.domain.model.ItemType.PAPER
+            } else {
+                com.example.ai4research.domain.model.ItemType.INSIGHT
+            }
+            "insight" -> if (looksLikePaper) {
+                com.example.ai4research.domain.model.ItemType.PAPER
+            } else {
+                com.example.ai4research.domain.model.ItemType.INSIGHT
+            }
             else -> com.example.ai4research.domain.model.ItemType.INSIGHT
         }
     }
@@ -941,8 +1260,13 @@ data class FullLinkParseResult(
             authors?.let { metaMap["authors"] = it }
             conference?.let { metaMap["conference"] = it }
             year?.let { metaMap["year"] = it }
+            summaryShort?.let { metaMap["summary_short"] = it }
             summaryEn?.let { metaMap["summary_en"] = it }
             summaryZh?.let { metaMap["summary_zh"] = it }
+            if (domainTags.isNotEmpty()) metaMap["domain_tags"] = domainTags
+            if (keywords.isNotEmpty()) metaMap["keywords"] = keywords
+            if (methodTags.isNotEmpty()) metaMap["method_tags"] = methodTags
+            dedupKey?.let { metaMap["dedup_key"] = it }
             if (tags.isNotEmpty()) metaMap["tags"] = tags
             organizer?.let { metaMap["organizer"] = it }
             prizePool?.let { metaMap["prizePool"] = it }

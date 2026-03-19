@@ -145,13 +145,14 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    fun saveContent(summary: String, content: String, metaJson: String? = null) {
+    fun saveContent(summary: String, note: String?, content: String, metaJson: String? = null) {
         val item = _uiState.value.item ?: return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
             val result = itemRepository.updateItem(
                 id = item.id,
                 summary = summary,
+                note = note,
                 content = content,
                 metaJson = metaJson
             )

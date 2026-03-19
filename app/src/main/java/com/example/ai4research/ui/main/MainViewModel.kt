@@ -218,11 +218,15 @@ class MainViewModel @Inject constructor(
                 "content_md" to item.contentMarkdown,
                 "origin_url" to item.originUrl,
                 "audio_url" to item.audioUrl,
+                "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
-                "tags" to (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)?.tags?.joinToString(","),
+                "tags" to (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)
+                    ?.keywords
+                    ?.ifEmpty { (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)?.tags ?: emptyList() }
+                    ?.joinToString(","),
                 "meta_json" to serializeMetaData(item),
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
@@ -244,6 +248,7 @@ class MainViewModel @Inject constructor(
                 "content_md" to item.contentMarkdown,
                 "origin_url" to item.originUrl,
                 "audio_url" to item.audioUrl,
+                "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
@@ -273,6 +278,7 @@ class MainViewModel @Inject constructor(
                 "summary" to item.summary,
                 "content_md" to item.contentMarkdown,
                 "origin_url" to item.originUrl,
+                "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
@@ -307,13 +313,15 @@ class MainViewModel @Inject constructor(
                 "summary" to item.summary,
                 "content_md" to item.contentMarkdown,
                 "audio_url" to item.audioUrl,
+                "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
                 "meta_json" to gson.toJson(mapOf(
                     "duration" to (voiceMeta?.duration ?: 0),
-                    "transcription" to (voiceMeta?.transcription ?: item.summary)
+                    "transcription" to (voiceMeta?.transcription ?: item.summary),
+                    "note" to item.note
                 )),
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
@@ -330,7 +338,15 @@ class MainViewModel @Inject constructor(
                     "authors" to meta.authors,
                     "conference" to meta.conference,
                     "year" to meta.year?.toString(),
-                    "tags" to meta.tags
+                    "source" to meta.source,
+                    "identifier" to meta.identifier,
+                    "domain_tags" to meta.domainTags,
+                    "keywords" to meta.keywords,
+                    "method_tags" to meta.methodTags,
+                    "dedup_key" to meta.dedupKey,
+                    "summary_short" to meta.summaryShort,
+                    "tags" to meta.tags,
+                    "note" to item.note
                 ))
             }
             is com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta -> {
@@ -354,7 +370,15 @@ class MainViewModel @Inject constructor(
             is com.example.ai4research.domain.model.ItemMetaData.InsightMeta -> {
                 gson.toJson(mapOf(
                     "source" to "灵感",
-                    "tags" to meta.tags
+                    "tags" to meta.tags,
+                    "note" to item.note
+                ))
+            }
+            is com.example.ai4research.domain.model.ItemMetaData.VoiceMeta -> {
+                gson.toJson(mapOf(
+                    "duration" to meta.duration,
+                    "transcription" to meta.transcription,
+                    "note" to item.note
                 ))
             }
             else -> null

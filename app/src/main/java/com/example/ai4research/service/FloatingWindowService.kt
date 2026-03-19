@@ -718,11 +718,29 @@ class FloatingWindowService : Service() {
             maxLines = 2
         }
         previewContainer.addView(parsedTitle)
+
+        val indexLines = buildList {
+            parseResult.authors?.takeIf { it.isNotBlank() }?.let { add("作者: $it") }
+            (parseResult.conference ?: parseResult.platform)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { add("来源: $it") }
+            parseResult.year?.takeIf { it.isNotBlank() }?.let { add("年份: $it") }
+            parseResult.identifier?.takeIf { it.isNotBlank() }?.let { add("标识符: $it") }
+        }
+        if (indexLines.isNotEmpty()) {
+            val indexInfo = TextView(this).apply {
+                text = indexLines.joinToString("\n")
+                textSize = 12f
+                setTextColor(Color.parseColor("#E5E7EB"))
+                setPadding(0, dpToPx(8f), 0, 0)
+                maxLines = 4
+            }
+            previewContainer.addView(indexInfo)
+        }
         
         // 来源信息
         val sourceInfo = TextView(this).apply {
-            text = "📍 来源: ${parseResult.source.uppercase()}" + 
-                   (parseResult.identifier?.let { " | $it" } ?: "")
+            text = "📍 来源类型: ${parseResult.source.uppercase()} | 默认分类: ${parseResult.toItemType().name}"
             textSize = 12f
             setTextColor(Color.parseColor("#9CA3AF"))
             setPadding(0, dpToPx(8f), 0, 0)
@@ -731,13 +749,28 @@ class FloatingWindowService : Service() {
         
         // 摘要预览
         val summaryPreview = TextView(this).apply {
-            text = parseResult.summary.take(100) + if (parseResult.summary.length > 100) "..." else ""
+            val shortSummary = parseResult.summaryShort?.takeIf { it.isNotBlank() } ?: parseResult.summary
+            text = shortSummary.take(100) + if (shortSummary.length > 100) "..." else ""
             textSize = 13f
             setTextColor(Color.parseColor("#D1D5DB"))
             setPadding(0, dpToPx(8f), 0, 0)
             maxLines = 3
         }
         previewContainer.addView(summaryPreview)
+
+        val tagPreviewValues = (parseResult.domainTags + parseResult.keywords + parseResult.methodTags)
+            .distinct()
+            .take(6)
+        if (tagPreviewValues.isNotEmpty()) {
+            val tagPreview = TextView(this).apply {
+                text = "关键词: ${tagPreviewValues.joinToString(" · ")}"
+                textSize = 12f
+                setTextColor(Color.parseColor("#93C5FD"))
+                setPadding(0, dpToPx(8f), 0, 0)
+                maxLines = 2
+            }
+            previewContainer.addView(tagPreview)
+        }
         
         container.addView(previewContainer, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -839,6 +872,8 @@ class FloatingWindowService : Service() {
         // 来源选项数据
         data class SourceOption(val id: String, val label: String, val emoji: String)
         val sourceOptions = listOf(
+            SourceOption("arxiv", "arXiv", "📚"),
+            SourceOption("doi", "DOI", "🔗"),
             SourceOption("wechat", "微信公众号", "📱"),
             SourceOption("zhihu", "知乎", "💬"),
             SourceOption("web", "网页", "🌐"),
@@ -847,9 +882,10 @@ class FloatingWindowService : Service() {
         
         // 根据解析结果预选来源
         var selectedSource = when {
+            parseResult.source.contains("arxiv", ignoreCase = true) -> "arxiv"
+            parseResult.source.contains("doi", ignoreCase = true) -> "doi"
             parseResult.source.contains("wechat", ignoreCase = true) -> "wechat"
-            parseResult.source.contains("arxiv", ignoreCase = true) -> "web"
-            parseResult.source.contains("doi", ignoreCase = true) -> "web"
+            parseResult.source.contains("zhihu", ignoreCase = true) -> "zhihu"
             else -> "web"
         }
         var customSourceText = ""
@@ -1201,85 +1237,12 @@ class FloatingWindowService : Service() {
      * 构建 metaJson，包含作者和来源信息
      */
     private fun buildMetaJson(parseResult: FullLinkParseResult, source: String): String {
-        val metaMap = mutableMapOf<String, Any>()
-        
-        // 添加作者信息
-        parseResult.authors?.let { authors ->
-            if (authors.isNotEmpty()) {
-                metaMap["authors"] = authors
-            }
-        }
-        
-        // 添加来源信息
-        if (source.isNotEmpty()) {
-            metaMap["source"] = source
-        }
-        
-        // 添加会议/期刊信息
-        parseResult.conference?.let { conf ->
-            if (conf.isNotEmpty()) {
-                metaMap["conference"] = conf
-            }
-        }
-        
-        // 添加年份信息
-        parseResult.year?.let { year ->
-            if (year.isNotEmpty()) {
-                metaMap["year"] = year
-            }
-        }
-        
-        // 添加平台信息
-        parseResult.platform?.let { platform ->
-            if (platform.isNotEmpty()) {
-                metaMap["platform"] = platform
-            }
-        }
-        
-        // 添加标识符信息
-        parseResult.identifier?.let { identifier ->
-            if (identifier.isNotEmpty()) {
-                metaMap["identifier"] = identifier
-            }
-        }
-        
-        // 添加双语摘要
-        parseResult.summaryEn?.let { en ->
-            if (en.isNotEmpty()) {
-                metaMap["summary_en"] = en
-            }
-        }
-        parseResult.summaryZh?.let { zh ->
-            if (zh.isNotEmpty()) {
-                metaMap["summary_zh"] = zh
-            }
-        }
-
-        if (parseResult.contentType.equals("competition", ignoreCase = true)) {
-            parseResult.organizer?.let { if (it.isNotEmpty()) metaMap["organizer"] = it }
-            parseResult.prizePool?.let { if (it.isNotEmpty()) metaMap["prizePool"] = it }
-            parseResult.theme?.let { if (it.isNotEmpty()) metaMap["theme"] = it }
-            parseResult.competitionType?.let { if (it.isNotEmpty()) metaMap["competitionType"] = it }
-            parseResult.website?.let { if (it.isNotEmpty()) metaMap["website"] = it }
-            parseResult.registrationUrl?.let { if (it.isNotEmpty()) metaMap["registrationUrl"] = it }
-            parseResult.timeline?.let { timeline ->
-                metaMap["timeline"] = timeline.map { node ->
-                    mapOf("name" to node.name, "date" to node.date, "isPassed" to false)
-                }
-            }
-        }
-        
-        // 使用 Gson 序列化
-        return if (metaMap.isEmpty()) {
-            "{}"
+        val normalized = if (source.isNotEmpty() && source != parseResult.source) {
+            parseResult.copy(source = source)
         } else {
-            try {
-                com.google.gson.Gson().toJson(metaMap)
-            } catch (e: Exception) {
-                android.util.Log.e("FloatingWindow", "序列化 metaJson 失败: ${e.message}")
-                "{}"
-            }
+            parseResult
         }
+        return normalized.toMetaJson() ?: "{}"
     }
     
     /**
@@ -1467,6 +1430,7 @@ class FloatingWindowService : Service() {
                     type = selectedType,
                     status = itemStatus, // 根据解析结果设置状态
                     metaJson = metaJson, // 传递作者和来源信息
+                    note = null,
                     tags = parseResult.tags
                 )
                 
