@@ -39,6 +39,9 @@ class MainViewModel @Inject constructor(
     private val _papers = MutableStateFlow<List<ResearchItem>>(emptyList())
     val papers: StateFlow<List<ResearchItem>> = _papers.asStateFlow()
 
+    private val _articles = MutableStateFlow<List<ResearchItem>>(emptyList())
+    val articles: StateFlow<List<ResearchItem>> = _articles.asStateFlow()
+
     private val _competitions = MutableStateFlow<List<ResearchItem>>(emptyList())
     val competitions: StateFlow<List<ResearchItem>> = _competitions.asStateFlow()
     
@@ -66,6 +69,7 @@ class MainViewModel @Inject constructor(
     private val gson = Gson()
     
     private var papersCollectionJob: Job? = null
+    private var articlesCollectionJob: Job? = null
     private var competitionsCollectionJob: Job? = null
     private var insightsCollectionJob: Job? = null
     private var voiceCollectionJob: Job? = null
@@ -94,6 +98,7 @@ class MainViewModel @Inject constructor(
         
         // 取消之前的收集任务
         papersCollectionJob?.cancel()
+        articlesCollectionJob?.cancel()
         competitionsCollectionJob?.cancel()
         insightsCollectionJob?.cancel()
         voiceCollectionJob?.cancel()
@@ -116,6 +121,13 @@ class MainViewModel @Inject constructor(
             flow.collect { items ->
                 android.util.Log.d("MainViewModel", "Papers filtered: ${items.size} items")
                 _papers.value = items
+            }
+        }
+
+        articlesCollectionJob = viewModelScope.launch {
+            itemRepository.observeItems(type = ItemType.ARTICLE, query = null).collect { items ->
+                android.util.Log.d("MainViewModel", "Articles observed: ${items.size} items")
+                _articles.value = items
             }
         }
         
@@ -178,6 +190,7 @@ class MainViewModel @Inject constructor(
     fun search(query: String) {
         _searchQuery.value = query
         papersCollectionJob?.cancel()
+        articlesCollectionJob?.cancel()
         competitionsCollectionJob?.cancel()
         
         papersCollectionJob = viewModelScope.launch {
@@ -188,6 +201,11 @@ class MainViewModel @Inject constructor(
         competitionsCollectionJob = viewModelScope.launch {
             itemRepository.observeItems(type = ItemType.COMPETITION, query = query).collect { items ->
                 _competitions.value = items
+            }
+        }
+        articlesCollectionJob = viewModelScope.launch {
+            itemRepository.observeItems(type = ItemType.ARTICLE, query = query).collect { items ->
+                _articles.value = items
             }
         }
     }
@@ -266,6 +284,34 @@ class MainViewModel @Inject constructor(
             )
         }
         return gson.toJson(compDtos)
+    }
+
+    fun getArticlesJson(): String {
+        val articleDtos = _articles.value.map { item ->
+            val articleMeta = item.metaData as? ItemMetaData.ArticleMeta
+            mapOf(
+                "Id" to item.id,
+                "id" to item.id,
+                "title" to item.title,
+                "type" to item.type.toServerString(),
+                "summary" to item.summary,
+                "content_md" to item.contentMarkdown,
+                "origin_url" to item.originUrl,
+                "note" to item.note,
+                "status" to item.status.toServerString(),
+                "read_status" to item.readStatus.toServerString(),
+                "project_id" to item.projectId,
+                "project_name" to item.projectName,
+                "meta_json" to serializeMetaData(item),
+                "platform" to articleMeta?.platform,
+                "account_name" to articleMeta?.accountName,
+                "author" to articleMeta?.author,
+                "publish_date" to articleMeta?.publishDate,
+                "CreatedAt" to item.createdAt.toString(),
+                "UpdatedAt" to item.createdAt.toString()
+            )
+        }
+        return gson.toJson(articleDtos)
     }
     
     fun getInsightsJson(): String {
@@ -367,6 +413,27 @@ class MainViewModel @Inject constructor(
                             "isPassed" to event.isPassed
                         )
                     }
+                ))
+            }
+            is com.example.ai4research.domain.model.ItemMetaData.ArticleMeta -> {
+                gson.toJson(mapOf(
+                    "platform" to meta.platform,
+                    "account_name" to meta.accountName,
+                    "author" to meta.author,
+                    "publish_date" to meta.publishDate,
+                    "summary_short" to meta.summaryShort,
+                    "keywords" to meta.keywords,
+                    "topic_tags" to meta.topicTags,
+                    "core_points" to meta.corePoints,
+                    "referenced_links" to meta.referencedLinks,
+                    "paper_candidates" to meta.paperCandidates.map { candidate ->
+                        mapOf(
+                            "url" to candidate.url,
+                            "label" to candidate.label,
+                            "kind" to candidate.kind
+                        )
+                    },
+                    "note" to item.note
                 ))
             }
             is com.example.ai4research.domain.model.ItemMetaData.InsightMeta -> {

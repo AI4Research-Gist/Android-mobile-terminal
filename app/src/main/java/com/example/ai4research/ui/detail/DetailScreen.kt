@@ -96,6 +96,7 @@ fun DetailScreen(
     val projectName = item?.projectName?.takeIf { it.isNotBlank() } ?: "未归属"
     val projects = uiState.projects
     val paperMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta
+    val articleMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.ArticleMeta
     
     // 解析竞赛元数据
     val competitionMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta
@@ -451,6 +452,14 @@ fun DetailScreen(
                     meta = paperMeta,
                     isDark = isDarkTheme,
                     summaryPrefs = summaryPrefs
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+            if (type == ItemType.ARTICLE && articleMeta != null && item != null) {
+                ArticleInfoCard(
+                    item = item,
+                    meta = articleMeta,
+                    isDark = isDarkTheme
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -854,6 +863,7 @@ fun DetailScreen(
 
 private fun getItemTypeName(type: ItemType): String = when (type) {
     ItemType.PAPER -> "论文"
+    ItemType.ARTICLE -> "资料"
     ItemType.INSIGHT -> "动态"
     ItemType.VOICE -> "语音"
     ItemType.COMPETITION -> "竞赛"
@@ -861,6 +871,7 @@ private fun getItemTypeName(type: ItemType): String = when (type) {
 
 private fun getItemAccent(type: ItemType): Color = when (type) {
     ItemType.PAPER -> Color(0xFF2F6DFF)
+    ItemType.ARTICLE -> Color(0xFF6366F1)
     ItemType.INSIGHT -> Color(0xFFB24DFF)
     ItemType.VOICE -> Color(0xFFFF8A00)
     ItemType.COMPETITION -> Color(0xFFFF2D55)
@@ -1064,6 +1075,72 @@ private fun PaperTagSection(label: String, values: List<String>, isDark: Boolean
             style = MaterialTheme.typography.bodyMedium,
             color = if (isDark) Color.White else Color.Black
         )
+    }
+}
+
+@Composable
+private fun ArticleInfoCard(
+    item: com.example.ai4research.domain.model.ResearchItem,
+    meta: com.example.ai4research.domain.model.ItemMetaData.ArticleMeta,
+    isDark: Boolean
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFF6366F1)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "资料索引",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        meta.platform?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("平台", it, isDark) }
+        meta.accountName?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("账号", it, isDark) }
+        meta.author?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("作者", it, isDark) }
+        meta.publishDate?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("发布时间", it, isDark) }
+        item.originUrl?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("原始链接", it, isDark) }
+        meta.summaryShort?.takeIf { it.isNotBlank() }?.let {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperSummarySection("资料摘要", it, isDark)
+        }
+        if (meta.corePoints.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperTagSection("核心观点", meta.corePoints, isDark)
+        }
+        if (meta.keywords.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperTagSection("关键词", meta.keywords, isDark)
+        }
+        if (meta.topicTags.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            PaperTagSection("主题标签", meta.topicTags, isDark)
+        }
+        if (meta.paperCandidates.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Column {
+                Text(
+                    text = "论文线索",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                meta.paperCandidates.forEach { candidate ->
+                    Text(
+                        text = "${candidate.kind}: ${candidate.url}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isDark) Color(0xFFBFE3FF) else Color(0xFF1D4ED8),
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+            }
+        }
     }
 }
 

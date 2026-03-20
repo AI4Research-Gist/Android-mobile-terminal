@@ -374,6 +374,50 @@
       } catch (e) { console.error("Error parsing projects", e); }
     };
 
+
+    window.receiveArticles = (jsonStr) => {
+      console.log("receiveArticles called with:", typeof jsonStr, jsonStr ? String(jsonStr).substring(0, 200) : "null");
+      try {
+        const data = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+        console.log("Parsed articles data:", data.length, "items");
+        const mapped = data.map(item => {
+          let meta = {};
+          try {
+            if (typeof item.meta_json === 'string') {
+              meta = JSON.parse(item.meta_json || '{}');
+            } else if (item.meta_json && typeof item.meta_json === 'object') {
+              meta = item.meta_json;
+            }
+          } catch (e) { }
+
+          const rawReadStatus = item.read_status || 'unread';
+          const readStatus = rawReadStatus.split(' ')[0].toLowerCase();
+          const rawStatus = item.status || 'processing';
+          const status = rawStatus.split(' ')[0].toLowerCase();
+
+          return {
+            id: item.Id || item.id,
+            title: item.title,
+            summary: meta.summary_short || item.summary || '??????',
+            platform: meta.platform || 'web',
+            accountName: meta.account_name || '',
+            author: meta.author || item.author || '',
+            publishDate: meta.publish_date || '',
+            keywords: Array.isArray(meta.keywords) ? meta.keywords : [],
+            topicTags: Array.isArray(meta.topic_tags) ? meta.topic_tags : [],
+            corePoints: Array.isArray(meta.core_points) ? meta.core_points : [],
+            paperCandidates: Array.isArray(meta.paper_candidates) ? meta.paper_candidates : [],
+            note: item.note || meta.note || '',
+            readStatus: readStatus,
+            status: status,
+            timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : '??',
+            itemType: 'article'
+          };
+        });
+        window.dispatchEvent(new CustomEvent('articles-updated', { detail: mapped }));
+      } catch (e) { console.error("Error parsing articles", e); }
+    };
+
     window.receiveInsights = (jsonStr) => {
       console.log("receiveInsights called with:", typeof jsonStr, jsonStr ? String(jsonStr).substring(0, 200) : "null");
       try {
@@ -539,12 +583,13 @@
 
     // --- 页面视图 ---
 
-    const HomeView = ({ papers, competitions, insights, voiceItems }) => {
+    const HomeView = ({ papers, articles, competitions, insights, voiceItems }) => {
       const { isDark } = useContext(ThemeContext);
 
       // 合并 insights 和 voiceItems，统一显示在最近动态区域
       // 按时间排序，最新的显示在最上面
       const allDynamics = [
+        ...(articles || []).slice(0, 3).map(a => ({ ...a, itemType: 'article' })),
         ...(insights || []).map(i => ({ ...i, itemType: i.itemType || 'insight' })),
         ...(voiceItems || []).map(v => ({ ...v, itemType: 'voice' }))
       ].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
@@ -613,7 +658,7 @@
                       ? 'shadow-orange-500/20 bg-gradient-to-br from-orange-500 to-red-500'
                       : 'shadow-amber-500/20 bg-gradient-to-br from-amber-500 to-orange-500'
                       }`}>
-                      {item.itemType === 'voice' ? <Mic className="w-6 h-6" /> : <Lightbulb className="w-6 h-6" />}
+                      {item.itemType === 'voice' ? <Mic className="w-6 h-6" /> : item.itemType === 'article' ? <BookOpen className="w-6 h-6" /> : <Lightbulb className="w-6 h-6" />}
                     </div>
                     <div className="flex-1 pt-1 pr-16">
                       <h3 className={`text-base font-bold leading-tight mb-1 transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>
@@ -1067,6 +1112,69 @@
       );
     };
 
+
+    const ArticlesView = ({ articles }) => {
+      const { isDark } = useContext(ThemeContext);
+
+      return (
+        <div className="space-y-4 pb-28">
+          <div className="flex justify-between items-end mb-6 px-2">
+            <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>资料</h1>
+          </div>
+
+          {articles.length === 0 ? (
+            <div className={`text-center py-20 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
+              <p>暂无资料内容</p>
+            </div>
+          ) : (
+            articles.map((article, idx) => (
+              <GlassCard key={article.id} delay={0.05 * idx} className="flex flex-col gap-3" onClick={() => {
+                if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
+                  window.AndroidInterface.navigateToDetail(String(article.id));
+                }
+              }}>
+                <div className="flex justify-between items-start">
+                  <div className="flex gap-2 flex-wrap">
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-indigo-500/20 text-indigo-200 border border-indigo-500/30' : 'bg-indigo-50 text-indigo-600 border border-indigo-200'}`}>
+                      {article.platform || '资料'}
+                    </span>
+                    {article.paperCandidates?.length > 0 && (
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
+                        含论文线索
+                      </span>
+                    )}
+                  </div>
+                  <div className={`text-xs ${isDark ? 'text-white/30' : 'text-slate-400'}`}>{article.publishDate || article.timestamp}</div>
+                </div>
+
+                <div>
+                  <h3 className={`text-lg font-bold leading-snug mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>{article.title}</h3>
+                  <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{article.accountName || article.author || '未识别来源账号'}</p>
+                </div>
+
+                <p className={`text-sm leading-relaxed line-clamp-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{article.summary}</p>
+
+                {article.note && (
+                  <div className={`text-xs leading-relaxed rounded-xl px-3 py-2 ${isDark ? 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
+                    备注: {article.note}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-dashed border-white/10">
+                  <div className="flex gap-2 flex-wrap">
+                    {[...(article.keywords || []), ...(article.topicTags || [])]
+                      .filter((tag, index, arr) => tag && arr.indexOf(tag) === index)
+                      .slice(0, 4)
+                      .map(tag => <TagBadge key={tag} text={tag} color="purple" />)}
+                  </div>
+                </div>
+              </GlassCard>
+            ))
+          )}
+        </div>
+      );
+    };
+
     const SettingsView = () => {
       const { isDark, toggleTheme } = useContext(ThemeContext);
       const [floatingEnabled, setFloatingEnabled] = useState(false);
@@ -1352,6 +1460,7 @@
             </div>
 
             <div className="flex flex-1 justify-around">
+              <NavButton id="articles" icon={BookOpen} label="资料" />
               <NavButton id="competitions" icon={Trophy} label="比赛" />
               <NavButton id="settings" icon={Settings} label="设置" />
             </div>
@@ -1367,6 +1476,7 @@
       const [isCaptureOpen, setIsCaptureOpen] = useState(false);
       const [isDark, setIsDark] = useState(false); // Default to Light Mode per requirement
       const [papers, setPapers] = useState([]);
+      const [articles, setArticles] = useState([]);
       const [competitions, setCompetitions] = useState([]);
       const [projects, setProjects] = useState([]);
       const [insights, setInsights] = useState([]);
@@ -1380,6 +1490,10 @@
         const handlePapers = (e) => {
           console.log("React: papers-updated event received, setting state with", e.detail.length, "items");
           setPapers(e.detail);
+        };
+        const handleArticles = (e) => {
+          console.log("React: articles-updated event received, setting state with", e.detail.length, "items");
+          setArticles(e.detail);
         };
         const handleCompetitions = (e) => {
           console.log("React: competitions-updated event received, setting state with", e.detail.length, "items");
@@ -1399,6 +1513,7 @@
         };
 
         window.addEventListener('papers-updated', handlePapers);
+        window.addEventListener('articles-updated', handleArticles);
         window.addEventListener('competitions-updated', handleCompetitions);
         window.addEventListener('projects-updated', handleProjects);
         window.addEventListener('insights-updated', handleInsights);
@@ -1424,6 +1539,7 @@
 
         return () => {
           window.removeEventListener('papers-updated', handlePapers);
+          window.removeEventListener('articles-updated', handleArticles);
           window.removeEventListener('competitions-updated', handleCompetitions);
           window.removeEventListener('projects-updated', handleProjects);
           window.removeEventListener('insights-updated', handleInsights);
@@ -1505,7 +1621,7 @@
                       exit={{ opacity: 0, scale: 1.05 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <HomeView papers={papers} competitions={competitions} insights={insights} voiceItems={voiceItems} />
+                      <HomeView papers={papers} articles={articles} competitions={competitions} insights={insights} voiceItems={voiceItems} />
                     </motion.div>
                   )}
                   {activeTab === 'papers' && (
@@ -1524,6 +1640,19 @@
                       />
                     </motion.div>
                   )}
+
+                  {activeTab === 'articles' && (
+                    <motion.div
+                      key="articles"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <ArticlesView articles={articles} />
+                    </motion.div>
+                  )}
+
                   {activeTab === 'settings' && (
                     <motion.div
                       key="settings"

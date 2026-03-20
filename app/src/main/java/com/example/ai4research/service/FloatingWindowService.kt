@@ -799,6 +799,7 @@ class FloatingWindowService : Service() {
         data class CategoryOption(val type: ItemType, val emoji: String, val label: String, val color: String)
         val categories = listOf(
             CategoryOption(ItemType.PAPER, "📄", "论文", "#3B82F6"),
+            CategoryOption(ItemType.ARTICLE, "📰", "资料", "#6366F1"),
             CategoryOption(ItemType.COMPETITION, "🏆", "竞赛", "#F59E0B"),
             CategoryOption(ItemType.INSIGHT, "💡", "动态", "#10B981")
         )
@@ -1496,12 +1497,14 @@ class FloatingWindowService : Service() {
     private fun showSuccessOverlay(title: String, type: ItemType) {
         val emoji = when (type) {
             ItemType.PAPER -> "📄"
+            ItemType.ARTICLE -> "📰"
             ItemType.COMPETITION -> "🏆"
             ItemType.INSIGHT -> "💡"
             ItemType.VOICE -> "🎤"
         }
         val typeName = when (type) {
             ItemType.PAPER -> "论文"
+            ItemType.ARTICLE -> "资料"
             ItemType.COMPETITION -> "竞赛"
             ItemType.INSIGHT -> "动态"
             ItemType.VOICE -> "语音"

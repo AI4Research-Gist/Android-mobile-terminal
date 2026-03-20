@@ -2,6 +2,7 @@ package com.example.ai4research.service
 
 import android.graphics.Bitmap
 import android.util.Base64
+import com.example.ai4research.domain.model.ArticlePaperCandidate
 import com.example.ai4research.data.remote.api.SiliconFlowApiService
 import com.example.ai4research.data.remote.dto.SimpleChatRequest
 import com.example.ai4research.data.remote.dto.SimpleMessage
@@ -667,6 +668,45 @@ Rules:
         return keywords.toList()
     }
 
+    private fun extractReferencedLinks(content: String): List<String> {
+        return Regex("""https?://[^\s)>\]"]+""")
+            .findAll(content)
+            .map { it.value.trimEnd('.', ',', ';') }
+            .distinct()
+            .toList()
+    }
+
+    private fun classifyPaperCandidate(url: String): ArticlePaperCandidate? {
+        val lowerUrl = url.lowercase()
+        val kind = when {
+            lowerUrl.contains("arxiv.org") -> "arxiv"
+            lowerUrl.contains("doi.org") -> "doi"
+            lowerUrl.endsWith(".pdf") -> "pdf"
+            lowerUrl.contains("openreview.net") ||
+                lowerUrl.contains("aclanthology.org") ||
+                lowerUrl.contains("ieeexplore.ieee.org") ||
+                lowerUrl.contains("dl.acm.org") ||
+                lowerUrl.contains("springer.com") ||
+                lowerUrl.contains("nature.com") -> "paper_page"
+            else -> null
+        } ?: return null
+
+        return ArticlePaperCandidate(url = url, kind = kind)
+    }
+
+    private fun readPaperCandidates(jsonObj: JsonObject?, key: String): List<ArticlePaperCandidate> {
+        val element = jsonObj?.get(key) as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+        return element.mapNotNull { entry ->
+            val obj = entry as? JsonObject ?: return@mapNotNull null
+            val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            ArticlePaperCandidate(
+                url = url,
+                label = obj["label"]?.jsonPrimitive?.contentOrNull,
+                kind = obj["kind"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+            )
+        }
+    }
+
     internal fun shouldRunPaperIndexCompletion(result: FullLinkParseResult): Boolean {
         val paperLike = result.toItemType() == com.example.ai4research.domain.model.ItemType.PAPER
         if (!paperLike) return false
@@ -914,6 +954,13 @@ Rules:
                 val mergedTags = (if (tagsArray.isNotEmpty()) tagsArray else keywords + domainTags + methodTags)
                     .distinct()
                     .take(8)
+                val referencedLinks = readStringList(jsonObj, "referenced_links")
+                    .ifEmpty { extractReferencedLinks(webContent.content) }
+                val topicTags = readStringList(jsonObj, "topic_tags")
+                    .ifEmpty { domainTags }
+                val corePoints = readStringList(jsonObj, "core_points")
+                val paperCandidates = readPaperCandidates(jsonObj, "paper_candidates")
+                    .ifEmpty { referencedLinks.mapNotNull(::classifyPaperCandidate) }
 
                 val draft = FullLinkParseResult(
                     title = title,
@@ -933,9 +980,17 @@ Rules:
                     conference = metaObj?.get("conference")?.jsonPrimitive?.content,
                     year = year,
                     platform = metaObj?.get("platform")?.jsonPrimitive?.content,
+                    accountName = jsonObj["account_name"]?.jsonPrimitive?.contentOrNull,
+                    articleAuthor = jsonObj["author"]?.jsonPrimitive?.contentOrNull
+                        ?: jsonObj["authors"]?.jsonPrimitive?.contentOrNull,
+                    publishDate = jsonObj["publish_date"]?.jsonPrimitive?.contentOrNull,
                     domainTags = domainTags,
                     keywords = keywords,
                     methodTags = methodTags,
+                    topicTags = topicTags,
+                    corePoints = corePoints,
+                    referencedLinks = referencedLinks,
+                    paperCandidates = paperCandidates,
                     dedupKey = dedupKey,
                     organizer = organizer,
                     prizePool = prizePool,
@@ -984,6 +1039,8 @@ Rules:
         val year = inferYear(identifier, originalUrl)
         val domainTags = inferDomainTags(title)
         val keywords = inferKeywords(title)
+        val referencedLinks = extractReferencedLinks(webContent.content)
+        val paperCandidates = referencedLinks.mapNotNull(::classifyPaperCandidate)
         return FullLinkParseResult(
             title = title,
             authors = webContent.authors,
@@ -999,8 +1056,12 @@ Rules:
             conference = null,
             year = year,
             platform = if (originalUrl.contains("arxiv.org", ignoreCase = true)) "arXiv" else null,
+            articleAuthor = webContent.authors,
             domainTags = domainTags,
             keywords = keywords,
+            topicTags = domainTags,
+            referencedLinks = referencedLinks,
+            paperCandidates = paperCandidates,
             dedupKey = buildDedupKey(identifier, title, year)
         )
     }
@@ -1069,6 +1130,12 @@ Rules:
                 val mergedTags = (if (tagsArray.isNotEmpty()) tagsArray else keywords + domainTags + methodTags)
                     .distinct()
                     .take(8)
+                val referencedLinks = readStringList(jsonObj, "referenced_links")
+                val topicTags = readStringList(jsonObj, "topic_tags")
+                    .ifEmpty { domainTags }
+                val corePoints = readStringList(jsonObj, "core_points")
+                val paperCandidates = readPaperCandidates(jsonObj, "paper_candidates")
+                    .ifEmpty { referencedLinks.mapNotNull(::classifyPaperCandidate) }
 
                 return Result.success(FullLinkParseResult(
                     title = title,
@@ -1085,9 +1152,17 @@ Rules:
                     conference = metaObj?.get("conference")?.jsonPrimitive?.content,
                     year = year,
                     platform = metaObj?.get("platform")?.jsonPrimitive?.content,
+                    accountName = jsonObj["account_name"]?.jsonPrimitive?.contentOrNull,
+                    articleAuthor = jsonObj["author"]?.jsonPrimitive?.contentOrNull
+                        ?: jsonObj["authors"]?.jsonPrimitive?.contentOrNull,
+                    publishDate = jsonObj["publish_date"]?.jsonPrimitive?.contentOrNull,
                     domainTags = domainTags,
                     keywords = keywords,
                     methodTags = methodTags,
+                    topicTags = topicTags,
+                    corePoints = corePoints,
+                    referencedLinks = referencedLinks,
+                    paperCandidates = paperCandidates,
                     dedupKey = dedupKey,
                     organizer = organizer,
                     prizePool = prizePool,
@@ -1130,6 +1205,7 @@ Rules:
             platform = if (link.contains("arxiv.org", ignoreCase = true)) "arXiv" else null,
             domainTags = domainTags,
             keywords = keywords,
+            topicTags = domainTags,
             dedupKey = buildDedupKey(identifier, title, year)
         )
     }
@@ -1164,6 +1240,9 @@ Rules:
             lowerUrl.contains("kaggle.com") -> "competition"
             lowerUrl.contains("tianchi") -> "competition"
             lowerUrl.contains("mp.weixin.qq.com") -> "article"
+            lowerUrl.contains("xiaohongshu.com") -> "article"
+            lowerUrl.contains("xhslink.com") -> "article"
+            lowerUrl.contains("douyin.com") -> "article"
             else -> "insight"
         }
     }
@@ -1177,6 +1256,8 @@ Rules:
             lowerUrl.contains("arxiv.org") -> "arxiv"
             lowerUrl.contains("doi.org") -> "doi"
             lowerUrl.contains("mp.weixin.qq.com") -> "wechat"
+            lowerUrl.contains("xiaohongshu.com") || lowerUrl.contains("xhslink.com") -> "xiaohongshu"
+            lowerUrl.contains("douyin.com") -> "douyin"
             lowerUrl.contains("kaggle.com") -> "kaggle"
             else -> "web"
         }
@@ -1250,9 +1331,16 @@ data class FullLinkParseResult(
     val conference: String?,
     val year: String?,
     val platform: String?,
+    val accountName: String? = null,
+    val articleAuthor: String? = null,
+    val publishDate: String? = null,
     val domainTags: List<String> = emptyList(),
     val keywords: List<String> = emptyList(),
     val methodTags: List<String> = emptyList(),
+    val topicTags: List<String> = emptyList(),
+    val corePoints: List<String> = emptyList(),
+    val referencedLinks: List<String> = emptyList(),
+    val paperCandidates: List<ArticlePaperCandidate> = emptyList(),
     val dedupKey: String? = null,
     val organizer: String? = null,
     val prizePool: String? = null,
@@ -1292,7 +1380,7 @@ data class FullLinkParseResult(
             "article" -> if (looksLikePaper) {
                 com.example.ai4research.domain.model.ItemType.PAPER
             } else {
-                com.example.ai4research.domain.model.ItemType.INSIGHT
+                com.example.ai4research.domain.model.ItemType.ARTICLE
             }
             "insight" -> if (looksLikePaper) {
                 com.example.ai4research.domain.model.ItemType.PAPER
@@ -1348,12 +1436,27 @@ data class FullLinkParseResult(
             authors?.let { metaMap["authors"] = it }
             conference?.let { metaMap["conference"] = it }
             year?.let { metaMap["year"] = it }
+            accountName?.let { metaMap["account_name"] = it }
+            articleAuthor?.let { metaMap["author"] = it }
+            publishDate?.let { metaMap["publish_date"] = it }
             summaryShort?.let { metaMap["summary_short"] = it }
             summaryEn?.let { metaMap["summary_en"] = it }
             summaryZh?.let { metaMap["summary_zh"] = it }
             if (domainTags.isNotEmpty()) metaMap["domain_tags"] = domainTags
             if (keywords.isNotEmpty()) metaMap["keywords"] = keywords
             if (methodTags.isNotEmpty()) metaMap["method_tags"] = methodTags
+            if (topicTags.isNotEmpty()) metaMap["topic_tags"] = topicTags
+            if (corePoints.isNotEmpty()) metaMap["core_points"] = corePoints
+            if (referencedLinks.isNotEmpty()) metaMap["referenced_links"] = referencedLinks
+            if (paperCandidates.isNotEmpty()) {
+                metaMap["paper_candidates"] = paperCandidates.map { candidate ->
+                    mapOf(
+                        "url" to candidate.url,
+                        "label" to candidate.label,
+                        "kind" to candidate.kind
+                    )
+                }
+            }
             dedupKey?.let { metaMap["dedup_key"] = it }
             if (tags.isNotEmpty()) metaMap["tags"] = tags
             organizer?.let { metaMap["organizer"] = it }

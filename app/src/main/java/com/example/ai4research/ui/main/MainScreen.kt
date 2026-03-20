@@ -54,6 +54,7 @@ fun MainScreen(
     val webView = remember { webViewCache.acquireMain(context) }
     
     val papers by viewModel.papers.collectAsState()
+    val articles by viewModel.articles.collectAsState()
     val competitions by viewModel.competitions.collectAsState()
     val insights by viewModel.insights.collectAsState()
     
@@ -99,12 +100,14 @@ fun MainScreen(
                 
                 // 推送最新数据
                 val papersJson = viewModel.getPapersJson()
+                val articlesJson = viewModel.getArticlesJson()
                 val competitionsJson = viewModel.getCompetitionsJson()
                 val insightsJson = viewModel.getInsightsJson()
                 val projectsJson = viewModel.getProjectsJson()
                 val voiceItemsJson = viewModel.getVoiceItemsJson()
                 android.util.Log.d("MainScreen", "推送数据: papers=${viewModel.papers.value.size}, insights=${viewModel.insights.value.size}, voice=${viewModel.voiceItems.value.size}")
                 webViewRef?.evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
+                webViewRef?.evaluateJavascript("if(window.receiveArticles) window.receiveArticles($articlesJson)", null)
                 webViewRef?.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
                 webViewRef?.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
                 webViewRef?.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
@@ -159,6 +162,16 @@ fun MainScreen(
                 val jsonStr = viewModel.getPapersJson()
                 android.util.Log.d("MainScreen", "Syncing papers to WebView: ${papers.size} items")
                 wv.evaluateJavascript("if(window.receivePapers) window.receivePapers($jsonStr)", null)
+            }
+        }
+    }
+
+    LaunchedEffect(articles, webViewRef, isPageReady, isHandlingTabSwitch) {
+        if (isPageReady && !isHandlingTabSwitch) {
+            webViewRef?.let { wv ->
+                val jsonStr = viewModel.getArticlesJson()
+                android.util.Log.d("MainScreen", "Syncing articles to WebView: ${articles.size} items")
+                wv.evaluateJavascript("if(window.receiveArticles) window.receiveArticles($jsonStr)", null)
             }
         }
     }
@@ -248,12 +261,14 @@ fun MainScreen(
                                 
                                 // 直接推送当前数据到 WebView
                                 val papersJson = viewModel.getPapersJson()
+                                val articlesJson = viewModel.getArticlesJson()
                                 val competitionsJson = viewModel.getCompetitionsJson()
                                 val insightsJson = viewModel.getInsightsJson()
                                 val projectsJson = viewModel.getProjectsJson()
                                 val voiceItemsJson = viewModel.getVoiceItemsJson()
-                                android.util.Log.d("MainScreen", "Pushing initial data to WebView: papers=${viewModel.papers.value.size}, competitions=${viewModel.competitions.value.size}, insights=${viewModel.insights.value.size}, voice=${viewModel.voiceItems.value.size}")
+                                android.util.Log.d("MainScreen", "Pushing initial data to WebView: papers=${viewModel.papers.value.size}, articles=${viewModel.articles.value.size}, competitions=${viewModel.competitions.value.size}, insights=${viewModel.insights.value.size}, voice=${viewModel.voiceItems.value.size}")
                                 view.evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
+                                view.evaluateJavascript("if(window.receiveArticles) window.receiveArticles($articlesJson)", null)
                                 view.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
                                 view.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
                                 view.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
@@ -265,12 +280,14 @@ fun MainScreen(
                                 // 1秒后再次推送数据，确保数据刷新后同步到 WebView
                                 view.postDelayed({
                                     val latestPapersJson = viewModel.getPapersJson()
+                                    val latestArticlesJson = viewModel.getArticlesJson()
                                     val latestCompetitionsJson = viewModel.getCompetitionsJson()
                                     val latestInsightsJson = viewModel.getInsightsJson()
                                     val latestProjectsJson = viewModel.getProjectsJson()
                                     val latestVoiceItemsJson = viewModel.getVoiceItemsJson()
-                                    android.util.Log.d("MainScreen", "Re-pushing data after refresh: papers=${viewModel.papers.value.size}, voice=${viewModel.voiceItems.value.size}")
+                                    android.util.Log.d("MainScreen", "Re-pushing data after refresh: papers=${viewModel.papers.value.size}, articles=${viewModel.articles.value.size}, voice=${viewModel.voiceItems.value.size}")
                                     view.evaluateJavascript("if(window.receivePapers) window.receivePapers($latestPapersJson)", null)
+                                    view.evaluateJavascript("if(window.receiveArticles) window.receiveArticles($latestArticlesJson)", null)
                                     view.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($latestCompetitionsJson)", null)
                                     view.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($latestInsightsJson)", null)
                                     view.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($latestProjectsJson)", null)
@@ -298,11 +315,13 @@ fun MainScreen(
                         
                         // 立即推送当前数据
                         val papersJson = viewModel.getPapersJson()
+                        val articlesJson = viewModel.getArticlesJson()
                         val competitionsJson = viewModel.getCompetitionsJson()
                         val insightsJson = viewModel.getInsightsJson()
                         val projectsJson = viewModel.getProjectsJson()
                         val voiceItemsJson = viewModel.getVoiceItemsJson()
                         evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
+                        evaluateJavascript("if(window.receiveArticles) window.receiveArticles($articlesJson)", null)
                         evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
                         evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
                         evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)

@@ -4,6 +4,7 @@ import com.example.ai4research.data.local.entity.ItemEntity
 import com.example.ai4research.data.local.entity.ProjectEntity
 import com.example.ai4research.data.remote.dto.NocoItemDto
 import com.example.ai4research.data.remote.dto.NocoProjectDto
+import com.example.ai4research.domain.model.ArticlePaperCandidate
 import com.example.ai4research.domain.model.ItemMetaData
 import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemType
@@ -180,6 +181,27 @@ object ItemMapper {
                 meta.summaryZh?.let { existing["summary_zh"] = it }
             }
 
+            is ItemMetaData.ArticleMeta -> {
+                meta.platform?.let { existing["platform"] = it }
+                meta.accountName?.let { existing["account_name"] = it }
+                meta.author?.let { existing["author"] = it }
+                meta.publishDate?.let { existing["publish_date"] = it }
+                meta.summaryShort?.let { existing["summary_short"] = it }
+                if (meta.keywords.isNotEmpty()) existing["keywords"] = meta.keywords
+                if (meta.topicTags.isNotEmpty()) existing["topic_tags"] = meta.topicTags
+                if (meta.corePoints.isNotEmpty()) existing["core_points"] = meta.corePoints
+                if (meta.referencedLinks.isNotEmpty()) existing["referenced_links"] = meta.referencedLinks
+                if (meta.paperCandidates.isNotEmpty()) {
+                    existing["paper_candidates"] = meta.paperCandidates.map { candidate ->
+                        mapOf(
+                            "url" to candidate.url,
+                            "label" to candidate.label,
+                            "kind" to candidate.kind
+                        )
+                    }
+                }
+            }
+
             is ItemMetaData.CompetitionMeta -> {
                 meta.organizer?.let { existing["organizer"] = it }
                 meta.prizePool?.let { existing["prizePool"] = it }
@@ -269,6 +291,35 @@ object ItemMapper {
                         website = map["website"]?.toString(),
                         registrationUrl = map["registrationUrl"]?.toString(),
                         timeline = timeline
+                    )
+                }
+
+                "article" -> {
+                    val keywords = parseStringList(map["keywords"])
+                    val topicTags = parseStringList(map["topic_tags"])
+                    val corePoints = parseStringList(map["core_points"])
+                    val referencedLinks = parseStringList(map["referenced_links"])
+                    val paperCandidates = (map["paper_candidates"] as? List<*>)?.mapNotNull { raw ->
+                        val entry = raw as? Map<*, *> ?: return@mapNotNull null
+                        val url = entry["url"]?.toString()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                        ArticlePaperCandidate(
+                            url = url,
+                            label = entry["label"]?.toString(),
+                            kind = entry["kind"]?.toString() ?: "unknown"
+                        )
+                    }.orEmpty()
+
+                    ItemMetaData.ArticleMeta(
+                        platform = map["platform"]?.toString(),
+                        accountName = map["account_name"]?.toString(),
+                        author = map["author"]?.toString(),
+                        publishDate = map["publish_date"]?.toString(),
+                        summaryShort = map["summary_short"]?.toString(),
+                        keywords = keywords,
+                        topicTags = topicTags,
+                        corePoints = corePoints,
+                        referencedLinks = referencedLinks,
+                        paperCandidates = paperCandidates
                     )
                 }
 

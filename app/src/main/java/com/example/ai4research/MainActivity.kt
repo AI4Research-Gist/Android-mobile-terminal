@@ -229,6 +229,7 @@ class MainActivity : ComponentActivity() {
             // 将 ItemType 转换为 Tab 名称（与前端 NavBar 的 id 一致）
             targetTab = when (typeStr.uppercase()) {
                 "PAPER" -> "papers"      // 前端使用复数形式
+                "ARTICLE" -> "articles"
                 "COMPETITION" -> "competitions"
                 "INSIGHT" -> "home"       // 动态显示在首页
                 else -> "papers"
