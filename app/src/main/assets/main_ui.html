@@ -223,6 +223,24 @@
     } = LucideReact;
 
     // --- 数据接收桥接 ---
+    const formatElapsedMs = (startMs, endMs, nowMs = Date.now()) => {
+      if (!startMs) return "";
+      const start = Number(startMs);
+      const end = endMs ? Number(endMs) : Number(nowMs);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return "";
+      const elapsedSeconds = Math.max(0, Math.floor((end - start) / 1000));
+      if (elapsedSeconds < 60) return `${elapsedSeconds}秒`;
+      const minutes = Math.floor(elapsedSeconds / 60);
+      const seconds = elapsedSeconds % 60;
+      return `${minutes}分${String(seconds).padStart(2, '0')}秒`;
+    };
+
+    const buildParseBadgeText = (status, meta, nowMs = Date.now()) => {
+      const elapsedText = formatElapsedMs(meta.parse_started_at, meta.parse_finished_at, nowMs);
+      const baseText = status === 'done' ? '已解析' : status === 'failed' ? '解析失败' : '解析中';
+      return elapsedText ? `${baseText} · ${elapsedText}` : baseText;
+    };
+
     window.receivePapers = (jsonStr) => {
       console.log("receivePapers called with:", typeof jsonStr, Array.isArray(jsonStr) ? `array[${jsonStr.length}]` : (typeof jsonStr === 'string' ? jsonStr.substring(0, 100) : "object"));
       try {
@@ -310,6 +328,9 @@
               : (item.tags ? item.tags.split(/[,，]/) : []),
             readStatus: readStatus,   // unread | reading | read
             status: status,           // processing | done | failed
+            parseStartedAt: meta.parse_started_at || null,
+            parseFinishedAt: meta.parse_finished_at || null,
+            parseFeedback: meta.parse_feedback || "",
             projectId: item.project_id,
             projectName: item.project_name,
             timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚"
@@ -407,6 +428,9 @@
             topicTags: Array.isArray(meta.topic_tags) ? meta.topic_tags : [],
             corePoints: Array.isArray(meta.core_points) ? meta.core_points : [],
             paperCandidates: Array.isArray(meta.paper_candidates) ? meta.paper_candidates : [],
+            parseStartedAt: meta.parse_started_at || null,
+            parseFinishedAt: meta.parse_finished_at || null,
+            parseFeedback: meta.parse_feedback || "",
             note: item.note || meta.note || '',
             readStatus: readStatus,
             status: status,
@@ -444,6 +468,9 @@
             summary: item.summary || "暂无描述",
             source: meta.source || "个人灵感",
             category: meta.category || "未分类",
+            parseStartedAt: meta.parse_started_at || null,
+            parseFinishedAt: meta.parse_finished_at || null,
+            parseFeedback: meta.parse_feedback || "",
             readStatus: readStatus,
             status: status,
             timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚",
@@ -583,7 +610,7 @@
 
     // --- 页面视图 ---
 
-    const HomeView = ({ papers, articles, competitions, insights, voiceItems }) => {
+    const HomeView = ({ papers, articles, competitions, insights, voiceItems, nowTick }) => {
       const { isDark } = useContext(ThemeContext);
 
       // 合并 insights 和 voiceItems，统一显示在最近动态区域
@@ -643,7 +670,10 @@
                         }`}>
                         {item.itemType === 'voice'
                           ? (item.status === 'done' ? '已转写' : '转写中')
-                          : (item.status === 'done' ? '已解析' : item.status === 'failed' ? '解析失败' : '解析中')}
+                          : buildParseBadgeText(item.status, {
+                              parse_started_at: item.parseStartedAt,
+                              parse_finished_at: item.parseFinishedAt
+                            }, nowTick)}
                       </span>
                       <div className={`w-1.5 h-1.5 rounded-full animate-pulse shadow-lg ${item.status === 'done' ? 'bg-emerald-400 shadow-emerald-500/50' :
                         item.status === 'failed' ? 'bg-red-400 shadow-red-500/50' :
@@ -771,7 +801,7 @@
       );
     };
 
-    const PapersView = ({ papers, projects, onFilterChange, currentFilter }) => {
+    const PapersView = ({ papers, projects, onFilterChange, currentFilter, nowTick }) => {
       const { isDark } = useContext(ThemeContext);
       const [showSearch, setShowSearch] = useState(false);
       const [searchQuery, setSearchQuery] = useState("");
@@ -956,7 +986,10 @@
                         ? (isDark ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-red-50 text-red-600 border border-red-200')
                         : (isDark ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-purple-50 text-purple-600 border border-purple-200')
                       }`}>
-                      {paper.status === 'done' ? '已解析' : paper.status === 'failed' ? '解析失败' : '解析中'}
+                      {buildParseBadgeText(paper.status, {
+                        parse_started_at: paper.parseStartedAt,
+                        parse_finished_at: paper.parseFinishedAt
+                      }, nowTick)}
                     </span>
                     {/* 项目归属标签 */}
                     {paper.projectName && (
@@ -1113,7 +1146,7 @@
     };
 
 
-    const ArticlesView = ({ articles }) => {
+    const ArticlesView = ({ articles, nowTick }) => {
       const { isDark } = useContext(ThemeContext);
 
       return (
@@ -1138,6 +1171,17 @@
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-indigo-500/20 text-indigo-200 border border-indigo-500/30' : 'bg-indigo-50 text-indigo-600 border border-indigo-200'}`}>
                       {article.platform || '资料'}
                     </span>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${article.status === 'done'
+                      ? (isDark ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200')
+                      : article.status === 'failed'
+                        ? (isDark ? 'bg-red-500/20 text-red-200 border border-red-500/30' : 'bg-red-50 text-red-600 border border-red-200')
+                        : (isDark ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30' : 'bg-amber-50 text-amber-600 border border-amber-200')
+                      }`}>
+                      {buildParseBadgeText(article.status, {
+                        parse_started_at: article.parseStartedAt,
+                        parse_finished_at: article.parseFinishedAt
+                      }, nowTick)}
+                    </span>
                     {article.paperCandidates?.length > 0 && (
                       <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
                         含论文线索
@@ -1153,6 +1197,12 @@
                 </div>
 
                 <p className={`text-sm leading-relaxed line-clamp-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{article.summary}</p>
+
+                {article.parseFeedback && article.status === 'processing' && (
+                  <div className={`text-xs leading-relaxed rounded-xl px-3 py-2 ${isDark ? 'bg-amber-500/10 text-amber-100 border border-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-100'}`}>
+                    {article.parseFeedback}
+                  </div>
+                )}
 
                 {article.note && (
                   <div className={`text-xs leading-relaxed rounded-xl px-3 py-2 ${isDark ? 'bg-emerald-500/10 text-emerald-100 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`}>
@@ -1482,8 +1532,14 @@
       const [insights, setInsights] = useState([]);
       const [voiceItems, setVoiceItems] = useState([]);
       const [currentFilter, setCurrentFilter] = useState({ type: 'all', projectId: null });
+      const [nowTick, setNowTick] = useState(Date.now());
 
       const toggleTheme = () => setIsDark(!isDark);
+
+      useEffect(() => {
+        const timer = setInterval(() => setNowTick(Date.now()), 1000);
+        return () => clearInterval(timer);
+      }, []);
 
       // Data Listeners
       useEffect(() => {
@@ -1621,7 +1677,7 @@
                       exit={{ opacity: 0, scale: 1.05 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <HomeView papers={papers} articles={articles} competitions={competitions} insights={insights} voiceItems={voiceItems} />
+                      <HomeView papers={papers} articles={articles} competitions={competitions} insights={insights} voiceItems={voiceItems} nowTick={nowTick} />
                     </motion.div>
                   )}
                   {activeTab === 'papers' && (
@@ -1637,6 +1693,7 @@
                         projects={projects}
                         currentFilter={currentFilter}
                         onFilterChange={setCurrentFilter}
+                        nowTick={nowTick}
                       />
                     </motion.div>
                   )}
@@ -1649,7 +1706,7 @@
                       exit={{ opacity: 0, y: -20 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <ArticlesView articles={articles} />
+                      <ArticlesView articles={articles} nowTick={nowTick} />
                     </motion.div>
                   )}
 

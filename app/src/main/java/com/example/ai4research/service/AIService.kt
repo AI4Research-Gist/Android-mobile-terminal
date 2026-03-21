@@ -864,13 +864,28 @@ Rules:
             } else {
                 // 抓取失败，降级为仅解析 URL
                 android.util.Log.w("AIService", "抓取失败，降级为 URL 解析: ${webContentResult.exceptionOrNull()?.message}")
-                return@withContext parseUrlOnly(link)
+                return@withContext parseUrlOnly(link).map { result ->
+                    result.copy(
+                        feedbackMessage = webContentResult.exceptionOrNull()?.message
+                            ?: "未抓到网页正文，已切换为快速链接解析"
+                    )
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("AIService", "parseFullLink 异常: ${e.message}", e)
             // 返回一个基础结果，避免完全失败
-            Result.success(createFallbackResult(link))
+            Result.success(
+                createFallbackResult(link).copy(
+                    feedbackMessage = "链接解析异常，已返回基础结果"
+                )
+            )
         }
+    }
+
+    fun createQuickLinkDraft(link: String): FullLinkParseResult {
+        return createFallbackResult(link).copy(
+            feedbackMessage = "链接已加入队列，正在后台解析"
+        )
     }
     
     /**
@@ -1178,12 +1193,21 @@ Rules:
                     competitionType = competitionType,
                     website = website,
                     registrationUrl = registrationUrl,
-                    timeline = timeline
+                    timeline = timeline,
+                    feedbackMessage = "未抓到网页正文，已根据链接信息生成结果"
                 ))
             }
-            return Result.success(createFallbackResult(link))
+            return Result.success(
+                createFallbackResult(link).copy(
+                    feedbackMessage = "未抓到网页正文，已返回基础链接卡片"
+                )
+            )
         } catch (e: Exception) {
-            return Result.success(createFallbackResult(link))
+            return Result.success(
+                createFallbackResult(link).copy(
+                    feedbackMessage = "链接抓取失败，已返回基础链接卡片"
+                )
+            )
         }
     }
     
@@ -1356,7 +1380,8 @@ data class FullLinkParseResult(
     val competitionType: String? = null,
     val website: String? = null,
     val registrationUrl: String? = null,
-    val timeline: List<CompetitionTimelineNode>? = null
+    val timeline: List<CompetitionTimelineNode>? = null,
+    val feedbackMessage: String? = null
 ) {
     /**
      * 获取双语摘要格式（用于显示）

@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import retrofit2.HttpException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,6 +71,18 @@ class ItemRepositoryImpl @Inject constructor(
 
     private fun buildOwnerWhereClause(ownerUserId: String): String {
         return "(ownerId,eq,$ownerUserId)"
+    }
+
+    private fun Throwable.readableMessage(): String {
+        return when (this) {
+            is HttpException -> {
+                val errorBody = runCatching { response()?.errorBody()?.string() }
+                    .getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                "HTTP ${code()}${errorBody?.let { ": $it" } ?: ""}"
+            }
+            else -> message ?: javaClass.simpleName
+        }
     }
 
     private fun mergeServerItem(remote: NocoItemDto, fallback: NocoItemDto): NocoItemDto {
@@ -293,28 +306,60 @@ class ItemRepositoryImpl @Inject constructor(
     ): Result<ResearchItem> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
-        return try {
-            val dto = NocoItemDto(
-                ownerUserId = ownerUserId,
-                title = title,
-                type = type.toServerString(),
-                summary = summary,
-                contentMd = contentMd,
-                originUrl = originUrl,
-                audioUrl = null,
-                status = status.toServerString(),
-                readStatus = ReadStatus.UNREAD.toServerString(),
-                tags = tags?.joinToString(","),
-                metaJson = parseMetaJson(mergeMetaJson(null, metaJson, note))
-            )
+        val mergedMetaJson = mergeMetaJson(null, metaJson, note)
+        val primaryDto = NocoItemDto(
+            ownerUserId = ownerUserId,
+            title = title,
+            type = type.toServerString(),
+            summary = summary,
+            contentMd = contentMd,
+            originUrl = originUrl,
+            audioUrl = null,
+            status = status.toServerString(),
+            readStatus = ReadStatus.UNREAD.toServerString(),
+            tags = tags?.joinToString(","),
+            metaJson = parseMetaJson(mergedMetaJson)
+        )
 
-            val created = mergeServerItem(api.createItem(dto), dto)
+        return try {
+            val created = mergeServerItem(api.createItem(primaryDto), primaryDto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
-            android.util.Log.e("ItemRepository", "Failed to create full item", e)
-            Result.failure(e)
+            android.util.Log.e(
+                "ItemRepository",
+                "Failed to create full item. type=${type.toServerString()}, metaLength=${mergedMetaJson?.length ?: 0}, tags=${tags?.size ?: 0}, error=${e.readableMessage()}",
+                e
+            )
+
+            val fallbackDto = primaryDto.copy(
+                tags = null,
+                metaJson = null
+            )
+
+            runCatching {
+                val created = mergeServerItem(api.createItem(fallbackDto), fallbackDto)
+                val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
+                itemDao.insertItem(entity)
+                android.util.Log.w(
+                    "ItemRepository",
+                    "Create full item fallback succeeded without tags/metaJson. type=${type.toServerString()}, title=${title.take(40)}"
+                )
+                Result.success(ItemMapper.entityToDomain(entity))
+            }.getOrElse { fallbackError ->
+                android.util.Log.e(
+                    "ItemRepository",
+                    "Fallback create full item also failed. type=${type.toServerString()}, error=${fallbackError.readableMessage()}",
+                    fallbackError
+                )
+                Result.failure(
+                    Exception(
+                        "完整保存失败；精简重试也失败。首次错误: ${e.readableMessage()}；重试错误: ${fallbackError.readableMessage()}",
+                        fallbackError
+                    )
+                )
+            }
         }
     }
 
@@ -388,7 +433,8 @@ class ItemRepositoryImpl @Inject constructor(
         note: String?,
         content: String?,
         tags: List<String>?,
-        metaJson: String?
+        metaJson: String?,
+        status: ItemStatus?
     ): Result<Unit> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
@@ -398,6 +444,7 @@ class ItemRepositoryImpl @Inject constructor(
                 title = title ?: local.title,
                 summary = summary ?: local.summary,
                 contentMd = content ?: local.contentMarkdown,
+                status = status?.toServerString() ?: local.status,
                 tags = tags?.joinToString(","),
                 metaJson = parseMetaJson(mergeMetaJson(local.metaJson, metaJson, note))
             )

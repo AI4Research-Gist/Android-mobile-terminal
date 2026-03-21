@@ -377,87 +377,79 @@ class MainViewModel @Inject constructor(
     }
 
     private fun serializeMetaData(item: ResearchItem): String {
-        // 如果有解析后的 metaData，序列化它
-        val serialized = when (val meta = item.metaData) {
-            is com.example.ai4research.domain.model.ItemMetaData.PaperMeta -> {
-                gson.toJson(mapOf(
-                    "authors" to meta.authors,
-                    "conference" to meta.conference,
-                    "year" to meta.year?.toString(),
-                    "source" to meta.source,
-                    "identifier" to meta.identifier,
-                    "domain_tags" to meta.domainTags,
-                    "keywords" to meta.keywords,
-                    "method_tags" to meta.methodTags,
-                    "dedup_key" to meta.dedupKey,
-                    "summary_short" to meta.summaryShort,
-                    "summary_en" to meta.summaryEn,
-                    "summary_zh" to meta.summaryZh,
-                    "tags" to meta.tags,
-                    "note" to item.note
-                ))
+        val existingMeta = runCatching {
+            gson.fromJson(item.rawMetaJson ?: "{}", MutableMap::class.java) as? MutableMap<String, Any?>
+        }.getOrNull() ?: mutableMapOf()
+
+        val mergedMeta = when (val meta = item.metaData) {
+            is com.example.ai4research.domain.model.ItemMetaData.PaperMeta -> existingMeta.apply {
+                this["authors"] = meta.authors
+                this["conference"] = meta.conference
+                this["year"] = meta.year?.toString()
+                this["source"] = meta.source
+                this["identifier"] = meta.identifier
+                this["domain_tags"] = meta.domainTags
+                this["keywords"] = meta.keywords
+                this["method_tags"] = meta.methodTags
+                this["dedup_key"] = meta.dedupKey
+                this["summary_short"] = meta.summaryShort
+                this["summary_en"] = meta.summaryEn
+                this["summary_zh"] = meta.summaryZh
+                this["tags"] = meta.tags
+                this["note"] = item.note
             }
-            is com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta -> {
-                gson.toJson(mapOf(
-                    "organizer" to meta.organizer,
-                    "prizePool" to meta.prizePool,
-                    "deadline" to (meta.deadline ?: meta.timeline?.firstOrNull()?.date?.toString()),
-                    "theme" to meta.theme,
-                    "competitionType" to meta.competitionType,
-                    "website" to meta.website,
-                    "registrationUrl" to meta.registrationUrl,
-                    "timeline" to meta.timeline?.map { event ->
-                        mapOf(
-                            "name" to event.name,
-                            "date" to event.date.toInstant().toString(),
-                            "isPassed" to event.isPassed
-                        )
-                    }
-                ))
+            is com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta -> existingMeta.apply {
+                this["organizer"] = meta.organizer
+                this["prizePool"] = meta.prizePool
+                this["deadline"] = meta.deadline ?: meta.timeline?.firstOrNull()?.date?.toString()
+                this["theme"] = meta.theme
+                this["competitionType"] = meta.competitionType
+                this["website"] = meta.website
+                this["registrationUrl"] = meta.registrationUrl
+                this["timeline"] = meta.timeline?.map { event ->
+                    mapOf(
+                        "name" to event.name,
+                        "date" to event.date.toInstant().toString(),
+                        "isPassed" to event.isPassed
+                    )
+                }
             }
-            is com.example.ai4research.domain.model.ItemMetaData.ArticleMeta -> {
-                gson.toJson(mapOf(
-                    "platform" to meta.platform,
-                    "account_name" to meta.accountName,
-                    "author" to meta.author,
-                    "publish_date" to meta.publishDate,
-                    "summary_short" to meta.summaryShort,
-                    "keywords" to meta.keywords,
-                    "topic_tags" to meta.topicTags,
-                    "core_points" to meta.corePoints,
-                    "referenced_links" to meta.referencedLinks,
-                    "paper_candidates" to meta.paperCandidates.map { candidate ->
-                        mapOf(
-                            "url" to candidate.url,
-                            "label" to candidate.label,
-                            "kind" to candidate.kind
-                        )
-                    },
-                    "note" to item.note
-                ))
+            is com.example.ai4research.domain.model.ItemMetaData.ArticleMeta -> existingMeta.apply {
+                this["platform"] = meta.platform
+                this["account_name"] = meta.accountName
+                this["author"] = meta.author
+                this["publish_date"] = meta.publishDate
+                this["summary_short"] = meta.summaryShort
+                this["keywords"] = meta.keywords
+                this["topic_tags"] = meta.topicTags
+                this["core_points"] = meta.corePoints
+                this["referenced_links"] = meta.referencedLinks
+                this["paper_candidates"] = meta.paperCandidates.map { candidate ->
+                    mapOf(
+                        "url" to candidate.url,
+                        "label" to candidate.label,
+                        "kind" to candidate.kind
+                    )
+                }
+                this["note"] = item.note
             }
-            is com.example.ai4research.domain.model.ItemMetaData.InsightMeta -> {
-                gson.toJson(mapOf(
-                    "source" to "灵感",
-                    "tags" to meta.tags,
-                    "note" to item.note
-                ))
+            is com.example.ai4research.domain.model.ItemMetaData.InsightMeta -> existingMeta.apply {
+                this["source"] = "灵感"
+                this["tags"] = meta.tags
+                this["note"] = item.note
             }
-            is com.example.ai4research.domain.model.ItemMetaData.VoiceMeta -> {
-                gson.toJson(mapOf(
-                    "duration" to meta.duration,
-                    "transcription" to meta.transcription,
-                    "note" to item.note
-                ))
+            is com.example.ai4research.domain.model.ItemMetaData.VoiceMeta -> existingMeta.apply {
+                this["duration"] = meta.duration
+                this["transcription"] = meta.transcription
+                this["note"] = item.note
             }
-            else -> null
+            else -> existingMeta.ifEmpty { null }
         }
-        
-        // 如果 serialized 为 null 或空，回退到原始 metaJson
-        return if (serialized.isNullOrEmpty() || serialized == "{}") {
+
+        return if (mergedMeta == null || mergedMeta.isEmpty()) {
             item.rawMetaJson ?: "{}"
         } else {
-            serialized
+            gson.toJson(mergedMeta)
         }
     }
 }

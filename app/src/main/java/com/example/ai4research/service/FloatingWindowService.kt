@@ -638,48 +638,18 @@ class FloatingWindowService : Service() {
     private fun handleLink(link: String) {
         mainHandler.post {
             floatingBall?.isProcessing = true
-            Toast.makeText(this, "正在解析链接...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "请选择分类，链接将进入后台解析", Toast.LENGTH_SHORT).show()
         }
 
-        serviceScope.launch {
-            try {
-                android.util.Log.d("FloatingWindow", "Starting link parsing: $link")
-                
-                // 1. 使用增强版 AI 解析获取完整结构化数据
-                val result = aiService.parseFullLink(link)
-                val parseResult = result.getOrNull()
-                
-                if (parseResult == null) {
-                    withContext(Dispatchers.Main) {
-                        floatingBall?.isProcessing = false
-                        Toast.makeText(this@FloatingWindowService, "链接解析失败", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-                
-                android.util.Log.d("FloatingWindow", "Parse result: title=${parseResult.title}, type=${parseResult.contentType}")
-                
-                // 2. 保存解析结果，显示分类选择界面
-                withContext(Dispatchers.Main) {
-                    floatingBall?.isProcessing = false
-                    if (needsCompetitionFallback(parseResult)) {
-                        showCompetitionFallbackWindow(parseResult) { updated ->
-                            pendingParseResult = updated
-                            showCategorySelectionDialog(updated)
-                        }
-                    } else {
-                        pendingParseResult = parseResult
-                        showCategorySelectionDialog(parseResult)
-                    }
-                }
-                
-            } catch (e: Exception) {
-                android.util.Log.e("FloatingWindow", "Link parsing error: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    floatingBall?.isProcessing = false
-                    Toast.makeText(this@FloatingWindowService, "解析失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
+        try {
+            val draft = aiService.createQuickLinkDraft(link)
+            pendingParseResult = draft
+            floatingBall?.isProcessing = false
+            showCategorySelectionDialog(draft)
+        } catch (e: Exception) {
+            floatingBall?.isProcessing = false
+            android.util.Log.e("FloatingWindow", "Failed to prepare quick link draft: ${e.message}", e)
+            Toast.makeText(this, "无法处理该链接", Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -1415,42 +1385,29 @@ class FloatingWindowService : Service() {
     private fun saveItemToDatabase(parseResult: FullLinkParseResult, selectedType: ItemType, selectedSource: String = "") {
         mainHandler.post {
             floatingBall?.isProcessing = true
-            Toast.makeText(this, "正在保存...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "正在加入${getTypeDisplayName(selectedType)}...", Toast.LENGTH_SHORT).show()
         }
         
         serviceScope.launch {
             try {
-                android.util.Log.d("FloatingWindow", "========== 开始保存条目 ==========")
-                android.util.Log.d("FloatingWindow", "类型: $selectedType")
-                android.util.Log.d("FloatingWindow", "标题: ${parseResult.title}")
-                android.util.Log.d("FloatingWindow", "作者: ${parseResult.authors}")
-                android.util.Log.d("FloatingWindow", "来源: $selectedSource")
-                android.util.Log.d("FloatingWindow", "摘要: ${parseResult.summary}")
-                android.util.Log.d("FloatingWindow", "链接: ${parseResult.originalUrl}")
-                
-                // 判断解析状态：只要标题不是默认值就认为解析成功
-                // AI模型无法访问网页，但能根据URL生成有意义的标题和描述
-                val isParseComplete = parseResult.title.isNotBlank() && 
-                    parseResult.title != "未命名链接" &&
-                    !parseResult.title.startsWith("链接已保存")
-                val itemStatus = if (isParseComplete) ItemStatus.DONE else ItemStatus.PROCESSING
-                
-                android.util.Log.d("FloatingWindow", "解析状态: $itemStatus (isParseComplete=$isParseComplete)")
-                
-                // 构建 metaJson，包含作者和来源信息
                 val finalSource = if (selectedSource.isNotEmpty()) selectedSource else parseResult.source
-                val metaJson = buildMetaJson(parseResult, finalSource)
-                android.util.Log.d("FloatingWindow", "metaJson: $metaJson")
-                
-                // 使用新的 createFullItem 方法创建完整条目
+                val parseStartedAt = System.currentTimeMillis()
+                val placeholderMetaJson = buildProcessingMetaJson(
+                    source = finalSource,
+                    parseStartedAt = parseStartedAt,
+                    feedback = "已加入${getTypeDisplayName(selectedType)}，正在后台解析"
+                )
+                val placeholderSummary = buildProcessingSummary(selectedType)
+                val placeholderContent = buildProcessingMarkdown(parseResult.title, parseResult.originalUrl, selectedType)
+
                 val createResult = itemRepository.createFullItem(
                     title = parseResult.title,
-                    summary = parseResult.summary,
-                    contentMd = parseResult.toMarkdownContent(),
+                    summary = placeholderSummary,
+                    contentMd = placeholderContent,
                     originUrl = parseResult.originalUrl,
                     type = selectedType,
-                    status = itemStatus, // 根据解析结果设置状态
-                    metaJson = metaJson, // 传递作者和来源信息
+                    status = ItemStatus.PROCESSING,
+                    metaJson = placeholderMetaJson,
                     note = null,
                     tags = parseResult.tags
                 )
@@ -1460,22 +1417,30 @@ class FloatingWindowService : Service() {
                     pendingParseResult = null
                     
                     createResult.onSuccess { item ->
-                        android.util.Log.d("FloatingWindow", "✅ 条目保存成功: id=${item.id}")
+                        android.util.Log.d("FloatingWindow", "✅ 占位条目已创建: id=${item.id}")
                         
-                        // 1. 发送广播通知主页面刷新数据
                         val broadcastIntent = Intent(ACTION_ITEM_ADDED).apply {
                             putExtra(EXTRA_ITEM_ID, item.id)
                             putExtra(EXTRA_ITEM_TYPE, selectedType.name)
                             setPackage(packageName)
                         }
                         sendBroadcast(broadcastIntent)
-                        android.util.Log.d("FloatingWindow", "已发送刷新广播")
-                        
-                        // 2. 跳转到主页面
                         openMainActivity(selectedType)
-                        
-                        // 3. 显示成功提示
-                        showSuccessOverlay(parseResult.title, selectedType)
+                        showResultOverlay(
+                            "已加入${getTypeDisplayName(selectedType)}",
+                            "后台解析中"
+                        )
+
+                        serviceScope.launch {
+                            processLinkItemInBackground(
+                                itemId = item.id,
+                                originalLink = parseResult.originalUrl,
+                                selectedType = selectedType,
+                                selectedSource = finalSource,
+                                parseStartedAt = parseStartedAt,
+                                placeholderTitle = parseResult.title
+                            )
+                        }
                         
                     }.onFailure { error ->
                         android.util.Log.e("FloatingWindow", "❌ 保存失败: ${error.message}", error)
@@ -1758,6 +1723,185 @@ class FloatingWindowService : Service() {
                 MediaProjectionStore.releaseProjection()
                 stopProjectionForeground()
             }
+        }
+    }
+
+    private suspend fun processLinkItemInBackground(
+        itemId: String,
+        originalLink: String,
+        selectedType: ItemType,
+        selectedSource: String,
+        parseStartedAt: Long,
+        placeholderTitle: String
+    ) {
+        updateProcessingFeedback(
+            itemId = itemId,
+            status = ItemStatus.PROCESSING,
+            parseStartedAt = parseStartedAt,
+            feedback = "正在抓取网页正文"
+        )
+
+        val progressJob = serviceScope.launch {
+            kotlinx.coroutines.delay(4000)
+            updateProcessingFeedback(
+                itemId = itemId,
+                status = ItemStatus.PROCESSING,
+                parseStartedAt = parseStartedAt,
+                feedback = "网页抓取较慢，正在继续解析"
+            )
+
+            kotlinx.coroutines.delay(5000)
+            updateProcessingFeedback(
+                itemId = itemId,
+                status = ItemStatus.PROCESSING,
+                parseStartedAt = parseStartedAt,
+                feedback = "若正文抓取失败，将自动降级为快速链接解析"
+            )
+        }
+
+        try {
+            val result = aiService.parseFullLink(originalLink)
+            val parseFinishedAt = System.currentTimeMillis()
+            val parsed = result.getOrElse { error ->
+                throw error
+            }
+
+            progressJob.cancel()
+
+            val mergedMetaJson = mergeParseTrackingMeta(
+                baseMetaJson = buildMetaJson(parsed, selectedSource),
+                parseStartedAt = parseStartedAt,
+                parseFinishedAt = parseFinishedAt,
+                feedback = parsed.feedbackMessage ?: "链接解析完成"
+            )
+
+            val updateResult = itemRepository.updateItem(
+                id = itemId,
+                title = parsed.title,
+                summary = parsed.summaryShort?.takeIf { it.isNotBlank() } ?: parsed.summary,
+                content = parsed.toMarkdownContent(),
+                tags = parsed.tags,
+                metaJson = mergedMetaJson,
+                status = ItemStatus.DONE
+            )
+
+            if (updateResult.isSuccess) {
+                android.util.Log.d("FloatingWindow", "✅ 后台解析完成并已回填: id=$itemId, type=$selectedType")
+            } else {
+                android.util.Log.e("FloatingWindow", "❌ 回填解析结果失败: ${updateResult.exceptionOrNull()?.message}")
+            }
+        } catch (e: Exception) {
+            progressJob.cancel()
+            val parseFinishedAt = System.currentTimeMillis()
+            android.util.Log.e("FloatingWindow", "❌ 后台解析失败: ${e.message}", e)
+
+            itemRepository.updateItem(
+                id = itemId,
+                title = placeholderTitle,
+                summary = "链接已加入${getTypeDisplayName(selectedType)}，但解析失败，可稍后重试",
+                content = buildFailedMarkdown(placeholderTitle, originalLink, e.message),
+                metaJson = mergeParseTrackingMeta(
+                    baseMetaJson = null,
+                    parseStartedAt = parseStartedAt,
+                    parseFinishedAt = parseFinishedAt,
+                    feedback = e.message ?: "解析失败"
+                ),
+                status = ItemStatus.FAILED
+            )
+        }
+    }
+
+    private suspend fun updateProcessingFeedback(
+        itemId: String,
+        status: ItemStatus,
+        parseStartedAt: Long,
+        feedback: String
+    ) {
+        itemRepository.updateItem(
+            id = itemId,
+            metaJson = mergeParseTrackingMeta(
+                baseMetaJson = null,
+                parseStartedAt = parseStartedAt,
+                feedback = feedback
+            ),
+            status = status
+        )
+    }
+
+    private fun buildProcessingMetaJson(
+        source: String,
+        parseStartedAt: Long,
+        feedback: String
+    ): String {
+        return com.google.gson.Gson().toJson(
+            mapOf(
+                "source" to source,
+                "parse_started_at" to parseStartedAt,
+                "parse_feedback" to feedback
+            )
+        )
+    }
+
+    private fun mergeParseTrackingMeta(
+        baseMetaJson: String?,
+        parseStartedAt: Long,
+        parseFinishedAt: Long? = null,
+        feedback: String? = null
+    ): String {
+        val gson = com.google.gson.Gson()
+        val merged = mutableMapOf<String, Any?>()
+
+        if (!baseMetaJson.isNullOrBlank()) {
+            val parsed = runCatching {
+                gson.fromJson(baseMetaJson, Map::class.java) as? Map<String, Any?>
+            }.getOrNull()
+            if (parsed != null) {
+                merged.putAll(parsed)
+            }
+        }
+
+        merged["parse_started_at"] = parseStartedAt
+        parseFinishedAt?.let { merged["parse_finished_at"] = it }
+        feedback?.let { merged["parse_feedback"] = it }
+
+        return gson.toJson(merged)
+    }
+
+    private fun buildProcessingSummary(type: ItemType): String {
+        return "已加入${getTypeDisplayName(type)}，正在抓取正文与生成摘要"
+    }
+
+    private fun buildProcessingMarkdown(title: String, url: String, type: ItemType): String {
+        return buildString {
+            appendLine("# $title")
+            appendLine()
+            appendLine("当前状态：已加入${getTypeDisplayName(type)}，正在后台解析。")
+            appendLine()
+            appendLine("[原始链接]($url)")
+        }
+    }
+
+    private fun buildFailedMarkdown(title: String, url: String, errorMessage: String?): String {
+        return buildString {
+            appendLine("# $title")
+            appendLine()
+            appendLine("当前状态：链接解析失败。")
+            errorMessage?.takeIf { it.isNotBlank() }?.let {
+                appendLine()
+                appendLine("失败原因：$it")
+            }
+            appendLine()
+            appendLine("[原始链接]($url)")
+        }
+    }
+
+    private fun getTypeDisplayName(type: ItemType): String {
+        return when (type) {
+            ItemType.PAPER -> "论文"
+            ItemType.ARTICLE -> "资料"
+            ItemType.COMPETITION -> "竞赛"
+            ItemType.INSIGHT -> "动态"
+            ItemType.VOICE -> "语音"
         }
     }
 

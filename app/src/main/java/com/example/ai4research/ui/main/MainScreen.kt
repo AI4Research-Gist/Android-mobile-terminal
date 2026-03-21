@@ -82,13 +82,10 @@ fun MainScreen(
             isHandlingTabSwitch = true
             
             try {
-                // 1. 先刷新远程数据到本地
-                viewModel.fetchData()
-                
-                // 2. 重新应用筛选，确保 Flow collect 获取最新数据
+                // 先使用本地 Room 中刚写入的数据完成回跳展示，避免新条目被立即远端刷新覆盖。
                 viewModel.applyFilter(viewModel.currentFilter.value, viewModel.currentProjectId.value)
                 
-                // 3. 等待数据加载完成（最多等待3秒）
+                // 等待 Flow 收到最新本地数据（最多等待3秒）
                 var retryCount = 0
                 while (viewModel.isLoading.value && retryCount < 30) {
                     kotlinx.coroutines.delay(100)

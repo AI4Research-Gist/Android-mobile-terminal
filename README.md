@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Language-Kotlin-blue.svg"/>
   <img src="https://img.shields.io/badge/UI-Hybrid%20(WebView%20%2B%20Compose)-orange.svg"/>
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean-purple.svg"/>
-  <img src="https://img.shields.io/badge/Version-v0.2.0-red.svg"/>
+  <img src="https://img.shields.io/badge/Version-v0.2.1-red.svg"/>
   <img src="https://img.shields.io/badge/Min%20SDK-26-gray.svg"/>
 </p>
 
@@ -45,6 +45,7 @@
 - **语音采集**：语音录制 + 本地识别 + AI 润色优化，快速记录灵感。
 - **AI 能力**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
 - **OCR 稳定化**：截图授权、投影会话、图片解码与 OCR 主链路已完成第一轮稳定性修复。
+- **解析状态可视化**：链接现已支持先分类入库、后台解析、前端状态字条与解析耗时展示。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
 > 注意：Web UI 依赖 CDN/ESM（React、Tailwind、Framer Motion、Lucide），运行时需要网络。
@@ -133,9 +134,9 @@ app/src/main/
 
 ## 当前版本
 
-- 当前版本：`v0.2.0`
-- 本版本重点：OCR 截图识别链路稳定化、MediaProjection 会话修复、安全图片解码
-- 更新日志入口：[`v0.2.0`](d:/Android-mobile-terminal/changelog/v0.2.0.md)
+- 当前版本：`v0.2.1`
+- 本版本重点：链接先分类入库、后台解析状态可视化、解析耗时字条
+- 更新日志入口：[`v0.2.1`](d:/Android-mobile-terminal/changelog/v0.2.1.md)
 - 版本明细目录：[`changelog/`](d:/Android-mobile-terminal/changelog)
 
 ## 配置说明（开发环境）
@@ -169,6 +170,7 @@ app/src/main/
 - 新账号创建后应默认看到空数据，再逐步生成自己的项目和条目。
 - 当前现网 NocoDB 仍为直连模式，正式产品化建议后续升级认证体系与配置安全性。
 - 当前 OCR 截图主链路已可稳定使用，下一步建议再接资料模块中的手动 OCR 兜底入口。
+- 当前链接导入链路已改为“先分类、后后台解析”，用户可直接在列表中观察解析状态与已耗时长。
 
 ## 权限说明
 

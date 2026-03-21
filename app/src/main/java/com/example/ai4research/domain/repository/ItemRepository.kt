@@ -91,7 +91,8 @@ interface ItemRepository {
         note: String? = null,
         content: String? = null,
         tags: List<String>? = null,
-        metaJson: String? = null
+        metaJson: String? = null,
+        status: ItemStatus? = null
     ): Result<Unit>
     
     /**

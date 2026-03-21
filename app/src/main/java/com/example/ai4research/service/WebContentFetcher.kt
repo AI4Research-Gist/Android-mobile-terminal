@@ -52,6 +52,9 @@ class WebContentFetcher @Inject constructor(
                 isArxivLink(url) -> fetchArxivContent(url)
                 isDoiLink(url) -> fetchDoiContent(url)
                 isWechatLink(url) -> fetchWechatContent(url)
+                shouldFastFallback(url) -> Result.failure(
+                    IllegalStateException("该链接不支持稳定正文抓取，已切换为快速链接解析")
+                )
                 else -> fetchGenericWebContent(url)
             }
             
@@ -75,6 +78,14 @@ class WebContentFetcher @Inject constructor(
     
     private fun isWechatLink(url: String): Boolean {
         return url.contains("mp.weixin.qq.com")
+    }
+
+    private fun shouldFastFallback(url: String): Boolean {
+        val lowerUrl = url.lowercase()
+        return lowerUrl.contains("xhslink.com") ||
+            lowerUrl.contains("xiaohongshu.com") ||
+            lowerUrl.contains("douyin.com") ||
+            lowerUrl.contains("iesdouyin.com")
     }
     
     // ==================== arXiv 论文抓取 ====================
