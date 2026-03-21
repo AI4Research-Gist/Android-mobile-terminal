@@ -71,16 +71,7 @@ class ScreenCaptureActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             MediaProjectionStore.setPermission(result.resultCode, result.data!!)
-            mediaProjection = mediaProjectionManager.getMediaProjection(
-                result.resultCode,
-                result.data!!
-            )
-            
-            if (captureMode == "full") {
-                performScreenCapture()
-            } else {
-                showRegionSelector = true
-            }
+            resumeCaptureInService()
         } else {
             Toast.makeText(this, "截图权限被拒绝", Toast.LENGTH_SHORT).show()
             finish()
@@ -132,20 +123,25 @@ class ScreenCaptureActivity : ComponentActivity() {
 
         // If permission was granted before, skip prompt
         if (MediaProjectionStore.hasPermission()) {
-            mediaProjection = MediaProjectionStore.getOrCreateProjection(mediaProjectionManager)
-            if (mediaProjection == null) {
-                requestScreenCapture()
-            } else {
-                if (captureMode == "full") {
-                    performScreenCapture()
-                } else {
-                    showRegionSelector = true
-                }
-            }
+            resumeCaptureInService()
         } else {
             // 请求截图权限
             requestScreenCapture()
         }
+    }
+
+    private fun resumeCaptureInService() {
+        val action = if (captureMode == "full") {
+            FloatingWindowService.ACTION_SCREENSHOT
+        } else {
+            FloatingWindowService.ACTION_REGION_SELECT
+        }
+        startService(
+            Intent(this, FloatingWindowService::class.java).apply {
+                this.action = action
+            }
+        )
+        finish()
     }
 
     private fun requestScreenCapture() {
@@ -218,7 +214,6 @@ class ScreenCaptureActivity : ComponentActivity() {
             bitmap.copyPixelsFromBuffer(buffer)
             image.close()
 
-            // 如果有区域选择，裁剪图片
             val finalBitmap = if (region != null) {
                 Bitmap.createBitmap(
                     bitmap,
@@ -231,16 +226,21 @@ class ScreenCaptureActivity : ComponentActivity() {
                 Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
             }
 
-            // 保存截图
-            val imagePath = saveBitmap(finalBitmap)
-            
+            val imagePath = try {
+                saveBitmap(finalBitmap)
+            } finally {
+                if (finalBitmap !== bitmap) {
+                    bitmap.recycle()
+                }
+                finalBitmap.recycle()
+            }
+
             cleanup()
-            
+
             if (imagePath != null) {
-                // 发送广播给 Service
                 val intent = Intent(ACTION_CAPTURE_COMPLETED).apply {
                     putExtra(EXTRA_IMAGE_PATH, imagePath)
-                    setPackage(packageName) // 限制包名，增强安全
+                    setPackage(packageName)
                 }
                 sendBroadcast(intent)
             } else {
@@ -250,7 +250,7 @@ class ScreenCaptureActivity : ComponentActivity() {
             Toast.makeText(this, "截图失败", Toast.LENGTH_SHORT).show()
             cleanup()
         }
-        
+
         finish()
     }
 

@@ -2,6 +2,7 @@ package com.example.ai4research.service
 
 import android.graphics.Bitmap
 import android.util.Base64
+import android.util.Log
 import com.example.ai4research.domain.model.ArticlePaperCandidate
 import com.example.ai4research.data.remote.api.SiliconFlowApiService
 import com.example.ai4research.data.remote.dto.SimpleChatRequest
@@ -35,6 +36,8 @@ class AIService @Inject constructor(
 ) {
 
     companion object {
+        private const val TAG = "AIService"
+        private const val OCR_MAX_IMAGE_EDGE = 1600
         private const val API_KEY = "sk-devlxlityckbqwlvdtnmfwwxqmrhnlbffjcypryyitbqhkjn"
         private const val AUTH_HEADER = "Bearer $API_KEY"
         private const val INDEX_PARSE_SYSTEM_PROMPT = """
@@ -259,7 +262,10 @@ Rules:
      */
     suspend fun recognizeImage(bitmap: Bitmap): Result<String> = withContext(Dispatchers.IO) {
         try {
-            // 将 Bitmap 转为 Base64
+            if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+                return@withContext Result.failure(IllegalArgumentException("图片数据无效"))
+            }
+
             val base64Image = bitmapToBase64(bitmap)
             val imageUrl = "data:image/jpeg;base64,$base64Image"
             
@@ -288,7 +294,11 @@ Rules:
             } else {
                 Result.failure(Exception("图片识别失败"))
             }
+        } catch (oom: OutOfMemoryError) {
+            Log.e(TAG, "OCR bitmap processing ran out of memory", oom)
+            Result.failure(Exception("图片过大，OCR 处理内存不足", oom))
         } catch (e: Exception) {
+            Log.e(TAG, "recognizeImage failed", e)
             Result.failure(e)
         }
     }
@@ -297,15 +307,13 @@ Rules:
      * 从文件路径识别图片
      */
     suspend fun recognizeImageFromPath(imagePath: String): Result<String> = withContext(Dispatchers.IO) {
+        val bitmapResult = OcrBitmapLoader.loadBitmap(imagePath, OCR_MAX_IMAGE_EDGE)
+        val bitmap = bitmapResult.getOrElse { return@withContext Result.failure(it) }
+
         try {
-            val bitmap = android.graphics.BitmapFactory.decodeFile(imagePath)
-            if (bitmap != null) {
-                recognizeImage(bitmap)
-            } else {
-                Result.failure(Exception("无法加载图片"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
+            recognizeImage(bitmap)
+        } finally {
+            OcrBitmapLoader.recycle(bitmap)
         }
     }
 
@@ -315,8 +323,8 @@ Rules:
     private fun bitmapToBase64(bitmap: Bitmap): String {
         val outputStream = ByteArrayOutputStream()
         // 压缩图片以减少传输大小
-        val scaledBitmap = if (bitmap.width > 1920 || bitmap.height > 1920) {
-            val scale = minOf(1920f / bitmap.width, 1920f / bitmap.height)
+        val scaledBitmap = if (bitmap.width > OCR_MAX_IMAGE_EDGE || bitmap.height > OCR_MAX_IMAGE_EDGE) {
+            val scale = minOf(OCR_MAX_IMAGE_EDGE.toFloat() / bitmap.width, OCR_MAX_IMAGE_EDGE.toFloat() / bitmap.height)
             Bitmap.createScaledBitmap(
                 bitmap,
                 (bitmap.width * scale).toInt(),

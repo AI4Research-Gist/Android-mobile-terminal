@@ -42,7 +42,7 @@
         <service 
             android:name=".service.FloatingWindowService" 
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="mediaProjection" />
         
         <activity
             android:name=".service.ScreenCaptureActivity"

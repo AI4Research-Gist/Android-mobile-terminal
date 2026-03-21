@@ -1,6 +1,9 @@
 package com.example.ai4research.service
 
 import android.app.Service
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.pm.ServiceInfo
 import android.content.BroadcastReceiver
 import android.content.ClipboardManager
 import android.content.Context
@@ -13,6 +16,7 @@ import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
 import android.media.ImageReader
+import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
@@ -33,9 +37,11 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.repository.ItemRepository
+import com.example.ai4research.R
 import com.example.ai4research.ui.floating.FloatingBallView
 import com.example.ai4research.ui.floating.FloatingMenuView
 import dagger.hilt.android.AndroidEntryPoint
@@ -60,7 +66,10 @@ class FloatingWindowService : Service() {
         const val ACTION_SHOW = "com.example.ai4research.action.SHOW_FLOATING"
         const val ACTION_HIDE = "com.example.ai4research.action.HIDE_FLOATING"
         const val ACTION_SCREENSHOT = "com.example.ai4research.action.SCREENSHOT"
+        const val ACTION_REGION_SELECT = "com.example.ai4research.action.REGION_SELECT"
         const val ACTION_SHOW_LINK_INPUT = "com.example.ai4research.action.SHOW_LINK_INPUT"
+        private const val PROJECTION_NOTIFICATION_CHANNEL_ID = "media_projection_capture"
+        private const val PROJECTION_NOTIFICATION_ID = 1002
         
         // 截图完成广播
         const val ACTION_CAPTURE_COMPLETED = "com.example.ai4research.action.CAPTURE_COMPLETED"
@@ -92,6 +101,7 @@ class FloatingWindowService : Service() {
     private var clipboardManager: ClipboardManager? = null
     private var isMenuExpanded = false
     private var detectedLink: String? = null
+    private var isProjectionForegroundActive = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -137,6 +147,7 @@ class FloatingWindowService : Service() {
             ACTION_SHOW -> showFloatingBall()
             ACTION_HIDE -> hideFloatingBall()
             ACTION_SCREENSHOT -> triggerScreenshot()
+            ACTION_REGION_SELECT -> triggerRegionSelect()
             ACTION_SHOW_LINK_INPUT -> showLinkInputWindow()
         }
         return START_STICKY
@@ -565,35 +576,44 @@ class FloatingWindowService : Service() {
 
         serviceScope.launch {
             try {
-                // 1. AI 识别
-                val result = aiService.recognizeImageFromPath(path)
-                
-                // 2. 解析结果
-                val content = result.getOrNull() ?: "识别失败"
-                
-                // 3. 保存到数据库 (简化版，直接作为 Image Item 保存)
-                // 注意：这里简单将整个内容作为 summary 保存，实际应解析 JSON
-                // 由于 createUrlItem/createImageItem 接口限制，这里可能需要调整
-                // 暂时使用 createUrlItem 的变体或直接调用 API
-                
-                // 尝试解析为结构化数据
-                val ocrResult = try {
-                    aiService.recognizeImageStructured(
-                        android.graphics.BitmapFactory.decodeFile(path)
-                    ).getOrNull()
-                } catch (e: Exception) { null }
+                val bitmapResult = OcrBitmapLoader.loadBitmap(path)
+                val ocrResult = bitmapResult.fold(
+                    onSuccess = { bitmap ->
+                        try {
+                            aiService.recognizeImageStructured(bitmap).getOrElse { error ->
+                                android.util.Log.e("FloatingWindow", "OCR failed for screenshot: $path", error)
+                                null
+                            }
+                        } catch (oom: OutOfMemoryError) {
+                            android.util.Log.e("FloatingWindow", "OCR processing ran out of memory for: $path", oom)
+                            null
+                        } finally {
+                            OcrBitmapLoader.recycle(bitmap)
+                        }
+                    },
+                    onFailure = { error ->
+                        android.util.Log.e("FloatingWindow", "Failed to load screenshot for OCR: $path", error)
+                        null
+                    }
+                )
 
-                val title = ocrResult?.title ?: "截图识别结果"
-                val summary = ocrResult?.content ?: content
-                
-                // 4. 入库
-                // 这里我们假设有一个 createImageItem 方法，或者我们复用 createUrlItem 存入内容
-                // 实际项目中应调用 itemRepository.createImageItem(path, summary)
-                itemRepository.createImageItem(path, summary)
+                val title = ocrResult?.title?.takeIf { it.isNotBlank() } ?: "截图已保存"
+                val summary = ocrResult?.content?.takeIf { it.isNotBlank() }
+                    ?: "已采集图片，OCR 暂未识别出正文"
+
+                val saveResult = itemRepository.createImageItem(path, summary)
 
                 withContext(Dispatchers.Main) {
                     floatingBall?.isProcessing = false
-                    showResultOverlay("识别完成", title)
+                    if (saveResult.isFailure) {
+                        Toast.makeText(
+                            this@FloatingWindowService,
+                            "图片已采集，但保存失败: ${saveResult.exceptionOrNull()?.message}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        showResultOverlay(if (ocrResult != null) "识别完成" else "截图已保存", title)
+                    }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -1621,8 +1641,10 @@ class FloatingWindowService : Service() {
 
     private fun captureScreen(region: Rect?) {
         if (isCapturing) return
+        startProjectionForeground()
         val projection = MediaProjectionStore.getOrCreateProjection(mediaProjectionManager)
         if (projection == null) {
+            stopProjectionForeground()
             requestScreenCapturePermission(if (region == null) "full" else "region")
             return
         }
@@ -1634,6 +1656,20 @@ class FloatingWindowService : Service() {
         serviceScope.launch {
             var imageReader: ImageReader? = null
             var virtualDisplay: android.hardware.display.VirtualDisplay? = null
+            val projectionCallback = object : MediaProjection.Callback() {
+                override fun onStop() {
+                    mainHandler.post {
+                        if (isCapturing) {
+                            isCapturing = false
+                            Toast.makeText(
+                                this@FloatingWindowService,
+                                "截图会话已结束，请重新发起截图",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
             try {
                 // Use WindowMetrics for API 30+ or fallback to deprecated DisplayMetrics
                 val width: Int
@@ -1655,6 +1691,7 @@ class FloatingWindowService : Service() {
                     density = metrics.densityDpi
                 }
 
+                projection.registerCallback(projectionCallback, mainHandler)
                 imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
                 virtualDisplay = projection.createVirtualDisplay(
                     "ScreenCapture",
@@ -1715,11 +1752,54 @@ class FloatingWindowService : Service() {
                     Toast.makeText(this@FloatingWindowService, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } finally {
+                projection.unregisterCallback(projectionCallback)
                 virtualDisplay?.release()
                 imageReader?.close()
                 MediaProjectionStore.releaseProjection()
+                stopProjectionForeground()
             }
         }
+    }
+
+    private fun startProjectionForeground() {
+        if (isProjectionForegroundActive) return
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                PROJECTION_NOTIFICATION_CHANNEL_ID,
+                "屏幕采集",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "用于保持截图投影会话"
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, PROJECTION_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("正在准备截图")
+            .setContentText("正在建立屏幕采集会话")
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                PROJECTION_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(PROJECTION_NOTIFICATION_ID, notification)
+        }
+        isProjectionForegroundActive = true
+    }
+
+    private fun stopProjectionForeground() {
+        if (!isProjectionForegroundActive) return
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        isProjectionForegroundActive = false
     }
 
     private fun saveBitmap(bitmap: Bitmap): String? {
