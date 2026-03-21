@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import retrofit2.HttpException
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -119,6 +120,44 @@ class ItemRepositoryImpl @Inject constructor(
         )
     }
 
+    private fun createLocalEntity(
+        ownerUserId: String,
+        title: String,
+        summary: String,
+        contentMd: String,
+        originUrl: String?,
+        type: ItemType,
+        status: ItemStatus,
+        metaJson: String?,
+        tags: List<String>? = null
+    ): com.example.ai4research.data.local.entity.ItemEntity {
+        val effectiveMeta = mergeMetaJson(null, metaJson, null)
+        return com.example.ai4research.data.local.entity.ItemEntity(
+            id = UUID.randomUUID().toString(),
+            ownerUserId = ownerUserId,
+            type = type.toServerString(),
+            title = title,
+            summary = summary,
+            contentMarkdown = contentMd,
+            originUrl = originUrl,
+            audioUrl = null,
+            status = status.toServerString(),
+            readStatus = ReadStatus.UNREAD.toServerString(),
+            projectId = null,
+            projectName = null,
+            isStarred = false,
+            metaJson = mergeMetaJson(effectiveMeta, null, null)?.let { merged ->
+                if (!tags.isNullOrEmpty()) {
+                    mergeMetaJson(merged, gson.toJson(mapOf("tags" to tags)), null)
+                } else {
+                    merged
+                }
+            } ?: effectiveMeta,
+            createdAt = System.currentTimeMillis(),
+            syncedAt = 0L
+        )
+    }
+
     override fun observeItems(type: ItemType?, query: String?): Flow<List<ResearchItem>> {
         val ownerUserId = currentUserId() ?: return flowOf(emptyList())
         val cleanedQuery = query?.trim().orEmpty()
@@ -168,6 +207,9 @@ class ItemRepositoryImpl @Inject constructor(
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
         return try {
+            val localPendingItems = itemDao.getItemsByOwner(ownerUserId)
+                .filter { it.id.toIntOrNull() == null }
+
             val projectWhere = buildOwnerWhereClause(ownerUserId)
             val projects = api.getProjects(where = projectWhere).list
                 .filter { !it.name.isNullOrBlank() || !it.title.isNullOrBlank() }
@@ -195,6 +237,9 @@ class ItemRepositoryImpl @Inject constructor(
             }
             itemDao.deleteAllItemsByOwner(ownerUserId)
             itemDao.insertItems(itemEntities)
+            if (localPendingItems.isNotEmpty()) {
+                itemDao.insertItems(localPendingItems)
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             android.util.Log.e("ItemRepository", "Failed to refresh items", e)
@@ -363,6 +408,64 @@ class ItemRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun createLocalPendingItem(
+        title: String,
+        summary: String,
+        contentMd: String,
+        originUrl: String?,
+        type: ItemType,
+        status: ItemStatus,
+        metaJson: String?,
+        note: String?,
+        tags: List<String>?
+    ): Result<ResearchItem> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
+        return try {
+            val entity = createLocalEntity(
+                ownerUserId = ownerUserId,
+                title = title,
+                summary = summary,
+                contentMd = contentMd,
+                originUrl = originUrl,
+                type = type,
+                status = status,
+                metaJson = mergeMetaJson(null, metaJson, note),
+                tags = tags
+            )
+            itemDao.insertItem(entity)
+            Result.success(ItemMapper.entityToDomain(entity))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun syncLocalItemToRemote(id: String): Result<ResearchItem> {
+        val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
+
+        return try {
+            val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
+            if (local.id.toIntOrNull() != null) {
+                return Result.success(ItemMapper.entityToDomain(local))
+            }
+
+            val requestDto = buildItemDto(local).copy(id = null)
+            val created = mergeServerItem(api.createItem(requestDto), requestDto)
+            val remoteEntity = ItemMapper.dtoToEntity(
+                created,
+                projectId = local.projectId,
+                projectName = local.projectName,
+                ownerUserId = ownerUserId
+            )
+            itemDao.deleteItemById(ownerUserId, local.id)
+            itemDao.insertItem(remoteEntity)
+            Result.success(ItemMapper.entityToDomain(remoteEntity))
+        } catch (e: Exception) {
+            android.util.Log.e("ItemRepository", "Failed to sync local item to remote: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun updateItemType(id: String, type: ItemType): Result<Unit> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
@@ -440,13 +543,28 @@ class ItemRepositoryImpl @Inject constructor(
 
         return try {
             val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
-            val dto = buildItemDto(local).copy(
+            val mergedMeta = mergeMetaJson(local.metaJson, metaJson, note)
+            val updatedLocal = local.copy(
+                title = title ?: local.title,
+                summary = summary ?: local.summary,
+                contentMarkdown = content ?: local.contentMarkdown,
+                status = status?.toServerString() ?: local.status,
+                metaJson = mergedMeta,
+                syncedAt = System.currentTimeMillis()
+            )
+
+            if (local.id.toIntOrNull() == null) {
+                itemDao.insertItem(updatedLocal)
+                return Result.success(Unit)
+            }
+
+            val dto = buildItemDto(updatedLocal).copy(
                 title = title ?: local.title,
                 summary = summary ?: local.summary,
                 contentMd = content ?: local.contentMarkdown,
                 status = status?.toServerString() ?: local.status,
                 tags = tags?.joinToString(","),
-                metaJson = parseMetaJson(mergeMetaJson(local.metaJson, metaJson, note))
+                metaJson = parseMetaJson(mergedMeta)
             )
 
             val updated = mergeServerItem(api.updateItem(id, dto), dto)

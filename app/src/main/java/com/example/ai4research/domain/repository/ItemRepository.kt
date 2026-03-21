@@ -62,6 +62,20 @@ interface ItemRepository {
         tags: List<String>? = null
     ): Result<ResearchItem>
 
+    suspend fun createLocalPendingItem(
+        title: String,
+        summary: String,
+        contentMd: String,
+        originUrl: String?,
+        type: ItemType,
+        status: ItemStatus = ItemStatus.PROCESSING,
+        metaJson: String? = null,
+        note: String? = null,
+        tags: List<String>? = null
+    ): Result<ResearchItem>
+
+    suspend fun syncLocalItemToRemote(id: String): Result<ResearchItem>
+
     /**
      * 本地创建：语音条目（音频文件先落地到本机，后续可扩展上传）
      */

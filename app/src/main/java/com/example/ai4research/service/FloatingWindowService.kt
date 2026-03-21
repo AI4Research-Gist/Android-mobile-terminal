@@ -1400,7 +1400,7 @@ class FloatingWindowService : Service() {
                 val placeholderSummary = buildProcessingSummary(selectedType)
                 val placeholderContent = buildProcessingMarkdown(parseResult.title, parseResult.originalUrl, selectedType)
 
-                val createResult = itemRepository.createFullItem(
+                val createResult = itemRepository.createLocalPendingItem(
                     title = parseResult.title,
                     summary = placeholderSummary,
                     contentMd = placeholderContent,
@@ -1786,6 +1786,12 @@ class FloatingWindowService : Service() {
             )
 
             if (updateResult.isSuccess) {
+                val syncResult = itemRepository.syncLocalItemToRemote(itemId)
+                syncResult.onSuccess { synced ->
+                    android.util.Log.d("FloatingWindow", "✅ 本地条目已同步到远端: local=$itemId, remote=${synced.id}")
+                }.onFailure { syncError ->
+                    android.util.Log.w("FloatingWindow", "⚠️ 条目已本地回填，但远端同步失败: ${syncError.message}")
+                }
                 android.util.Log.d("FloatingWindow", "✅ 后台解析完成并已回填: id=$itemId, type=$selectedType")
             } else {
                 android.util.Log.e("FloatingWindow", "❌ 回填解析结果失败: ${updateResult.exceptionOrNull()?.message}")
@@ -1808,6 +1814,7 @@ class FloatingWindowService : Service() {
                 ),
                 status = ItemStatus.FAILED
             )
+            itemRepository.syncLocalItemToRemote(itemId)
         }
     }
 

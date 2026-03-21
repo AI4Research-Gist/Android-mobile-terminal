@@ -41,6 +41,9 @@ interface ItemDao {
     @Query("SELECT * FROM items WHERE id = :id AND owner_user_id = :ownerUserId")
     suspend fun getItemById(ownerUserId: String, id: String): ItemEntity?
 
+    @Query("SELECT * FROM items WHERE owner_user_id = :ownerUserId ORDER BY created_at DESC")
+    suspend fun getItemsByOwner(ownerUserId: String): List<ItemEntity>
+
     @Query("SELECT * FROM items WHERE owner_user_id = :ownerUserId AND (title LIKE '%' || :query || '%' OR summary LIKE '%' || :query || '%') ORDER BY created_at DESC")
     fun searchItems(ownerUserId: String, query: String): Flow<List<ItemEntity>>
 
