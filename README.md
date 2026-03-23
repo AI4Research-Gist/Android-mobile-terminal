@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Language-Kotlin-blue.svg"/>
   <img src="https://img.shields.io/badge/UI-Hybrid%20(WebView%20%2B%20Compose)-orange.svg"/>
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean-purple.svg"/>
-  <img src="https://img.shields.io/badge/Version-v0.2.2-red.svg"/>
+  <img src="https://img.shields.io/badge/Version-v0.2.3-red.svg"/>
   <img src="https://img.shields.io/badge/Min%20SDK-26-gray.svg"/>
 </p>
 
@@ -135,17 +135,16 @@ app/src/main/
 
 ## 当前版本
 
-- 当前版本：`v0.2.2`
-- 本版本重点：资料页本地占位优先显示、后台异步同步远端
-- 更新日志入口：[`v0.2.2`](d:/Android-mobile-terminal/changelog/v0.2.2.md)
+- 当前版本：`v0.2.3`
+- 本版本重点：图片扫描导入、多页 OCR 整理、截图链路稳定性增强、敏感配置脱敏
+- 更新日志入口：[`v0.2.3`](d:/Android-mobile-terminal/changelog/v0.2.3.md)
 - 版本明细目录：[`changelog/`](d:/Android-mobile-terminal/changelog)
 
 ## 配置说明（开发环境）
 
-- 截至 2026-03-15，NocoDB 已迁移到新服务器，当前 Base URL 为 `http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/`。
-- NocoDB：在 `app/src/main/java/com/example/ai4research/core/util/Constants.kt` 设置 `NOCO_BASE_URL` 与 `NOCO_TOKEN`。
+- NocoDB：在根目录 `.env.local` 或系统环境变量中设置 `AI4RESEARCH_NOCO_BASE_URL` 与 `AI4RESEARCH_NOCO_TOKEN`。
 - 比赛版用户归属字段：现网 NocoDB 当前使用物理字段 `ownerId`。
-- SiliconFlow：在 `app/src/main/java/com/example/ai4research/service/AIService.kt` 设置 `API_KEY`。
+- SiliconFlow：在根目录 `.env.local` 或系统环境变量中设置 `AI4RESEARCH_SILICONFLOW_API_KEY`，可选设置 `AI4RESEARCH_SILICONFLOW_BASE_URL`。
 - `app/src/main/res/xml/network_security_config.xml` 当前已按迁移后的 NocoDB IP 放行明文 HTTP。
 
 ### 比赛测试账号
@@ -162,7 +161,7 @@ app/src/main/
   - `items` 40 条
   - `projects` 3 条
 
-> 生产环境建议将密钥移至安全配置（例如 `local.properties` + CI 注入），避免硬编码。
+> 项目现在默认从 `.env.local` 或系统环境变量读取敏感配置，`.env.local` 已被加入 `.gitignore`，提交代码时不会带上真实密钥。
 
 ## 当前说明
 

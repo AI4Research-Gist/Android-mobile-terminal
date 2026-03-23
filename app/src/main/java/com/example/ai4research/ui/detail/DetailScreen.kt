@@ -1105,6 +1105,7 @@ private fun ArticleInfoCard(
         meta.accountName?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("账号", it, isDark) }
         meta.author?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("作者", it, isDark) }
         meta.publishDate?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("发布时间", it, isDark) }
+        meta.identifier?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("提及编号", it, isDark) }
         item.originUrl?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("原始链接", it, isDark) }
         meta.summaryShort?.takeIf { it.isNotBlank() }?.let {
             Spacer(modifier = Modifier.height(12.dp))
@@ -1121,6 +1122,25 @@ private fun ArticleInfoCard(
         if (meta.topicTags.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
             PaperTagSection("主题标签", meta.topicTags, isDark)
+        }
+        if (meta.referencedLinks.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Column {
+                Text(
+                    text = "提取到的链接",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                meta.referencedLinks.forEach { link ->
+                    Text(
+                        text = link,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isDark) Color(0xFFBFE3FF) else Color(0xFF1D4ED8),
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+            }
         }
         if (meta.paperCandidates.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))

@@ -186,6 +186,7 @@ object ItemMapper {
                 meta.accountName?.let { existing["account_name"] = it }
                 meta.author?.let { existing["author"] = it }
                 meta.publishDate?.let { existing["publish_date"] = it }
+                meta.identifier?.let { existing["identifier"] = it }
                 meta.summaryShort?.let { existing["summary_short"] = it }
                 if (meta.keywords.isNotEmpty()) existing["keywords"] = meta.keywords
                 if (meta.topicTags.isNotEmpty()) existing["topic_tags"] = meta.topicTags
@@ -314,6 +315,7 @@ object ItemMapper {
                         accountName = map["account_name"]?.toString(),
                         author = map["author"]?.toString(),
                         publishDate = map["publish_date"]?.toString(),
+                        identifier = map["identifier"]?.toString(),
                         summaryShort = map["summary_short"]?.toString(),
                         keywords = keywords,
                         topicTags = topicTags,

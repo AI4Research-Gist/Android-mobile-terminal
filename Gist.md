@@ -210,7 +210,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 Base ID：`p8bhzq1ltutm8zr`
 
 当前迁移后服务地址（截至 2026-03-15）：
-- Base URL：`http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/`
+- Base URL：通过根目录 `.env.local` 中的 `AI4RESEARCH_NOCO_BASE_URL` 配置
 - 旧地址 `http://47.109.158.254:8080/...` 已不再作为当前文档基准。
 
 **items 表（`mez4qicxcudfwnc`）**
@@ -299,9 +299,9 @@ Base ID：`p8bhzq1ltutm8zr`
 - `NocoAuthInterceptor` 自动添加 `xc-token`。
 - `network_security_config.xml` 允许对迁移后的 NocoDB 服务器 `8.152.222.163` 明文通信。
 - **硬编码密钥/Token**：
-  - `Constants.kt`：`NOCO_BASE_URL`, `NOCO_TOKEN`
-  - `AIService.kt`：`API_KEY`
-  - 建议：移至 `local.properties` + CI 注入。
+  - 根目录 `.env.local`：`AI4RESEARCH_NOCO_BASE_URL`, `AI4RESEARCH_NOCO_TOKEN`, `AI4RESEARCH_SILICONFLOW_API_KEY`
+  - 也支持同名系统环境变量注入
+  - `.env.local` 已加入 `.gitignore`
 - 本地敏感信息存储：EncryptedSharedPreferences。
 
 ## 16. 构建与依赖版本

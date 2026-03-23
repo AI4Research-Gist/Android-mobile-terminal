@@ -9,6 +9,7 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.os.Handler
@@ -71,7 +72,9 @@ class ScreenCaptureActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             MediaProjectionStore.setPermission(result.resultCode, result.data!!)
-            resumeCaptureInService()
+            window.decorView.post {
+                startCaptureFlow(fromFreshConsent = true)
+            }
         } else {
             Toast.makeText(this, "截图权限被拒绝", Toast.LENGTH_SHORT).show()
             finish()
@@ -123,29 +126,48 @@ class ScreenCaptureActivity : ComponentActivity() {
 
         // If permission was granted before, skip prompt
         if (MediaProjectionStore.hasPermission()) {
-            resumeCaptureInService()
+            startCaptureFlow()
         } else {
             // 请求截图权限
             requestScreenCapture()
         }
     }
 
-    private fun resumeCaptureInService() {
-        val action = if (captureMode == "full") {
-            FloatingWindowService.ACTION_SCREENSHOT
-        } else {
-            FloatingWindowService.ACTION_REGION_SELECT
-        }
-        startService(
-            Intent(this, FloatingWindowService::class.java).apply {
-                this.action = action
+    private fun startCaptureFlow(fromFreshConsent: Boolean = false) {
+        mediaProjection = MediaProjectionStore.getOrCreateProjection(mediaProjectionManager)
+        if (mediaProjection == null) {
+            if (fromFreshConsent) {
+                val detail = MediaProjectionStore.peekLastProjectionError()
+                val message = if (detail.isNullOrBlank()) {
+                    "未能建立截图会话，请重试"
+                } else {
+                    "未能建立截图会话：$detail"
+                }
+                MediaProjectionStore.clear()
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                MediaProjectionStore.clear()
+                requestScreenCapture()
             }
-        )
-        finish()
+            return
+        }
+
+        if (captureMode == "region") {
+            showRegionSelector = true
+        } else {
+            performScreenCapture()
+        }
     }
 
     private fun requestScreenCapture() {
-        val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
+        val captureIntent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mediaProjectionManager.createScreenCaptureIntent(
+                MediaProjectionConfig.createConfigForDefaultDisplay()
+            )
+        } else {
+            mediaProjectionManager.createScreenCaptureIntent()
+        }
         projectionLauncher.launch(captureIntent)
     }
 
@@ -276,7 +298,7 @@ class ScreenCaptureActivity : ComponentActivity() {
     private fun cleanup() {
         virtualDisplay?.release()
         imageReader?.close()
-        mediaProjection?.stop()
+        MediaProjectionStore.releaseProjection()
         virtualDisplay = null
         imageReader = null
         mediaProjection = null

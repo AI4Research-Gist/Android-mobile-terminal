@@ -1,12 +1,14 @@
 package com.example.ai4research.core.util
 
+import com.example.ai4research.BuildConfig
+
 /**
  * ??????
  */
 object Constants {
     // NocoDB ????
-    const val NOCO_BASE_URL = "http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/"
-    const val NOCO_TOKEN = "lBVvkotCNwFCXz-j1-s3XcE5tXRCp7MzKECOfY2e"
+    val NOCO_BASE_URL: String = BuildConfig.NOCO_BASE_URL
+    val NOCO_TOKEN: String = BuildConfig.NOCO_TOKEN
 
     // ???????
     const val NETWORK_TIMEOUT = 30L

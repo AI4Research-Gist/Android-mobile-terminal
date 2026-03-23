@@ -1,15 +1,31 @@
 package com.example.ai4research.ui.main
 
 import android.app.AlertDialog
+import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog as ComposeAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -25,10 +41,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.core.util.LocalWebViewCache
+import com.example.ai4research.domain.model.ItemType
+import com.example.ai4research.domain.model.Project
 import com.example.ai4research.service.FloatingWindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.dp
 
 /**
  * Main Screen Refactored with WebView
@@ -57,9 +76,81 @@ fun MainScreen(
     val articles by viewModel.articles.collectAsState()
     val competitions by viewModel.competitions.collectAsState()
     val insights by viewModel.insights.collectAsState()
+    val projectsState by viewModel.projects.collectAsState()
+    val currentProjectId by viewModel.currentProjectId.collectAsState()
     
     val coroutineScope = rememberCoroutineScope()
     val floatingWindowManager = viewModel.floatingWindowManager
+    var pendingScanUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    var showScanImportDialog by remember { mutableStateOf(false) }
+    var selectedScanType by remember { mutableStateOf(ItemType.ARTICLE) }
+    var selectedScanProjectId by remember { mutableStateOf<String?>(null) }
+
+    if (showScanImportDialog) {
+        ScanImportConfigDialog(
+            imageCount = pendingScanUris.size,
+            projects = projectsState,
+            selectedType = selectedScanType,
+            selectedProjectId = selectedScanProjectId,
+            onTypeSelected = { selectedScanType = it },
+            onProjectSelected = { selectedScanProjectId = it },
+            onDismiss = {
+                showScanImportDialog = false
+                pendingScanUris = emptyList()
+            },
+            onConfirm = {
+                val urisToImport = pendingScanUris
+                val selectedTypeForImport = selectedScanType
+                val selectedProjectIdForImport = selectedScanProjectId
+                val projectName = projectsState.firstOrNull { it.id == selectedProjectIdForImport }?.name
+                showScanImportDialog = false
+                pendingScanUris = emptyList()
+                viewModel.importScannedImages(
+                    imageUris = urisToImport,
+                    selectedType = selectedTypeForImport,
+                    projectId = selectedProjectIdForImport,
+                    projectName = projectName,
+                    onQueued = { result ->
+                        val message = result.fold(
+                            onSuccess = { "已加入${getItemTypeLabel(selectedTypeForImport)}，正在后台整理" },
+                            onFailure = { error -> "加入失败：${error.message ?: "请重试"}" }
+                        )
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        if (result.isSuccess && isPageReady) {
+                            webViewRef?.evaluateJavascript(
+                                "if(window.setActiveTab) window.setActiveTab('${itemTypeToTabId(selectedTypeForImport)}');",
+                                null
+                            )
+                        }
+                    },
+                    onFinished = { result ->
+                        result.onFailure { error ->
+                            Toast.makeText(context, "扫描解析失败：${error.message ?: "请重试"}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+            }
+        )
+    }
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+
+        uris.forEach { uri ->
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+        }
+
+        pendingScanUris = uris
+        selectedScanType = ItemType.ARTICLE
+        selectedScanProjectId = currentProjectId
+        showScanImportDialog = true
+    }
     
     // 用于记录待处理的 targetTab
     var pendingTargetTab by remember { mutableStateOf<String?>(null) }
@@ -146,12 +237,10 @@ fun MainScreen(
             onNavigateToDetail = onNavigateToDetail,
             onNavigateToVoiceRecording = onNavigateToVoiceRecording,
             onOpenLinkCapture = { floatingWindowManager.openQuickLinkCapture() },
-            onStartScanCapture = { floatingWindowManager.startQuickScanCapture() }
+            onStartScanCapture = { imagePickerLauncher.launch(arrayOf("image/*")) }
         )
     }
     
-    val projectsState by viewModel.projects.collectAsState()
-
     // Sync data to WebView when it changes - 只在页面准备好且不在处理tab切换时才推送
     LaunchedEffect(papers, webViewRef, isPageReady, isHandlingTabSwitch) {
         if (isPageReady && !isHandlingTabSwitch) {
@@ -489,4 +578,119 @@ class MainAppInterface(
             }
             .show()
     }
+}
+
+private fun itemTypeToTabId(type: ItemType): String {
+    return when (type) {
+        ItemType.PAPER -> "papers"
+        ItemType.ARTICLE -> "articles"
+        ItemType.COMPETITION -> "competitions"
+        ItemType.INSIGHT -> "home"
+        ItemType.VOICE -> "voice"
+    }
+}
+
+private fun getItemTypeLabel(type: ItemType): String {
+    return when (type) {
+        ItemType.PAPER -> "论文"
+        ItemType.ARTICLE -> "资料"
+        ItemType.COMPETITION -> "竞赛"
+        ItemType.INSIGHT -> "动态"
+        ItemType.VOICE -> "语音"
+    }
+}
+
+@Composable
+private fun ScanImportConfigDialog(
+    imageCount: Int,
+    projects: List<Project>,
+    selectedType: ItemType,
+    selectedProjectId: String?,
+    onTypeSelected: (ItemType) -> Unit,
+    onProjectSelected: (String?) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+    val typeOptions = listOf(
+        ItemType.ARTICLE,
+        ItemType.PAPER,
+        ItemType.COMPETITION,
+        ItemType.INSIGHT
+    )
+
+    ComposeAlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("导入图片")
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState)
+            ) {
+                Text("已选择 $imageCount 张图片，请先选择分类和项目。")
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("分类", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                typeOptions.forEach { type ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onTypeSelected(type) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedType == type,
+                            onClick = { onTypeSelected(type) }
+                        )
+                        Text(getItemTypeLabel(type))
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("项目", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onProjectSelected(null) }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedProjectId == null,
+                        onClick = { onProjectSelected(null) }
+                    )
+                    Text("未分配")
+                }
+                projects.forEach { project ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onProjectSelected(project.id) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedProjectId == project.id,
+                            onClick = { onProjectSelected(project.id) }
+                        )
+                        Text(project.name)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("开始处理")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }

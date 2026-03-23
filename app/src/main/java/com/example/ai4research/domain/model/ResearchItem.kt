@@ -118,6 +118,7 @@ sealed class ItemMetaData {
         val accountName: String? = null,
         val author: String? = null,
         val publishDate: String? = null,
+        val identifier: String? = null,
         val summaryShort: String? = null,
         val keywords: List<String> = emptyList(),
         val topicTags: List<String> = emptyList(),

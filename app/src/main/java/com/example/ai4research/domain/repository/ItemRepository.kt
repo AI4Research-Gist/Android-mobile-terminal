@@ -59,7 +59,9 @@ interface ItemRepository {
         status: ItemStatus = ItemStatus.DONE,
         metaJson: String? = null,
         note: String? = null,
-        tags: List<String>? = null
+        tags: List<String>? = null,
+        projectId: String? = null,
+        projectName: String? = null
     ): Result<ResearchItem>
 
     suspend fun createLocalPendingItem(
@@ -71,7 +73,9 @@ interface ItemRepository {
         status: ItemStatus = ItemStatus.PROCESSING,
         metaJson: String? = null,
         note: String? = null,
-        tags: List<String>? = null
+        tags: List<String>? = null,
+        projectId: String? = null,
+        projectName: String? = null
     ): Result<ResearchItem>
 
     suspend fun syncLocalItemToRemote(id: String): Result<ResearchItem>
@@ -104,6 +108,7 @@ interface ItemRepository {
         summary: String? = null,
         note: String? = null,
         content: String? = null,
+        originUrl: String? = null,
         tags: List<String>? = null,
         metaJson: String? = null,
         status: ItemStatus? = null

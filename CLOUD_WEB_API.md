@@ -25,7 +25,7 @@
 当前 Base URL：
 
 ```text
-http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/
+<AI4RESEARCH_NOCO_BASE_URL>
 ```
 
 ### 1.2 SiliconFlow
@@ -40,7 +40,7 @@ http://8.152.222.163:8080/api/v1/db/data/v1/p8bhzq1ltutm8zr/
 当前 Base URL：
 
 ```text
-https://api.siliconflow.cn/v1/
+<AI4RESEARCH_SILICONFLOW_BASE_URL>
 ```
 
 ---

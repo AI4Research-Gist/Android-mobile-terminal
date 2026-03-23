@@ -3,6 +3,7 @@ package com.example.ai4research.service
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
+import com.example.ai4research.BuildConfig
 import com.example.ai4research.domain.model.ArticlePaperCandidate
 import com.example.ai4research.data.remote.api.SiliconFlowApiService
 import com.example.ai4research.data.remote.dto.SimpleChatRequest
@@ -38,8 +39,89 @@ class AIService @Inject constructor(
     companion object {
         private const val TAG = "AIService"
         private const val OCR_MAX_IMAGE_EDGE = 1600
-        private const val API_KEY = "sk-devlxlityckbqwlvdtnmfwwxqmrhnlbffjcypryyitbqhkjn"
-        private const val AUTH_HEADER = "Bearer $API_KEY"
+        private val AUTH_HEADER: String
+            get() {
+                val apiKey = BuildConfig.SILICONFLOW_API_KEY.trim()
+                check(apiKey.isNotEmpty()) {
+                    "SiliconFlow API key is missing. Set AI4RESEARCH_SILICONFLOW_API_KEY in .env.local or your environment."
+                }
+                return "Bearer $apiKey"
+            }
+        private const val SYSTEM_PROMPT_OCR_V2 = """你是移动端截图 OCR 助手。请尽量忠实识别图片中的正文，并提取可验证的结构化线索。
+
+输出严格 JSON，不要包含 markdown 代码块。
+
+返回格式：
+{
+  "type": "paper|article|text",
+  "title": "string|null",
+  "authors": "string|null",
+  "identifier": "string|null",
+  "identifier_type": "arxiv|doi|null",
+  "doi": "string|null",
+  "referenced_links": ["string"],
+  "content": "识别出的正文"
+}
+
+规则：
+- 优先保证正文 OCR 完整。
+- 如果识别到 DOI 或 arXiv 编号，请写入 identifier。
+- doi 字段仅在确认为 DOI 时填写；否则可为 null。
+- referenced_links 只保留图片中明确出现的链接。
+- 没把握的字段返回 null 或 []。"""
+        private const val OCR_BATCH_ORGANIZE_SYSTEM_PROMPT = """
+You are an OCR post-processing assistant for a mobile capture app.
+The user may upload one or more screenshots of the same article, paper, or notes page.
+
+Return strict JSON only.
+
+Goals:
+1. clean and organize the OCR content conservatively
+2. infer whether the content is paper, article, competition, or insight
+3. extract explicit links, arXiv IDs, DOI, article account names, and searchable tags
+4. produce a short Chinese summary for card display
+
+Return JSON in this shape:
+{
+  "title": "string",
+  "authors": "string|null",
+  "summary": "string",
+  "summary_short": "string",
+  "summary_zh": "string",
+  "summary_en": "string|null",
+  "content_type": "paper|article|competition|insight",
+  "source": "ocr|wechat|arxiv|doi|web",
+  "identifier": "string|null",
+  "domain_tags": ["string"],
+  "keywords": ["string"],
+  "method_tags": ["string"],
+  "topic_tags": ["string"],
+  "core_points": ["string"],
+  "tags": ["string"],
+  "referenced_links": ["string"],
+  "paper_candidates": [
+    { "url": "string", "label": "string|null", "kind": "arxiv|doi|paper_page|pdf|web" }
+  ],
+  "account_name": "string|null",
+  "author": "string|null",
+  "publish_date": "string|null",
+  "dedup_key": "string|null",
+  "meta": {
+    "conference": "string|null",
+    "year": "string|null",
+    "platform": "string|null"
+  }
+}
+
+Rules:
+- Be conservative and factual.
+- Do not fabricate links or identifiers.
+- If the OCR text is article-like, keep content_type as article even if it mentions papers.
+- If the screenshots clearly show a paper page, use content_type=paper.
+- summary_short must be concise Chinese within 2 sentences.
+- core_points should be 0 to 5 short bullet-like points.
+- Unknown fields must be null or [].
+"""
         private const val INDEX_PARSE_SYSTEM_PROMPT = """
 You are an academic indexing assistant for a mobile capture app.
 Extract high-quality, objective index fields for papers and articles.
@@ -275,7 +357,7 @@ Rules:
                     VLMessage(
                         role = "user",
                         content = listOf(
-                            VLContent(type = "text", text = SYSTEM_PROMPT_OCR),
+                            VLContent(type = "text", text = SYSTEM_PROMPT_OCR_V2),
                             VLContent(
                                 type = "image_url",
                                 imageUrl = VLImageUrl(url = imageUrl)
@@ -546,14 +628,198 @@ Rules:
      */
     suspend fun recognizeImageStructured(bitmap: Bitmap): Result<OCRResult> = withContext(Dispatchers.IO) {
         recognizeImage(bitmap).mapCatching { jsonStr ->
-            val cleanJson = extractJsonFromResponse(jsonStr)
+            try {
+                val cleanJson = extractJsonFromResponse(jsonStr)
+                val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+                OCRResult(
+                    type = jsonObj["type"]?.jsonPrimitive?.content ?: "text",
+                    title = jsonObj["title"]?.jsonPrimitive?.content,
+                    authors = jsonObj["authors"]?.jsonPrimitive?.content,
+                    identifier = jsonObj["identifier"]?.jsonPrimitive?.contentOrNull
+                        ?: jsonObj["doi"]?.jsonPrimitive?.contentOrNull,
+                    identifierType = jsonObj["identifier_type"]?.jsonPrimitive?.contentOrNull
+                        ?: jsonObj["doi"]?.jsonPrimitive?.contentOrNull?.let { "doi" },
+                    doi = jsonObj["doi"]?.jsonPrimitive?.contentOrNull,
+                    referencedLinks = readStringList(jsonObj, "referenced_links"),
+                    content = jsonObj["content"]?.jsonPrimitive?.content
+                        ?: jsonStr.takeIf { it.isNotBlank() }
+                )
+            } catch (_: Exception) {
+                OCRResult(
+                    type = "text",
+                    title = null,
+                    authors = null,
+                    identifier = extractIdentifierFromText(jsonStr),
+                    identifierType = null,
+                    doi = extractDoiFromInput(jsonStr),
+                    referencedLinks = extractCanonicalReferencesFromText(jsonStr),
+                    content = jsonStr.takeIf { it.isNotBlank() }
+                )
+            }
+        }
+    }
+
+    suspend fun organizeOcrBatch(
+        rawText: String,
+        pageHints: List<OCRResult> = emptyList()
+    ): Result<FullLinkParseResult> = withContext(Dispatchers.IO) {
+        try {
+            val trimmedText = rawText.trim()
+            if (trimmedText.isBlank()) {
+                return@withContext Result.failure(IllegalArgumentException("OCR 原文为空"))
+            }
+
+            val hintTitle = pageHints.firstNotNullOfOrNull { it.title?.trim()?.takeIf(String::isNotBlank) }
+            val hintAuthors = pageHints.firstNotNullOfOrNull { it.authors?.trim()?.takeIf(String::isNotBlank) }
+            val hintIdentifier = pageHints.firstNotNullOfOrNull {
+                it.identifier?.trim()?.takeIf(String::isNotBlank)
+                    ?: it.doi?.trim()?.takeIf(String::isNotBlank)
+            } ?: extractIdentifierFromText(trimmedText)
+
+            val detectedReferences = extractCanonicalReferencesFromText(trimmedText)
+            val hintLinks = (pageHints.flatMap { it.referencedLinks } + detectedReferences).distinct()
+
+            val prompt = buildString {
+                appendLine("OCR pages: ${pageHints.size.coerceAtLeast(1)}")
+                appendLine("Detected title hint: ${hintTitle ?: "null"}")
+                appendLine("Detected authors hint: ${hintAuthors ?: "null"}")
+                appendLine("Detected identifier hint: ${hintIdentifier ?: "null"}")
+                appendLine("Detected links: ${if (hintLinks.isEmpty()) "[]" else hintLinks.joinToString(", ")}")
+                appendLine()
+                appendLine("OCR text:")
+                appendLine(trimmedText.take(12000))
+            }
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = OCR_BATCH_ORGANIZE_SYSTEM_PROMPT),
+                    SimpleMessage(role = "user", content = prompt)
+                ),
+                maxTokens = 1800,
+                temperature = 0.2
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val aiContent = response.choices.firstOrNull()?.message?.content
+                ?: return@withContext Result.success(
+                    createOcrFallbackResult(
+                        rawText = trimmedText,
+                        hintTitle = hintTitle,
+                        hintAuthors = hintAuthors,
+                        hintIdentifier = hintIdentifier,
+                        detectedReferences = hintLinks
+                    )
+                )
+
+            val cleanJson = extractJsonFromResponse(aiContent)
             val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
-            OCRResult(
-                type = jsonObj["type"]?.jsonPrimitive?.content ?: "text",
-                title = jsonObj["title"]?.jsonPrimitive?.content,
-                authors = jsonObj["authors"]?.jsonPrimitive?.content,
-                doi = jsonObj["doi"]?.jsonPrimitive?.content,
-                content = jsonObj["content"]?.jsonPrimitive?.content
+            val metaObj = jsonObj["meta"] as? JsonObject
+
+            val title = jsonObj["title"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?: hintTitle
+                ?: trimmedText.lineSequence()
+                    .map { it.trim() }
+                    .firstOrNull { it.length in 4..80 }
+                ?: "图片扫描"
+
+            val identifier = jsonObj["identifier"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?: hintIdentifier
+
+            val summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.contentOrNull
+            val summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.contentOrNull
+            val summary = jsonObj["summary"]?.jsonPrimitive?.contentOrNull
+                ?: summaryZh
+                ?: summaryEn
+                ?: trimmedText.take(180)
+            val summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.contentOrNull
+                ?: summaryZh?.take(120)
+                ?: summary.take(120)
+
+            val tags = readStringList(jsonObj, "tags")
+            val domainTags = readStringList(jsonObj, "domain_tags")
+                .ifEmpty { inferDomainTags(title) }
+            val keywords = readStringList(jsonObj, "keywords")
+                .ifEmpty { tags }
+                .ifEmpty { inferKeywords(title) }
+            val methodTags = readStringList(jsonObj, "method_tags")
+            val mergedReferences = (readStringList(jsonObj, "referenced_links") + hintLinks)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+            val topicTags = readStringList(jsonObj, "topic_tags")
+                .ifEmpty { domainTags }
+            val corePoints = readStringList(jsonObj, "core_points")
+            val paperCandidates = (
+                readPaperCandidates(jsonObj, "paper_candidates") +
+                    mergedReferences.mapNotNull(::classifyPaperCandidate) +
+                    buildPaperCandidatesFromIdentifier(identifier)
+                ).distinctBy { "${it.kind}:${it.url}" }
+
+            val source = jsonObj["source"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf(String::isNotBlank)
+                ?: inferSourceFromOcr(identifier, mergedReferences)
+            val contentType = jsonObj["content_type"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf(String::isNotBlank)
+                ?: inferContentTypeFromOcr(identifier, mergedReferences, trimmedText)
+            val year = metaObj?.get("year")?.jsonPrimitive?.contentOrNull
+                ?: inferYear(identifier, mergedReferences.firstOrNull() ?: title)
+            val dedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.contentOrNull
+                ?: buildDedupKey(identifier, title, year)
+            val mergedTags = (if (tags.isNotEmpty()) tags else keywords + domainTags + methodTags)
+                .distinct()
+                .take(10)
+            val primaryUrl = mergedReferences.firstOrNull()
+                ?: paperCandidates.firstOrNull()?.url
+                ?: ""
+
+            Result.success(
+                FullLinkParseResult(
+                    title = title,
+                    authors = jsonObj["authors"]?.jsonPrimitive?.contentOrNull ?: hintAuthors,
+                    summary = summary,
+                    summaryShort = summaryShort,
+                    summaryEn = summaryEn,
+                    summaryZh = summaryZh,
+                    contentType = contentType,
+                    source = source,
+                    identifier = identifier,
+                    tags = mergedTags,
+                    originalUrl = primaryUrl,
+                    conference = metaObj?.get("conference")?.jsonPrimitive?.contentOrNull,
+                    year = year,
+                    platform = metaObj?.get("platform")?.jsonPrimitive?.contentOrNull,
+                    accountName = jsonObj["account_name"]?.jsonPrimitive?.contentOrNull,
+                    articleAuthor = jsonObj["author"]?.jsonPrimitive?.contentOrNull
+                        ?: jsonObj["authors"]?.jsonPrimitive?.contentOrNull
+                        ?: hintAuthors,
+                    publishDate = jsonObj["publish_date"]?.jsonPrimitive?.contentOrNull,
+                    domainTags = domainTags,
+                    keywords = keywords,
+                    methodTags = methodTags,
+                    topicTags = topicTags,
+                    corePoints = corePoints,
+                    referencedLinks = mergedReferences,
+                    paperCandidates = paperCandidates,
+                    dedupKey = dedupKey
+                )
+            )
+        } catch (e: Exception) {
+            Result.success(
+                createOcrFallbackResult(
+                    rawText = rawText,
+                    hintTitle = pageHints.firstNotNullOfOrNull { it.title?.trim()?.takeIf(String::isNotBlank) },
+                    hintAuthors = pageHints.firstNotNullOfOrNull { it.authors?.trim()?.takeIf(String::isNotBlank) },
+                    hintIdentifier = pageHints.firstNotNullOfOrNull {
+                        it.identifier?.trim()?.takeIf(String::isNotBlank)
+                            ?: it.doi?.trim()?.takeIf(String::isNotBlank)
+                    } ?: extractIdentifierFromText(rawText),
+                    detectedReferences = extractCanonicalReferencesFromText(rawText)
+                )
             )
         }
     }
@@ -682,6 +948,155 @@ Rules:
             .map { it.value.trimEnd('.', ',', ';') }
             .distinct()
             .toList()
+    }
+
+    private fun extractIdentifierFromText(text: String): String? {
+        extractArxivIdFromInput(text)?.let { return it }
+        extractDoiFromInput(text)?.let { return it }
+
+        val arxivMatch = Regex("""(?i)\barxiv[:\s]*([a-z\-]+(?:\.[a-z\-]+)?/\d{7}|\d{4}\.\d{4,5}(?:v\d+)?)\b""")
+            .find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+        if (!arxivMatch.isNullOrBlank()) return arxivMatch
+
+        return Regex("""(?i)\b10\.\d{4,9}/[-._;()/:a-z0-9]+\b""")
+            .find(text)
+            ?.value
+    }
+
+    private fun extractCanonicalReferencesFromText(text: String): List<String> {
+        val collected = linkedSetOf<String>()
+        extractReferencedLinks(text).forEach { collected += it }
+
+        Regex("""(?i)\barxiv[:\s]*([a-z\-]+(?:\.[a-z\-]+)?/\d{7}|\d{4}\.\d{4,5}(?:v\d+)?)\b""")
+            .findAll(text)
+            .mapNotNull { it.groupValues.getOrNull(1) }
+            .forEach { collected += "https://arxiv.org/abs/${it.trim()}" }
+
+        Regex("""(?i)\b10\.\d{4,9}/[-._;()/:a-z0-9]+\b""")
+            .findAll(text)
+            .map { it.value.trim().trimEnd('.', ',', ';') }
+            .forEach { collected += "https://doi.org/$it" }
+
+        return collected.toList()
+    }
+
+    private fun buildPaperCandidatesFromIdentifier(identifier: String?): List<ArticlePaperCandidate> {
+        val normalized = identifier?.trim()?.takeIf(String::isNotBlank) ?: return emptyList()
+        return when {
+            extractArxivIdFromInput(normalized) != null -> {
+                listOf(
+                    ArticlePaperCandidate(
+                        url = "https://arxiv.org/abs/${extractArxivIdFromInput(normalized)}",
+                        label = normalized,
+                        kind = "arxiv"
+                    )
+                )
+            }
+            extractDoiFromInput(normalized) != null -> {
+                listOf(
+                    ArticlePaperCandidate(
+                        url = "https://doi.org/${extractDoiFromInput(normalized)}",
+                        label = normalized,
+                        kind = "doi"
+                    )
+                )
+            }
+            else -> emptyList()
+        }
+    }
+
+    private fun inferSourceFromOcr(identifier: String?, referencedLinks: List<String>): String {
+        val primary = referencedLinks.firstOrNull()
+        if (!primary.isNullOrBlank()) {
+            return guessSourceFromUrl(primary)
+        }
+
+        return when {
+            identifier == null -> "ocr"
+            extractArxivIdFromInput(identifier) != null -> "arxiv"
+            extractDoiFromInput(identifier) != null -> "doi"
+            else -> "ocr"
+        }
+    }
+
+    private fun inferContentTypeFromOcr(
+        identifier: String?,
+        referencedLinks: List<String>,
+        rawText: String
+    ): String {
+        if (!identifier.isNullOrBlank()) return "paper"
+
+        val lowerText = rawText.lowercase()
+        val articleLikeLink = referencedLinks.any {
+            val lower = it.lowercase()
+            lower.contains("mp.weixin.qq.com") ||
+                lower.contains("weixin.qq.com") ||
+                lower.contains("zhihu.com") ||
+                lower.contains("medium.com") ||
+                lower.contains("substack.com")
+        }
+        if (articleLikeLink) return "article"
+
+        return when {
+            lowerText.contains("kaggle") || lowerText.contains("报名") || lowerText.contains("截止") -> "competition"
+            lowerText.contains("abstract") || lowerText.contains("introduction") || lowerText.contains("references") -> "paper"
+            lowerText.contains("公众号") || lowerText.contains("微信") || lowerText.contains("作者") -> "article"
+            else -> "insight"
+        }
+    }
+
+    private fun createOcrFallbackResult(
+        rawText: String,
+        hintTitle: String?,
+        hintAuthors: String?,
+        hintIdentifier: String?,
+        detectedReferences: List<String>
+    ): FullLinkParseResult {
+        val title = hintTitle
+            ?: rawText.lineSequence().map { it.trim() }.firstOrNull { it.length in 4..80 }
+            ?: "图片扫描"
+        val identifier = hintIdentifier ?: extractIdentifierFromText(rawText)
+        val references = (detectedReferences + buildPaperCandidatesFromIdentifier(identifier).map { it.url })
+            .distinct()
+        val contentType = inferContentTypeFromOcr(identifier, references, rawText)
+        val source = inferSourceFromOcr(identifier, references)
+        val keywords = inferKeywords(title)
+        val domainTags = inferDomainTags(title)
+        val paperCandidates = (
+            references.mapNotNull(::classifyPaperCandidate) + buildPaperCandidatesFromIdentifier(identifier)
+            ).distinctBy { "${it.kind}:${it.url}" }
+        val year = inferYear(identifier, references.firstOrNull() ?: title)
+        val summary = rawText.take(180).ifBlank { "已完成 OCR 扫描" }
+
+        return FullLinkParseResult(
+            title = title,
+            authors = hintAuthors,
+            summary = summary,
+            summaryShort = summary.take(120),
+            summaryEn = null,
+            summaryZh = summary.take(120),
+            contentType = contentType,
+            source = source,
+            identifier = identifier,
+            tags = (keywords + domainTags).distinct().take(8),
+            originalUrl = references.firstOrNull().orEmpty(),
+            conference = null,
+            year = year,
+            platform = null,
+            accountName = null,
+            articleAuthor = hintAuthors,
+            publishDate = null,
+            domainTags = domainTags,
+            keywords = keywords,
+            methodTags = emptyList(),
+            topicTags = domainTags,
+            corePoints = emptyList(),
+            referencedLinks = references,
+            paperCandidates = paperCandidates,
+            dedupKey = buildDedupKey(identifier, title, year)
+        )
     }
 
     private fun classifyPaperCandidate(url: String): ArticlePaperCandidate? {
@@ -846,12 +1261,16 @@ Rules:
      */
     suspend fun parseFullLink(link: String): Result<FullLinkParseResult> = withContext(Dispatchers.IO) {
         try {
+            val normalizedLink = normalizeLinkInput(link)
             android.util.Log.d("AIService", "========== 开始解析链接 ==========")
             android.util.Log.d("AIService", "链接: $link")
+            if (normalizedLink != link) {
+                android.util.Log.d("AIService", "已规范化输入: $normalizedLink")
+            }
             
             // Step 1: 抓取网页真实内容
             android.util.Log.d("AIService", "Step 1: 抓取网页内容...")
-            val webContentResult = webContentFetcher.fetchContent(link)
+            val webContentResult = webContentFetcher.fetchContent(normalizedLink)
             
             val webContent = webContentResult.getOrNull()
             if (webContent != null) {
@@ -860,11 +1279,11 @@ Rules:
                 
                 // Step 2: 用 AI 对抓取的内容进行结构化解析
                 android.util.Log.d("AIService", "Step 2: AI 结构化解析...")
-                return@withContext parseContentWithAI(webContent, link)
+                return@withContext parseContentWithAI(webContent, normalizedLink)
             } else {
                 // 抓取失败，降级为仅解析 URL
                 android.util.Log.w("AIService", "抓取失败，降级为 URL 解析: ${webContentResult.exceptionOrNull()?.message}")
-                return@withContext parseUrlOnly(link).map { result ->
+                return@withContext parseUrlOnly(normalizedLink).map { result ->
                     result.copy(
                         feedbackMessage = webContentResult.exceptionOrNull()?.message
                             ?: "未抓到网页正文，已切换为快速链接解析"
@@ -883,9 +1302,23 @@ Rules:
     }
 
     fun createQuickLinkDraft(link: String): FullLinkParseResult {
-        return createFallbackResult(link).copy(
+        val normalizedLink = normalizeLinkInput(link)
+        return createFallbackResult(normalizedLink).copy(
             feedbackMessage = "链接已加入队列，正在后台解析"
         )
+    }
+
+    fun normalizeLinkInput(input: String): String {
+        val trimmed = input.trim()
+        if (trimmed.isBlank()) return trimmed
+        if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            return trimmed
+        }
+
+        extractArxivIdFromInput(trimmed)?.let { return "https://arxiv.org/abs/$it" }
+        extractDoiFromInput(trimmed)?.let { return "https://doi.org/$it" }
+
+        return trimmed
     }
     
     /**
@@ -1264,6 +1697,8 @@ Rules:
     private fun guessContentTypeFromUrl(url: String): String {
         val lowerUrl = url.lowercase()
         return when {
+            extractArxivIdFromInput(lowerUrl) != null -> "paper"
+            extractDoiFromInput(lowerUrl) != null -> "paper"
             lowerUrl.contains("arxiv.org") -> "paper"
             lowerUrl.contains("doi.org") -> "paper"
             lowerUrl.contains("ieee.org") -> "paper"
@@ -1285,6 +1720,8 @@ Rules:
     private fun guessSourceFromUrl(url: String): String {
         val lowerUrl = url.lowercase()
         return when {
+            extractArxivIdFromInput(lowerUrl) != null -> "arxiv"
+            extractDoiFromInput(lowerUrl) != null -> "doi"
             lowerUrl.contains("arxiv.org") -> "arxiv"
             lowerUrl.contains("doi.org") -> "doi"
             lowerUrl.contains("mp.weixin.qq.com") -> "wechat"
@@ -1299,6 +1736,9 @@ Rules:
      * 从URL提取标识符（arXiv ID 或 DOI）
      */
     private fun extractIdentifierFromUrl(url: String): String? {
+        extractArxivIdFromInput(url)?.let { return it }
+        extractDoiFromInput(url)?.let { return it }
+
         // arXiv ID 模式: arxiv.org/abs/xxxx.xxxxx
         val arxivRegex = Regex("arxiv\\.org/abs/(\\d+\\.\\d+)")
         arxivRegex.find(url)?.groupValues?.getOrNull(1)?.let { return it }
@@ -1308,6 +1748,35 @@ Rules:
         doiRegex.find(url)?.groupValues?.getOrNull(1)?.let { return it }
         
         return null
+    }
+
+    private fun extractArxivIdFromInput(input: String): String? {
+        val normalized = input.trim()
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .removePrefix("arxiv.org/abs/")
+            .removePrefix("arxiv.org/pdf/")
+
+        val patterns = listOf(
+            Regex("""(?i)^(?:arxiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)$"""),
+            Regex("""(?i)^(?:arxiv:)?([a-z\-]+(?:\.[a-z\-]+)?/\d{7}(?:v\d+)?)$""")
+        )
+
+        return patterns.firstNotNullOfOrNull { pattern ->
+            pattern.find(normalized)?.groupValues?.getOrNull(1)
+        }
+    }
+
+    private fun extractDoiFromInput(input: String): String? {
+        val normalized = input.trim().trimEnd('/', '.', '，', ',', ';', '；')
+        val patterns = listOf(
+            Regex("""(?i)^(10\.\d{4,9}/\S+)$"""),
+            Regex("""(?i)^(?:https?://)?(?:dx\.)?doi\.org/(10\.\d{4,9}/\S+)$""")
+        )
+
+        return patterns.firstNotNullOfOrNull { pattern ->
+            pattern.find(normalized)?.groupValues?.getOrNull(1)
+        }
     }
 }
 
@@ -1323,7 +1792,10 @@ data class OCRResult(
     val type: String,
     val title: String?,
     val authors: String?,
+    val identifier: String? = null,
+    val identifierType: String? = null,
     val doi: String?,
+    val referencedLinks: List<String> = emptyList(),
     val content: String?
 )
 
@@ -1410,11 +1882,7 @@ data class FullLinkParseResult(
         return when (contentType.lowercase()) {
             "paper" -> com.example.ai4research.domain.model.ItemType.PAPER
             "competition" -> com.example.ai4research.domain.model.ItemType.COMPETITION
-            "article" -> if (looksLikePaper) {
-                com.example.ai4research.domain.model.ItemType.PAPER
-            } else {
-                com.example.ai4research.domain.model.ItemType.ARTICLE
-            }
+            "article" -> com.example.ai4research.domain.model.ItemType.ARTICLE
             "insight" -> if (looksLikePaper) {
                 com.example.ai4research.domain.model.ItemType.PAPER
             } else {

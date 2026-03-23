@@ -1,5 +1,6 @@
 package com.example.ai4research.ui.main
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai4research.domain.model.ItemMetaData
@@ -10,6 +11,7 @@ import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.repository.ItemRepository
 import com.example.ai4research.domain.repository.ProjectRepository
 import com.example.ai4research.service.FloatingWindowManager
+import com.example.ai4research.service.ImageScanImportService
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -33,6 +35,7 @@ enum class FilterType {
 class MainViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
     private val projectRepository: ProjectRepository,
+    private val imageScanImportService: ImageScanImportService,
     val floatingWindowManager: FloatingWindowManager
 ) : ViewModel() {
 
@@ -222,6 +225,38 @@ class MainViewModel @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "Delete exception: ${e.message}", e)
             }
+        }
+    }
+
+    fun importScannedImages(
+        imageUris: List<Uri>,
+        selectedType: ItemType,
+        projectId: String?,
+        projectName: String?,
+        onQueued: (Result<ResearchItem>) -> Unit = {},
+        onFinished: (Result<ResearchItem>) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val queuedResult = imageScanImportService.queueImport(
+                imageUris = imageUris,
+                selectedType = selectedType,
+                projectId = projectId,
+                projectName = projectName,
+                captureMode = "gallery"
+            )
+
+            queuedResult.fold(
+                onSuccess = { queued ->
+                    onQueued(Result.success(queued.item))
+                    val finalResult = imageScanImportService.processQueuedImport(queued)
+                    onFinished(finalResult)
+                },
+                onFailure = { error ->
+                    val failure = Result.failure<ResearchItem>(error)
+                    onQueued(failure)
+                    onFinished(failure)
+                }
+            )
         }
     }
 
@@ -419,6 +454,7 @@ class MainViewModel @Inject constructor(
                 this["account_name"] = meta.accountName
                 this["author"] = meta.author
                 this["publish_date"] = meta.publishDate
+                this["identifier"] = meta.identifier
                 this["summary_short"] = meta.summaryShort
                 this["keywords"] = meta.keywords
                 this["topic_tags"] = meta.topicTags

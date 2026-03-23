@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,23 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
+}
+
+val localEnv = Properties().apply {
+    val envFile = rootProject.file(".env.local")
+    if (envFile.exists()) {
+        envFile.reader().use(::load)
+    }
+}
+
+fun resolveSecret(name: String, defaultValue: String = ""): String {
+    return System.getenv(name)?.takeIf { it.isNotBlank() }
+        ?: localEnv.getProperty(name)?.takeIf { it.isNotBlank() }
+        ?: defaultValue
+}
+
+fun escapeBuildConfigValue(value: String): String {
+    return value.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 
 android {
@@ -17,6 +36,27 @@ android {
         targetSdk = 34  
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField(
+            "String",
+            "NOCO_BASE_URL",
+            "\"${escapeBuildConfigValue(resolveSecret("AI4RESEARCH_NOCO_BASE_URL"))}\""
+        )
+        buildConfigField(
+            "String",
+            "NOCO_TOKEN",
+            "\"${escapeBuildConfigValue(resolveSecret("AI4RESEARCH_NOCO_TOKEN"))}\""
+        )
+        buildConfigField(
+            "String",
+            "SILICONFLOW_BASE_URL",
+            "\"${escapeBuildConfigValue(resolveSecret("AI4RESEARCH_SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1/"))}\""
+        )
+        buildConfigField(
+            "String",
+            "SILICONFLOW_API_KEY",
+            "\"${escapeBuildConfigValue(resolveSecret("AI4RESEARCH_SILICONFLOW_API_KEY"))}\""
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -39,6 +79,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

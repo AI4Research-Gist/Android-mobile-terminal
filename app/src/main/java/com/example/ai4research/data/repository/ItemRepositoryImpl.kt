@@ -129,7 +129,9 @@ class ItemRepositoryImpl @Inject constructor(
         type: ItemType,
         status: ItemStatus,
         metaJson: String?,
-        tags: List<String>? = null
+        tags: List<String>? = null,
+        projectId: String? = null,
+        projectName: String? = null
     ): com.example.ai4research.data.local.entity.ItemEntity {
         val effectiveMeta = mergeMetaJson(null, metaJson, null)
         return com.example.ai4research.data.local.entity.ItemEntity(
@@ -143,8 +145,8 @@ class ItemRepositoryImpl @Inject constructor(
             audioUrl = null,
             status = status.toServerString(),
             readStatus = ReadStatus.UNREAD.toServerString(),
-            projectId = null,
-            projectName = null,
+            projectId = projectId,
+            projectName = projectName,
             isStarred = false,
             metaJson = mergeMetaJson(effectiveMeta, null, null)?.let { merged ->
                 if (!tags.isNullOrEmpty()) {
@@ -347,7 +349,9 @@ class ItemRepositoryImpl @Inject constructor(
         status: ItemStatus,
         metaJson: String?,
         note: String?,
-        tags: List<String>?
+        tags: List<String>?,
+        projectId: String?,
+        projectName: String?
     ): Result<ResearchItem> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
@@ -363,12 +367,18 @@ class ItemRepositoryImpl @Inject constructor(
             status = status.toServerString(),
             readStatus = ReadStatus.UNREAD.toServerString(),
             tags = tags?.joinToString(","),
+            projectId = projectId?.toIntOrNull(),
             metaJson = parseMetaJson(mergedMetaJson)
         )
 
         return try {
             val created = mergeServerItem(api.createItem(primaryDto), primaryDto)
-            val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
+            val entity = ItemMapper.dtoToEntity(
+                created,
+                projectId = projectId,
+                projectName = projectName,
+                ownerUserId = ownerUserId
+            )
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
@@ -385,7 +395,12 @@ class ItemRepositoryImpl @Inject constructor(
 
             runCatching {
                 val created = mergeServerItem(api.createItem(fallbackDto), fallbackDto)
-                val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
+                val entity = ItemMapper.dtoToEntity(
+                    created,
+                    projectId = projectId,
+                    projectName = projectName,
+                    ownerUserId = ownerUserId
+                )
                 itemDao.insertItem(entity)
                 android.util.Log.w(
                     "ItemRepository",
@@ -417,7 +432,9 @@ class ItemRepositoryImpl @Inject constructor(
         status: ItemStatus,
         metaJson: String?,
         note: String?,
-        tags: List<String>?
+        tags: List<String>?,
+        projectId: String?,
+        projectName: String?
     ): Result<ResearchItem> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
@@ -431,7 +448,9 @@ class ItemRepositoryImpl @Inject constructor(
                 type = type,
                 status = status,
                 metaJson = mergeMetaJson(null, metaJson, note),
-                tags = tags
+                tags = tags,
+                projectId = projectId,
+                projectName = projectName
             )
             itemDao.insertItem(entity)
             Result.success(ItemMapper.entityToDomain(entity))
@@ -535,6 +554,7 @@ class ItemRepositoryImpl @Inject constructor(
         summary: String?,
         note: String?,
         content: String?,
+        originUrl: String?,
         tags: List<String>?,
         metaJson: String?,
         status: ItemStatus?
@@ -543,11 +563,22 @@ class ItemRepositoryImpl @Inject constructor(
 
         return try {
             val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
-            val mergedMeta = mergeMetaJson(local.metaJson, metaJson, note)
+            val mergedMeta = mergeMetaJson(local.metaJson, metaJson, note)?.let { base ->
+                if (!tags.isNullOrEmpty()) {
+                    mergeMetaJson(base, gson.toJson(mapOf("tags" to tags)), null)
+                } else {
+                    base
+                }
+            } ?: if (!tags.isNullOrEmpty()) {
+                mergeMetaJson(null, gson.toJson(mapOf("tags" to tags)), note)
+            } else {
+                mergeMetaJson(local.metaJson, metaJson, note)
+            }
             val updatedLocal = local.copy(
                 title = title ?: local.title,
                 summary = summary ?: local.summary,
                 contentMarkdown = content ?: local.contentMarkdown,
+                originUrl = originUrl ?: local.originUrl,
                 status = status?.toServerString() ?: local.status,
                 metaJson = mergedMeta,
                 syncedAt = System.currentTimeMillis()
@@ -562,6 +593,7 @@ class ItemRepositoryImpl @Inject constructor(
                 title = title ?: local.title,
                 summary = summary ?: local.summary,
                 contentMd = content ?: local.contentMarkdown,
+                originUrl = originUrl ?: local.originUrl,
                 status = status?.toServerString() ?: local.status,
                 tags = tags?.joinToString(","),
                 metaJson = parseMetaJson(mergedMeta)

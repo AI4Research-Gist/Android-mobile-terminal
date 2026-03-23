@@ -120,13 +120,16 @@ class FloatingWindowService : Service() {
     @Inject
     lateinit var itemRepository: ItemRepository
 
+    @Inject
+    lateinit var imageScanImportService: ImageScanImportService
+
     // 广播接收器
     private val captureReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_CAPTURE_COMPLETED) {
                 val path = intent.getStringExtra(EXTRA_IMAGE_PATH)
                 if (path != null) {
-                    handleScreenshot(path)
+                    handleScreenshotV2(path)
                 }
             }
         }
@@ -625,6 +628,45 @@ class FloatingWindowService : Service() {
     }
 
     // 用于存储解析结果，供后续分类选择使用
+    private fun handleScreenshotV2(path: String) {
+        mainHandler.post {
+            floatingBall?.isProcessing = true
+            Toast.makeText(this, "正在识别截图并整理内容...", Toast.LENGTH_SHORT).show()
+        }
+
+        serviceScope.launch {
+            try {
+                val saveResult = imageScanImportService.importFromLocalPaths(
+                    imagePaths = listOf(path),
+                    captureMode = "screenshot"
+                )
+
+                withContext(Dispatchers.Main) {
+                    floatingBall?.isProcessing = false
+                    saveResult.fold(
+                        onSuccess = { item ->
+                            showResultOverlay("识别完成", item.title)
+                        },
+                        onFailure = { error ->
+                            itemRepository.createImageItem(path, "已采集图片，OCR 暂未识别出正文")
+                            Toast.makeText(
+                                this@FloatingWindowService,
+                                "截图已保存，但整理失败: ${error.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    floatingBall?.isProcessing = false
+                    itemRepository.createImageItem(path, "已采集图片，OCR 暂未识别出正文")
+                    Toast.makeText(this@FloatingWindowService, "识别失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private var pendingParseResult: FullLinkParseResult? = null
     
     /**
@@ -1706,7 +1748,7 @@ class FloatingWindowService : Service() {
                 withContext(Dispatchers.Main) {
                     isCapturing = false
                     if (imagePath != null) {
-                        handleScreenshot(imagePath)
+                        handleScreenshotV2(imagePath)
                     } else {
                         Toast.makeText(this@FloatingWindowService, "保存截图失败", Toast.LENGTH_SHORT).show()
                     }

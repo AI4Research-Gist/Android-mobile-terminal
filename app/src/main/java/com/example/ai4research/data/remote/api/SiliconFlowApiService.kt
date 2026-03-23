@@ -1,5 +1,6 @@
 package com.example.ai4research.data.remote.api
 
+import com.example.ai4research.BuildConfig
 import com.example.ai4research.data.remote.dto.ChatCompletionResponse
 import com.example.ai4research.data.remote.dto.SimpleChatRequest
 import com.example.ai4research.data.remote.dto.VLChatRequest
@@ -19,11 +20,11 @@ import retrofit2.http.Part
 interface SiliconFlowApiService {
 
     companion object {
-        const val BASE_URL = "https://api.siliconflow.cn/v1/"
+        val BASE_URL: String = BuildConfig.SILICONFLOW_BASE_URL
         
         // 当前默认模型配置
         const val MODEL_TEXT = "Qwen/Qwen3.5-397B-A17B"  // 文本结构化解析
-        const val MODEL_VISION = "Pro/moonshotai/Kimi-K2.5"  // 视觉识别 / OCR
+        const val MODEL_VISION = "Qwen/Qwen3.5-397B-A17B"  // 视觉识别 / OCR
         const val MODEL_ASR = "FunAudioLLM/SenseVoiceSmall"  // 语音转写
     }
 
