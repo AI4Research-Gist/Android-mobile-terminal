@@ -1,5 +1,8 @@
 # Cloud / Web API Integration Guide
 
+> Current sync baseline: `v0.3.0`
+> v0.3.0 inspiration addendum: [INSPIRATION_PAGE_V0.3.0_SPEC.md](D:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
+
 本文档基于当前安卓端实现整理，面向：
 
 - Web 端开发者
@@ -7,6 +10,48 @@
 - 需要与安卓端联调数据契约的同学
 
 当前版本口径：`v0.2.0`
+
+### 6.6 Insight v0.3.0 补充字段
+
+当前 `INSIGHT` 已不再只是旧版“动态”条目，而是灵感页中的手动灵感记录。
+
+新增/强化约定如下：
+
+```json
+{
+  "source": "灵感",
+  "body": "用户手动填写的正文",
+  "tags": ["idea", "product"],
+  "image_uri": "content://...",
+  "audio_uri": "content://...",
+  "audio_duration": 37,
+  "has_image": true,
+  "has_audio": true
+}
+```
+
+字段语义：
+
+- `title`
+  - 灵感标题，必填
+- `summary`
+  - 灵感摘要；正文存在时通常取正文前 120 字左右
+- `content_md`
+  - 灵感正文
+- `origin_url`
+  - 对灵感条目来说，当前主要作为图片附件 URI 使用
+- `audio_url`
+  - 对灵感条目来说，当前主要作为原始语音附件 URI 使用
+- `meta_json.body`
+  - 正文镜像字段，供 WebView 与兼容逻辑使用
+- `meta_json.tags`
+  - 自定义标签数组
+- `meta_json.image_uri`
+  - 图片附件 URI 镜像字段
+- `meta_json.audio_uri`
+  - 语音附件 URI 镜像字段
+- `meta_json.audio_duration`
+  - 原始语音时长，单位秒
 
 ---
 

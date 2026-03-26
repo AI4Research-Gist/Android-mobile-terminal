@@ -3,6 +3,9 @@
 ## 1. 文档目标
 本文档以当前代码库为唯一依据，完整说明 **Gist**（原名 AI4Research）的产品定位、架构设计、核心流程、数据模型、服务能力与技术细节，便于后续维护、迭代与交接。
 
+`v0.3.0` 灵感页接口与字段补充说明见：
+- [INSPIRATION_PAGE_V0.3.0_SPEC.md](D:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
+
 ## 2. 命名与范围说明（重要）
 - **产品对外名称已改为：Gist**（`app_name` 已为 Gist）。
 - **代码与包名仍大量保留 AI4Research 历史命名**：
@@ -54,11 +57,13 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 
 ## 5. 功能清单（已实现）
 - **混合 UI**：`assets/main_ui.html`（主界面）+ `assets/login.html`（登录界面）+ Compose 详情页。
-- **研究卡片管理**：paper / competition / insight / voice 统一管理，支持搜索、过滤、项目归属、星标、阅读状态。
-- **详情页**：Markdown 渲染、编辑保存、标记已读、星标、删除、项目归属同步。
+- **研究卡片管理**：paper / article / competition / insight / voice 统一管理，支持搜索、过滤、项目归属、星标、阅读状态。
+- **灵感页**：底部导航首页已重构为 `灵感`，支持页面内新建、搜索、显示已读、隐藏已读。
+- **灵感手动录入**：单条灵感支持标题、正文、图片、原始语音四模块自由组合。
+- **详情页**：Markdown 渲染、编辑保存、标记已读、星标、删除、项目归属同步；灵感详情支持图片预览与原始语音播放。
 - **账号系统**：NocoDB 用户表注册/登录；本地使用 EncryptedSharedPreferences 缓存 token。
 - **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接。
-- **语音采集**：语音录制 → SiliconFlow ASR 转写 → AI 优化润色 → 保存为语音卡片。
+- **语音采集**：保留独立语音卡片录音 → SiliconFlow ASR 转写 → AI 优化润色链路；同时灵感页支持原始语音附件手动保存。
 - **AI 解析**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
@@ -66,7 +71,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 
 ## 5.1 语音采集功能详情
 ### 功能入口
-主页快速采集窗口（点击"+"号）→ 选择"语音"按钮 → 进入 Compose 录音页面。
+主页快速采集窗口（点击底部中央 "+" 号）→ 选择"语音"按钮 → 进入 Compose 录音页面。
 
 ### 技术实现
 | 组件 | 文件路径 | 说明 |
@@ -103,17 +108,33 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 
 ### 6.2 WebView 数据同步
 - `MainScreen` 将 Room Flow 转换为 JSON 并通过 JS 注入：
-  - `window.receivePapers` / `receiveCompetitions` / `receiveInsights` / `receiveProjects`
+  - `window.receivePapers`
+  - `window.receiveArticles`
+  - `window.receiveCompetitions`
+  - `window.receiveInsights`
+  - `window.receiveVoiceItems`
+  - `window.receiveProjects`
 - 页面准备完成后（`isPageReady`）推送首屏数据，再触发一次刷新。
 - 悬浮窗触发入库时，通过广播通知主页面刷新。
 
-### 6.3 详情页流程
+### 6.3 灵感页手动录入流程
+- 进入底部导航 `灵感`
+- 点击页面内 `新建灵感`
+- 填写标题（必填）
+- 选填正文 / 图片 / 原始语音 / 标签 / 已读状态
+- 通过 JS Bridge 调用 `saveInsight(payloadJson)`
+- Repository 将内容保存为 `INSIGHT`
+- 列表即时刷新
+- 点击卡片进入 Compose 详情页查看图片与语音
+
+### 6.4 详情页流程
 - 进入 `DetailScreen` 时自动 `load()`。
 - 若 `ReadStatus == UNREAD`，自动标记为已读。
 - 支持编辑 Markdown，保存后同步远端再写回本地。
 - 支持项目绑定/解绑/新建项目。
+- `INSIGHT` 类型详情支持图片预览与原始语音播放。
 
-### 6.4 悬浮窗采集流程
+### 6.5 悬浮窗采集流程
 - 剪贴板检测 URL/DOI/arXiv → 悬浮球徽标提示。
 - 点击悬浮球 → 选择截图/区域/链接 → AI 解析。
 - 解析结果展示分类选择（paper/competition/insight）与来源选择（wechat/zhihu/web/custom）。
@@ -127,12 +148,13 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - 技术栈：React 18（ESM）、Tailwind CDN、Framer Motion、Lucide。
 - 字体：Space Grotesk + Inter（Google Fonts）。
 - 主题：Light/Dark 切换（Web 内部状态）。
-- 页面结构：Home / Papers / Competitions / Settings + FAB Capture Modal。
+- 页面结构：Inspiration(Home) / Papers / Articles / Competitions / Settings + FAB Capture Modal。
 - UI 特性：玻璃拟态（liquid glass）、动态背景、Aurora/网格动画。
 - 数据解析：
   - `meta_json` 字符串解析 JSON。
   - `read_status`、`status` 取空格前缀（如 `unread (未读)` → `unread`）。
-  - `UpdatedAt` 用于显示时间。
+  - 灵感页优先读取 `CreatedAt` 展示创建时间。
+  - `origin_url` / `audio_url` 在灵感页中分别用作图片与原始语音附件。
 
 ### 7.2 `assets/login.html`
 - 登录/注册 3D 翻转卡片（React + Tailwind + Babel）。
@@ -147,8 +169,10 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 ## 8. JS Bridge（前后端接口）
 ### 8.1 Android → Web（注入到 window）
 - `receivePapers(json)`
+- `receiveArticles(json)`
 - `receiveCompetitions(json)`
 - `receiveInsights(json)`
+- `receiveVoiceItems(json)`
 - `receiveProjects(json)`
 - `setActiveTab(tabId)`
 
@@ -170,6 +194,10 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - `requestFloatingWindowPermission()`
 - `setFloatingWindowEnabled(enabled)`
 - `startVoiceRecording()` - 启动语音录制页面
+- `pickInsightImage()` - 为灵感条目选择图片
+- `recordInsightAudio()` - 为灵感条目录制原始语音
+- `saveInsight(payloadJson)` - 保存灵感条目（标题/正文/图片/语音/标签/已读状态）
+- `updateInsightReadStatus(itemId, readStatus)` - 更新灵感已读状态
 
 ## 9. 数据模型
 ### 9.1 Domain Model
@@ -182,7 +210,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - metaData (Paper/Competition/Insight/Voice)
 
 `ItemType`:
-- PAPER / COMPETITION / INSIGHT / VOICE
+- PAPER / ARTICLE / COMPETITION / INSIGHT / VOICE
 
 `ItemStatus` / `ReadStatus`:
 - 存储形式包含中文说明（如 `processing (解析中)`）。
@@ -231,7 +259,7 @@ Base ID：`p8bhzq1ltutm8zr`
 ### 9.5 meta_json 约定
 - Paper：`authors[]`, `conference`, `year`, `tags[]`
 - Competition：`organizer`, `deadline`, `theme`, `competitionType`, `prizePool`
-- Insight：`tags[]`
+- Insight：`source`, `body`, `tags[]`, `image_uri`, `audio_uri`, `audio_duration`, `has_image`, `has_audio`
 - Voice：`duration`, `transcription`
 - AI 解析扩展：`source`, `identifier`, `summary_en`, `summary_zh`, `platform`
 

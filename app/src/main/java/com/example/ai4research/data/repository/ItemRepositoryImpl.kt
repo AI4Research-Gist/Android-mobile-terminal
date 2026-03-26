@@ -126,6 +126,7 @@ class ItemRepositoryImpl @Inject constructor(
         summary: String,
         contentMd: String,
         originUrl: String?,
+        audioUrl: String? = null,
         type: ItemType,
         status: ItemStatus,
         metaJson: String?,
@@ -142,14 +143,14 @@ class ItemRepositoryImpl @Inject constructor(
             summary = summary,
             contentMarkdown = contentMd,
             originUrl = originUrl,
-            audioUrl = null,
+            audioUrl = audioUrl,
             status = status.toServerString(),
             readStatus = ReadStatus.UNREAD.toServerString(),
             projectId = projectId,
             projectName = projectName,
             isStarred = false,
             metaJson = mergeMetaJson(effectiveMeta, null, null)?.let { merged ->
-                if (!tags.isNullOrEmpty()) {
+                if (tags != null) {
                     mergeMetaJson(merged, gson.toJson(mapOf("tags" to tags)), null)
                 } else {
                     merged
@@ -351,7 +352,8 @@ class ItemRepositoryImpl @Inject constructor(
         note: String?,
         tags: List<String>?,
         projectId: String?,
-        projectName: String?
+        projectName: String?,
+        audioUrl: String?
     ): Result<ResearchItem> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
@@ -363,7 +365,7 @@ class ItemRepositoryImpl @Inject constructor(
             summary = summary,
             contentMd = contentMd,
             originUrl = originUrl,
-            audioUrl = null,
+            audioUrl = audioUrl,
             status = status.toServerString(),
             readStatus = ReadStatus.UNREAD.toServerString(),
             tags = tags?.joinToString(","),
@@ -557,19 +559,30 @@ class ItemRepositoryImpl @Inject constructor(
         originUrl: String?,
         tags: List<String>?,
         metaJson: String?,
-        status: ItemStatus?
+        status: ItemStatus?,
+        audioUrl: String?
     ): Result<Unit> {
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
         return try {
             val local = itemDao.getItemById(ownerUserId, id) ?: return Result.failure(Exception("Item not found"))
+            val resolvedOriginUrl = when (originUrl) {
+                null -> local.originUrl
+                "" -> null
+                else -> originUrl
+            }
+            val resolvedAudioUrl = when (audioUrl) {
+                null -> local.audioUrl
+                "" -> null
+                else -> audioUrl
+            }
             val mergedMeta = mergeMetaJson(local.metaJson, metaJson, note)?.let { base ->
-                if (!tags.isNullOrEmpty()) {
+                if (tags != null) {
                     mergeMetaJson(base, gson.toJson(mapOf("tags" to tags)), null)
                 } else {
                     base
                 }
-            } ?: if (!tags.isNullOrEmpty()) {
+            } ?: if (tags != null) {
                 mergeMetaJson(null, gson.toJson(mapOf("tags" to tags)), note)
             } else {
                 mergeMetaJson(local.metaJson, metaJson, note)
@@ -578,7 +591,8 @@ class ItemRepositoryImpl @Inject constructor(
                 title = title ?: local.title,
                 summary = summary ?: local.summary,
                 contentMarkdown = content ?: local.contentMarkdown,
-                originUrl = originUrl ?: local.originUrl,
+                originUrl = resolvedOriginUrl,
+                audioUrl = resolvedAudioUrl,
                 status = status?.toServerString() ?: local.status,
                 metaJson = mergedMeta,
                 syncedAt = System.currentTimeMillis()
@@ -593,7 +607,8 @@ class ItemRepositoryImpl @Inject constructor(
                 title = title ?: local.title,
                 summary = summary ?: local.summary,
                 contentMd = content ?: local.contentMarkdown,
-                originUrl = originUrl ?: local.originUrl,
+                originUrl = resolvedOriginUrl,
+                audioUrl = resolvedAudioUrl,
                 status = status?.toServerString() ?: local.status,
                 tags = tags?.joinToString(","),
                 metaJson = parseMetaJson(mergedMeta)

@@ -219,7 +219,8 @@
     const {
       Home, BookOpen, Trophy, Lightbulb, Plus, Search, MoreHorizontal,
       Clock, Tag, ChevronRight, Mic, Image: ImageIcon, Link: LinkIcon,
-      Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut
+      Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut,
+      FileText, ImagePlus, Pencil, Eye, EyeOff, Trash2, Volume2
     } = LucideReact;
 
     // --- 数据接收桥接 ---
@@ -240,6 +241,42 @@
       const baseText = status === 'done' ? '已解析' : status === 'failed' ? '解析失败' : '解析中';
       return elapsedText ? `${baseText} · ${elapsedText}` : baseText;
     };
+
+    const formatInsightDate = (value, withTime = false) => {
+      if (!value) return "刚刚";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "刚刚";
+      return withTime
+        ? date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+    };
+
+    const extractMediaName = (uri) => {
+      if (!uri) return "";
+      const raw = String(uri).split('/').pop() || String(uri);
+      return decodeURIComponent(raw);
+    };
+
+    const buildTagArray = (rawValue) => {
+      if (Array.isArray(rawValue)) return rawValue.map(tag => String(tag).trim()).filter(Boolean);
+      return String(rawValue || "")
+        .split(/[\n,，]/)
+        .map(tag => tag.trim())
+        .filter(Boolean);
+    };
+
+    const buildInsightDraft = (item = null) => ({
+      id: item?.id || null,
+      title: item?.title || "",
+      body: item?.body || "",
+      imageUri: item?.imageUrl || null,
+      imageName: item?.imageUrl ? extractMediaName(item.imageUrl) : "",
+      audioUri: item?.audioUrl || null,
+      audioName: item?.audioUrl ? extractMediaName(item.audioUrl) : "",
+      audioDurationSeconds: item?.audioDuration || 0,
+      tagsInput: Array.isArray(item?.tags) ? item.tags.join(", ") : "",
+      readStatus: item?.readStatus === 'read' ? 'read' : 'unread'
+    });
 
     window.receivePapers = (jsonStr) => {
       console.log("receivePapers called with:", typeof jsonStr, Array.isArray(jsonStr) ? `array[${jsonStr.length}]` : (typeof jsonStr === 'string' ? jsonStr.substring(0, 100) : "object"));
@@ -466,14 +503,22 @@
             id: item.Id || item.id,
             title: item.title,
             summary: item.summary || "暂无描述",
+            body: item.content_md || meta.body || "",
             source: meta.source || "个人灵感",
             category: meta.category || "未分类",
+            imageUrl: item.origin_url || meta.image_uri || null,
+            audioUrl: item.audio_url || meta.audio_uri || null,
+            audioDuration: Number(meta.audio_duration || 0),
+            tags: Array.isArray(meta.tags)
+              ? meta.tags
+              : (item.tags ? String(item.tags).split(/[,，]/).map(tag => tag.trim()).filter(Boolean) : []),
             parseStartedAt: meta.parse_started_at || null,
             parseFinishedAt: meta.parse_finished_at || null,
             parseFeedback: meta.parse_feedback || "",
             readStatus: readStatus,
             status: status,
-            timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚",
+            createdAt: item.CreatedAt || item.created_at || item.UpdatedAt || null,
+            timestamp: item.CreatedAt ? new Date(item.CreatedAt).toLocaleString('zh-CN') : (item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleString('zh-CN') : "刚刚"),
             itemType: 'insight'
           };
         });
@@ -797,6 +842,471 @@
           ) : (
             <div className={`text-center py-4 text-xs ${isDark ? 'text-white/30' : 'text-slate-400'}`}>暂无即将截止的比赛</div>
           )}
+        </div>
+      );
+    };
+
+    const InsightEditorModal = ({ isOpen, draft, setDraft, isSaving, errorMessage, onClose, onSave }) => {
+      const { isDark } = useContext(ThemeContext);
+
+      if (!isOpen) return null;
+
+      return (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[70] flex items-end justify-center p-4"
+          onClick={onClose}
+        >
+          <div className="absolute inset-0 bg-black/10 backdrop-blur-[4px]" />
+          <motion.div
+            initial={{ y: "110%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "110%" }}
+            transition={{ type: "spring", damping: 26, stiffness: 320 }}
+            className={`liquid-glass ${isDark ? 'liquid-glass-dark' : ''} relative z-10 w-full max-w-md rounded-[2.5rem] p-5 pb-8`}
+            style={{
+              background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.18)',
+              backdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
+              WebkitBackdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
+              border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.35)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`w-12 h-1.5 rounded-full mx-auto mb-5 ${isDark ? 'bg-white/15' : 'bg-slate-400/40'}`} />
+
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  {draft.id ? '编辑灵感' : '新建灵感'}
+                </p>
+                <p className={`text-xs mt-1 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                  标题必填，正文、图片、语音可自由组合
+                </p>
+              </div>
+              <button
+                onClick={onClose}
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${isDark ? 'bg-white/8 text-white/70' : 'bg-slate-100 text-slate-500'}`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[72vh] overflow-y-auto pr-1 scrollbar-hide">
+              <div>
+                <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white/55' : 'text-slate-500'}`}>标题</p>
+                <input
+                  value={draft.title}
+                  onChange={(e) => setDraft(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="给这条灵感起个名字"
+                  className={`w-full rounded-2xl px-4 py-3 outline-none text-sm ${isDark ? 'bg-white/6 text-white placeholder:text-white/25' : 'bg-white text-slate-900 placeholder:text-slate-400'}`}
+                />
+              </div>
+
+              <div>
+                <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white/55' : 'text-slate-500'}`}>正文</p>
+                <textarea
+                  value={draft.body}
+                  onChange={(e) => setDraft(prev => ({ ...prev, body: e.target.value }))}
+                  rows={5}
+                  placeholder="想到什么就先写下来"
+                  className={`w-full rounded-2xl px-4 py-3 outline-none text-sm resize-none ${isDark ? 'bg-white/6 text-white placeholder:text-white/25' : 'bg-white text-slate-900 placeholder:text-slate-400'}`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => window.AndroidInterface?.pickInsightImage?.()}
+                  className={`rounded-2xl p-4 text-left ${isDark ? 'bg-white/6 text-white' : 'bg-white text-slate-900'}`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <ImagePlus className="w-4 h-4 text-emerald-500" />
+                    <span className="text-sm font-semibold">图片</span>
+                  </div>
+                  <p className={`text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                    {draft.imageUri ? (draft.imageName || '已添加图片') : '从手机导入'}
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => window.AndroidInterface?.recordInsightAudio?.()}
+                  className={`rounded-2xl p-4 text-left ${isDark ? 'bg-white/6 text-white' : 'bg-white text-slate-900'}`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mic className="w-4 h-4 text-orange-500" />
+                    <span className="text-sm font-semibold">语音</span>
+                  </div>
+                  <p className={`text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                    {draft.audioUri ? `${draft.audioName || '已录制语音'}${draft.audioDurationSeconds ? ` · ${draft.audioDurationSeconds}s` : ''}` : '录制原始语音'}
+                  </p>
+                </button>
+              </div>
+
+              {(draft.imageUri || draft.audioUri) && (
+                <div className="space-y-2">
+                  {draft.imageUri && (
+                    <div className={`rounded-2xl px-4 py-3 flex items-center justify-between ${isDark ? 'bg-emerald-500/10 text-emerald-100' : 'bg-emerald-50 text-emerald-700'}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ImageIcon className="w-4 h-4 shrink-0" />
+                        <span className="text-xs truncate">{draft.imageName || '已添加图片'}</span>
+                      </div>
+                      <button onClick={() => setDraft(prev => ({ ...prev, imageUri: null, imageName: "" }))}>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                  {draft.audioUri && (
+                    <div className={`rounded-2xl px-4 py-3 flex items-center justify-between ${isDark ? 'bg-orange-500/10 text-orange-100' : 'bg-orange-50 text-orange-700'}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Volume2 className="w-4 h-4 shrink-0" />
+                        <span className="text-xs truncate">
+                          {draft.audioName || '已录制语音'}{draft.audioDurationSeconds ? ` · ${draft.audioDurationSeconds}s` : ''}
+                        </span>
+                      </div>
+                      <button onClick={() => setDraft(prev => ({ ...prev, audioUri: null, audioName: "", audioDurationSeconds: 0 }))}>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white/55' : 'text-slate-500'}`}>标签</p>
+                <input
+                  value={draft.tagsInput}
+                  onChange={(e) => setDraft(prev => ({ ...prev, tagsInput: e.target.value }))}
+                  placeholder="用逗号分隔，例如 产品, 选题, 设计"
+                  className={`w-full rounded-2xl px-4 py-3 outline-none text-sm ${isDark ? 'bg-white/6 text-white placeholder:text-white/25' : 'bg-white text-slate-900 placeholder:text-slate-400'}`}
+                />
+              </div>
+
+              <div>
+                <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white/55' : 'text-slate-500'}`}>状态</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'unread', label: '未读' },
+                    { id: 'read', label: '已读' }
+                  ].map(option => {
+                    const active = draft.readStatus === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        onClick={() => setDraft(prev => ({ ...prev, readStatus: option.id }))}
+                        className={`rounded-2xl px-4 py-3 text-sm font-semibold transition-colors ${active ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' : (isDark ? 'bg-white/6 text-white/70' : 'bg-white text-slate-600')}`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {errorMessage && (
+                <div className={`rounded-2xl px-4 py-3 text-sm ${isDark ? 'bg-red-500/10 text-red-200' : 'bg-red-50 text-red-600'}`}>
+                  {errorMessage}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={onClose}
+                className={`flex-1 rounded-2xl py-3 text-sm font-semibold ${isDark ? 'bg-white/6 text-white/70' : 'bg-slate-100 text-slate-600'}`}
+              >
+                取消
+              </button>
+              <button
+                onClick={onSave}
+                disabled={isSaving}
+                className="flex-1 rounded-2xl py-3 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-teal-500 disabled:opacity-60"
+              >
+                {isSaving ? '保存中...' : '保存灵感'}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      );
+    };
+
+    const InspirationView = ({ insights }) => {
+      const { isDark } = useContext(ThemeContext);
+      const [showReadItems, setShowReadItems] = useState(false);
+      const [searchOpen, setSearchOpen] = useState(false);
+      const [searchQuery, setSearchQuery] = useState("");
+      const [editorOpen, setEditorOpen] = useState(false);
+      const [editorError, setEditorError] = useState("");
+      const [isSaving, setIsSaving] = useState(false);
+      const [draft, setDraft] = useState(buildInsightDraft());
+
+      useEffect(() => {
+        const handleImagePicked = (event) => {
+          const detail = event.detail || {};
+          setDraft(prev => ({
+            ...prev,
+            imageUri: detail.uri || prev.imageUri,
+            imageName: detail.name || extractMediaName(detail.uri)
+          }));
+        };
+
+        const handleAudioRecorded = (event) => {
+          const detail = event.detail || {};
+          setDraft(prev => ({
+            ...prev,
+            audioUri: detail.uri || prev.audioUri,
+            audioName: detail.name || extractMediaName(detail.uri),
+            audioDurationSeconds: Number(detail.durationSeconds || 0)
+          }));
+        };
+
+        const handleSaveResult = (event) => {
+          const detail = event.detail || {};
+          setIsSaving(false);
+          if (detail.success) {
+            setEditorError("");
+            setEditorOpen(false);
+            setDraft(buildInsightDraft());
+          } else {
+            setEditorError(detail.message || "保存失败，请重试");
+          }
+        };
+
+        const handleReadStatusResult = (event) => {
+          const detail = event.detail || {};
+          if (!detail.success) {
+            window.alert(detail.message || "状态更新失败");
+          }
+        };
+
+        window.addEventListener('insight-image-picked', handleImagePicked);
+        window.addEventListener('insight-audio-recorded', handleAudioRecorded);
+        window.addEventListener('insight-save-result', handleSaveResult);
+        window.addEventListener('insight-read-status-updated', handleReadStatusResult);
+        return () => {
+          window.removeEventListener('insight-image-picked', handleImagePicked);
+          window.removeEventListener('insight-audio-recorded', handleAudioRecorded);
+          window.removeEventListener('insight-save-result', handleSaveResult);
+          window.removeEventListener('insight-read-status-updated', handleReadStatusResult);
+        };
+      }, []);
+
+      const sortedInsights = [...(insights || [])].sort((a, b) => {
+        const left = new Date(b.createdAt || b.timestamp || 0).getTime();
+        const right = new Date(a.createdAt || a.timestamp || 0).getTime();
+        return left - right;
+      });
+
+      const filteredInsights = sortedInsights.filter(item => {
+        if (!showReadItems && item.readStatus === 'read') return false;
+        if (!searchQuery.trim()) return true;
+        const haystack = [item.title, item.body, item.summary, ...(item.tags || [])].join(' ').toLowerCase();
+        return haystack.includes(searchQuery.trim().toLowerCase());
+      });
+
+      const hiddenReadCount = sortedInsights.filter(item => item.readStatus === 'read').length;
+
+      const openNewEditor = () => {
+        setEditorError("");
+        setDraft(buildInsightDraft());
+        setEditorOpen(true);
+      };
+
+      const openEditEditor = (item) => {
+        setEditorError("");
+        setDraft(buildInsightDraft(item));
+        setEditorOpen(true);
+      };
+
+      const handleSaveDraft = () => {
+        if (!draft.title.trim()) {
+          setEditorError("标题不能为空");
+          return;
+        }
+        setEditorError("");
+        setIsSaving(true);
+        window.AndroidInterface?.saveInsight?.(JSON.stringify({
+          id: draft.id,
+          title: draft.title.trim(),
+          body: draft.body,
+          imageUri: draft.imageUri,
+          audioUri: draft.audioUri,
+          audioDurationSeconds: draft.audioDurationSeconds,
+          tags: buildTagArray(draft.tagsInput),
+          readStatus: draft.readStatus
+        }));
+      };
+
+      const toggleReadStatus = (item) => {
+        const nextStatus = item.readStatus === 'read' ? 'unread' : 'read';
+        window.AndroidInterface?.updateInsightReadStatus?.(String(item.id), nextStatus);
+      };
+
+      return (
+        <div className="space-y-4 pb-28">
+          <div className="flex items-center justify-between px-1">
+            <button
+              onClick={() => setShowReadItems(prev => !prev)}
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold ${isDark ? 'bg-white/8 text-white/75' : 'bg-white text-slate-600 shadow-sm'}`}
+            >
+              {showReadItems ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              <span>{showReadItems ? '隐藏已读' : `显示已读${hiddenReadCount ? ` (${hiddenReadCount})` : ''}`}</span>
+            </button>
+
+            <button
+              onClick={() => setSearchOpen(prev => !prev)}
+              className={`w-11 h-11 rounded-full flex items-center justify-center ${isDark ? 'bg-white/8 text-white/75' : 'bg-white text-slate-600 shadow-sm'}`}
+            >
+              {searchOpen ? <X className="w-4 h-4" /> : <Search className="w-4 h-4" />}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {searchOpen && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+                <GlassCard className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <Search className={`w-4 h-4 ${isDark ? 'text-white/40' : 'text-slate-400'}`} />
+                    <input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="搜索标题、正文或标签"
+                      className={`w-full bg-transparent outline-none text-sm ${isDark ? 'text-white placeholder:text-white/25' : 'text-slate-900 placeholder:text-slate-400'}`}
+                    />
+                  </div>
+                </GlassCard>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <GlassCard className="cursor-pointer group" onClick={openNewEditor}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>新建灵感</p>
+                <p className={`text-xs mt-1 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                  标题必填，正文、图片、语音都可以往同一条里加
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/20">
+                <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
+              </div>
+            </div>
+          </GlassCard>
+
+          <div className="space-y-3">
+            {filteredInsights.map((item, idx) => (
+              <GlassCard
+                key={item.id}
+                delay={0.04 * idx}
+                className="cursor-pointer"
+                onClick={() => window.AndroidInterface?.navigateToDetail?.(String(item.id))}
+              >
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <h3 className={`text-base font-bold leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>{item.title}</h3>
+                    <p className={`text-xs mt-1 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>创建于 {formatInsightDate(item.createdAt || item.timestamp, true)}</p>
+                  </div>
+                  <span className={`shrink-0 text-[10px] font-bold px-2 py-1 rounded-full ${item.readStatus === 'read' ? (isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-50 text-emerald-600') : (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-50 text-amber-600')}`}>
+                    {item.readStatus === 'read' ? '已读' : '未读'}
+                  </span>
+                </div>
+
+                {item.body && (
+                  <div className={`rounded-2xl px-4 py-3 mb-3 ${isDark ? 'bg-white/5' : 'bg-white/70'}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileText className="w-4 h-4 text-cyan-500" />
+                      <span className={`text-xs font-semibold ${isDark ? 'text-white/50' : 'text-slate-500'}`}>正文</span>
+                    </div>
+                    <p className={`text-sm leading-6 ${isDark ? 'text-white/82' : 'text-slate-700'}`}>{item.body}</p>
+                  </div>
+                )}
+
+                {(item.imageUrl || item.audioUrl) && (
+                  <div className="grid grid-cols-1 gap-2 mb-3">
+                    {item.imageUrl && (
+                      <div className={`rounded-2xl px-4 py-3 flex items-center gap-3 ${isDark ? 'bg-emerald-500/10 text-emerald-100' : 'bg-emerald-50 text-emerald-700'}`}>
+                        <ImageIcon className="w-4 h-4 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold">已附图片</p>
+                          <p className="text-[11px] truncate opacity-80">{extractMediaName(item.imageUrl)}</p>
+                        </div>
+                      </div>
+                    )}
+                    {item.audioUrl && (
+                      <div className={`rounded-2xl px-4 py-3 flex items-center gap-3 ${isDark ? 'bg-orange-500/10 text-orange-100' : 'bg-orange-50 text-orange-700'}`}>
+                        <Mic className="w-4 h-4 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold">已附语音</p>
+                          <p className="text-[11px] truncate opacity-80">{extractMediaName(item.audioUrl)}{item.audioDuration ? ` · ${item.audioDuration}s` : ''}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {item.tags?.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {item.tags.map(tag => <TagBadge key={`${item.id}-${tag}`} text={tag} color="emerald" />)}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openEditEditor(item);
+                    }}
+                    className={`flex-1 rounded-2xl px-4 py-3 text-sm font-semibold flex items-center justify-center gap-2 ${isDark ? 'bg-white/6 text-white/80' : 'bg-white text-slate-700'}`}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    编辑
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleReadStatus(item);
+                    }}
+                    className="flex-1 rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-teal-500"
+                  >
+                    {item.readStatus === 'read' ? '标记未读' : '标记已读'}
+                  </button>
+                </div>
+              </GlassCard>
+            ))}
+
+            {filteredInsights.length === 0 && (
+              <GlassCard>
+                <div className="py-8 text-center">
+                  <Lightbulb className={`w-8 h-8 mx-auto mb-3 ${isDark ? 'text-white/25' : 'text-slate-300'}`} />
+                  <p className={`text-sm font-semibold ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
+                    {searchQuery.trim() ? '没有搜到匹配的灵感' : '还没有灵感条目'}
+                  </p>
+                  <p className={`text-xs mt-2 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                    {searchQuery.trim() ? '换个关键词试试，或新建一条灵感。' : '从这里开始积累标题、正文、图片和语音。'}
+                  </p>
+                </div>
+              </GlassCard>
+            )}
+          </div>
+
+          <AnimatePresence>
+            {editorOpen && (
+              <InsightEditorModal
+                isOpen={editorOpen}
+                draft={draft}
+                setDraft={setDraft}
+                isSaving={isSaving}
+                errorMessage={editorError}
+                onClose={() => {
+                  if (!isSaving) {
+                    setEditorOpen(false);
+                    setEditorError("");
+                  }
+                }}
+                onSave={handleSaveDraft}
+              />
+            )}
+          </AnimatePresence>
         </div>
       );
     };
@@ -1485,7 +1995,7 @@
             }}
           >
             <div className="flex flex-1 justify-around">
-              <NavButton id="home" icon={Home} label="首页" />
+              <NavButton id="home" icon={Lightbulb} label="灵感" />
               <NavButton id="papers" icon={BookOpen} label="论文" />
             </div>
 
@@ -1510,7 +2020,7 @@
             </div>
 
             <div className="flex flex-1 justify-around">
-              <NavButton id="articles" icon={BookOpen} label="资料" />
+              <NavButton id="articles" icon={FileText} label="资料" />
               <NavButton id="competitions" icon={Trophy} label="比赛" />
               <NavButton id="settings" icon={Settings} label="设置" />
             </div>
@@ -1677,7 +2187,7 @@
                       exit={{ opacity: 0, scale: 1.05 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <HomeView papers={papers} articles={articles} competitions={competitions} insights={insights} voiceItems={voiceItems} nowTick={nowTick} />
+                      <InspirationView insights={insights} />
                     </motion.div>
                   )}
                   {activeTab === 'papers' && (

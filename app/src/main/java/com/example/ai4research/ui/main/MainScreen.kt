@@ -40,9 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.ai4research.core.util.LocalWebViewCache
+import com.example.ai4research.core.util.WebViewCache
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
+import com.google.gson.Gson
 import com.example.ai4research.service.FloatingWindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -61,7 +62,7 @@ fun MainScreen(
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val webViewCache = LocalWebViewCache.current
+    val webViewCache = remember { WebViewCache() }
     
     // 获取 MainActivity 的 targetTab
     val activity = context as? com.example.ai4research.MainActivity
@@ -80,11 +81,23 @@ fun MainScreen(
     val currentProjectId by viewModel.currentProjectId.collectAsState()
     
     val coroutineScope = rememberCoroutineScope()
+    val gson = remember { Gson() }
     val floatingWindowManager = viewModel.floatingWindowManager
     var pendingScanUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var showScanImportDialog by remember { mutableStateOf(false) }
     var selectedScanType by remember { mutableStateOf(ItemType.ARTICLE) }
     var selectedScanProjectId by remember { mutableStateOf<String?>(null) }
+
+    fun emitWebEvent(eventName: String, payload: Map<String, Any?>) {
+        if (!isPageReady) return
+        val payloadJson = gson.toJson(payload)
+        webViewRef?.post {
+            webViewRef?.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('$eventName', { detail: $payloadJson }));",
+                null
+            )
+        }
+    }
 
     if (showScanImportDialog) {
         ScanImportConfigDialog(
@@ -150,6 +163,47 @@ fun MainScreen(
         selectedScanType = ItemType.ARTICLE
         selectedScanProjectId = currentProjectId
         showScanImportDialog = true
+    }
+    val insightImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
+        emitWebEvent(
+            "insight-image-picked",
+            mapOf(
+                "uri" to uri.toString(),
+                "name" to queryDisplayName(context, uri)
+            )
+        )
+    }
+    val insightAudioRecorderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
+        emitWebEvent(
+            "insight-audio-recorded",
+            mapOf(
+                "uri" to uri.toString(),
+                "name" to queryDisplayName(context, uri),
+                "durationSeconds" to readAudioDurationSeconds(context, uri)
+            )
+        )
     }
     
     // 用于记录待处理的 targetTab
@@ -237,7 +291,22 @@ fun MainScreen(
             onNavigateToDetail = onNavigateToDetail,
             onNavigateToVoiceRecording = onNavigateToVoiceRecording,
             onOpenLinkCapture = { floatingWindowManager.openQuickLinkCapture() },
-            onStartScanCapture = { imagePickerLauncher.launch(arrayOf("image/*")) }
+            onStartScanCapture = { imagePickerLauncher.launch(arrayOf("image/*")) },
+            onPickInsightImage = { insightImagePickerLauncher.launch(arrayOf("image/*")) },
+            onRecordInsightAudio = {
+                val intent = android.content.Intent(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION)
+                insightAudioRecorderLauncher.launch(intent)
+            },
+            emitJsEvent = { eventName, payloadJson ->
+                if (isPageReady) {
+                    webViewRef?.post {
+                        webViewRef?.evaluateJavascript(
+                            "window.dispatchEvent(new CustomEvent('$eventName', { detail: $payloadJson }));",
+                            null
+                        )
+                    }
+                }
+            }
         )
     }
     
@@ -445,8 +514,12 @@ class MainAppInterface(
     private val onNavigateToDetail: (String) -> Unit,
     private val onNavigateToVoiceRecording: () -> Unit = {},
     private val onOpenLinkCapture: () -> Unit = {},
-    private val onStartScanCapture: () -> Unit = {}
+    private val onStartScanCapture: () -> Unit = {},
+    private val onPickInsightImage: () -> Unit = {},
+    private val onRecordInsightAudio: () -> Unit = {},
+    private val emitJsEvent: (String, String) -> Unit = { _, _ -> }
 ) {
+    private val gson = Gson()
     private val quickCaptureBridge = QuickCaptureBridge(
         postToMainThread = { block ->
             android.os.Handler(android.os.Looper.getMainLooper()).post(block)
@@ -568,6 +641,85 @@ class MainAppInterface(
         quickCaptureBridge.startScanCapture()
     }
 
+    @JavascriptInterface
+    fun pickInsightImage() {
+        android.util.Log.d("MainAppInterface", "pickInsightImage called")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onPickInsightImage()
+        }
+    }
+
+    @JavascriptInterface
+    fun recordInsightAudio() {
+        android.util.Log.d("MainAppInterface", "recordInsightAudio called")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onRecordInsightAudio()
+        }
+    }
+
+    @JavascriptInterface
+    fun saveInsight(payloadJson: String) {
+        coroutineScope.launch {
+            val result = runCatching {
+                val payload = gson.fromJson(payloadJson, InsightPayload::class.java)
+                val readStatus = when (payload.readStatus?.trim()?.lowercase()) {
+                    "read" -> com.example.ai4research.domain.model.ReadStatus.READ
+                    else -> com.example.ai4research.domain.model.ReadStatus.UNREAD
+                }
+                viewModel.saveInsight(
+                    id = payload.id,
+                    title = payload.title.orEmpty(),
+                    body = payload.body.orEmpty(),
+                    imageUri = payload.imageUri,
+                    audioUri = payload.audioUri,
+                    tags = payload.tags.orEmpty(),
+                    readStatus = readStatus,
+                    audioDurationSeconds = payload.audioDurationSeconds ?: 0
+                ).getOrThrow()
+            }
+
+            val eventPayload = result.fold(
+                onSuccess = { item ->
+                    gson.toJson(
+                        mapOf(
+                            "success" to true,
+                            "itemId" to item.id
+                        )
+                    )
+                },
+                onFailure = { error ->
+                    gson.toJson(
+                        mapOf(
+                            "success" to false,
+                            "message" to (error.message ?: "保存失败")
+                        )
+                    )
+                }
+            )
+            emitJsEvent("insight-save-result", eventPayload)
+        }
+    }
+
+    @JavascriptInterface
+    fun updateInsightReadStatus(itemId: String, readStatus: String) {
+        coroutineScope.launch {
+            val normalizedStatus = when (readStatus.trim().lowercase()) {
+                "read" -> com.example.ai4research.domain.model.ReadStatus.READ
+                else -> com.example.ai4research.domain.model.ReadStatus.UNREAD
+            }
+            val result = viewModel.updateInsightReadStatus(itemId, normalizedStatus)
+            val eventPayload = gson.toJson(
+                mapOf(
+                    "success" to result.isSuccess,
+                    "itemId" to itemId,
+                    "readStatus" to normalizedStatus.name.lowercase(),
+                    "message" to result.exceptionOrNull()?.message
+                )
+            )
+            emitJsEvent("insight-read-status-updated", eventPayload)
+        }
+    }
+
     private fun showLinkOverlayPermissionPrompt() {
         AlertDialog.Builder(context)
             .setTitle("需要悬浮窗权限")
@@ -578,6 +730,42 @@ class MainAppInterface(
             }
             .show()
     }
+}
+
+private data class InsightPayload(
+    val id: String? = null,
+    val title: String? = null,
+    val body: String? = null,
+    val imageUri: String? = null,
+    val audioUri: String? = null,
+    val audioDurationSeconds: Int? = null,
+    val tags: List<String>? = null,
+    val readStatus: String? = null
+)
+
+private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String? {
+    return runCatching {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)
+                } else {
+                    null
+                }
+            }
+    }.getOrNull()
+}
+
+private fun readAudioDurationSeconds(context: android.content.Context, uri: android.net.Uri): Int {
+    return runCatching {
+        val retriever = android.media.MediaMetadataRetriever()
+        retriever.setDataSource(context, uri)
+        val durationMs = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            ?.toLongOrNull()
+            ?: 0L
+        retriever.release()
+        (durationMs / 1000L).toInt()
+    }.getOrDefault(0)
 }
 
 private fun itemTypeToTabId(type: ItemType): String {

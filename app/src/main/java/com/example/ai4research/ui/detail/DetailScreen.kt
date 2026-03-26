@@ -3,6 +3,7 @@ package com.example.ai4research.ui.detail
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -24,8 +26,11 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -39,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -46,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,15 +68,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.domain.model.ItemType
-
 import dev.jeziellago.compose.markdowntext.MarkdownText
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(
@@ -97,6 +109,7 @@ fun DetailScreen(
     val projects = uiState.projects
     val paperMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta
     val articleMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.ArticleMeta
+    val insightMeta = remember(item) { item?.let(::parseInsightDetail) }
     
     // 解析竞赛元数据
     val competitionMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta
@@ -111,6 +124,7 @@ fun DetailScreen(
     var editContent by remember(item) { mutableStateOf(item?.contentMarkdown ?: "") }
     var showProjectSheet by remember { mutableStateOf(false) }  // 改用底部弹出面板
     var showMoreMenu by remember { mutableStateOf(false) }
+    var showInsightImagePreview by remember { mutableStateOf(false) }
     
     // 竞赛特有字段编辑状态
     var editOrganizer by remember(competitionMeta) { mutableStateOf(competitionMeta?.organizer ?: "") }
@@ -673,6 +687,16 @@ fun DetailScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                         }
 
+                        if (type == ItemType.INSIGHT && item != null && insightMeta != null) {
+                            InsightMediaCard(
+                                item = item,
+                                detail = insightMeta,
+                                isDark = isDarkTheme,
+                                onImageClick = { showInsightImagePreview = true }
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+
                         item?.note?.takeIf { it.isNotBlank() }?.let { note ->
                             NoteCard(note = note, isDark = isDarkTheme)
                             Spacer(modifier = Modifier.height(16.dp))
@@ -696,6 +720,12 @@ fun DetailScreen(
     }
     
         // 项目选择底部弹出面板 (在 Scaffold 之后，确保 z-index 最高)
+        if (showInsightImagePreview && !item?.originUrl.isNullOrBlank()) {
+            FullscreenInsightImage(
+                imageUri = item?.originUrl.orEmpty(),
+                onDismiss = { showInsightImagePreview = false }
+            )
+        }
         if (showProjectSheet) {
             val sheetIsDark = isSystemInDarkTheme()
             val sheetBackground = if (sheetIsDark) Color(0xFF1C1C1E) else Color.White
@@ -1188,6 +1218,329 @@ private fun NoteCard(note: String, isDark: Boolean) {
             color = if (isDark) Color.White else Color.Black
         )
     }
+}
+
+private data class InsightDetailUi(
+    val body: String,
+    val tags: List<String>,
+    val imageUri: String?,
+    val audioUri: String?,
+    val audioDurationSeconds: Int,
+    val createdAtLabel: String
+)
+
+private fun parseInsightDetail(item: com.example.ai4research.domain.model.ResearchItem): InsightDetailUi {
+    val metaJson = item.rawMetaJson
+    val metaObject = runCatching {
+        if (metaJson.isNullOrBlank()) null else org.json.JSONObject(metaJson)
+    }.getOrNull()
+
+    val body = item.contentMarkdown.takeIf { it.isNotBlank() }
+        ?: metaObject?.optString("body")?.takeIf { it.isNotBlank() }
+        ?: item.summary
+
+    val tags = mutableListOf<String>()
+    val insightTags = (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.InsightMeta)?.tags.orEmpty()
+    tags += insightTags
+    metaObject?.optJSONArray("tags")?.let { array ->
+        for (index in 0 until array.length()) {
+            val tag = array.optString(index).trim()
+            if (tag.isNotBlank()) tags += tag
+        }
+    }
+
+    val createdAtLabel = runCatching {
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(item.createdAt)
+    }.getOrDefault("")
+
+    return InsightDetailUi(
+        body = body,
+        tags = tags.distinct(),
+        imageUri = item.originUrl?.takeIf { it.isNotBlank() } ?: metaObject?.optString("image_uri")?.takeIf { it?.isNotBlank() == true },
+        audioUri = item.audioUrl?.takeIf { it.isNotBlank() } ?: metaObject?.optString("audio_uri")?.takeIf { it?.isNotBlank() == true },
+        audioDurationSeconds = metaObject?.optInt("audio_duration") ?: 0,
+        createdAtLabel = createdAtLabel
+    )
+}
+
+@Composable
+private fun InsightMediaCard(
+    item: com.example.ai4research.domain.model.ResearchItem,
+    detail: InsightDetailUi,
+    isDark: Boolean,
+    onImageClick: () -> Unit
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFF10B981)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "灵感内容",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor
+        )
+
+        if (detail.createdAtLabel.isNotBlank()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            InsightMetaRow("创建时间", detail.createdAtLabel, isDark)
+        }
+
+        if (detail.tags.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            InsightMetaRow("标签", detail.tags.joinToString(" · "), isDark)
+        }
+
+        detail.imageUri?.let {
+            Spacer(modifier = Modifier.height(14.dp))
+            InsightImagePreviewCard(
+                imageUri = it,
+                isDark = isDark,
+                onClick = onImageClick
+            )
+        }
+
+        detail.audioUri?.let {
+            Spacer(modifier = Modifier.height(14.dp))
+            InsightAudioPlayerCard(
+                audioUri = it,
+                durationSeconds = detail.audioDurationSeconds,
+                isDark = isDark
+            )
+        }
+    }
+}
+
+@Composable
+private fun InsightMetaRow(label: String, value: String, isDark: Boolean) {
+    Column(modifier = Modifier.padding(vertical = 2.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
+}
+
+@Composable
+private fun InsightImagePreviewCard(
+    imageUri: String,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    var bitmap by remember(imageUri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(imageUri) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { input ->
+                    android.graphics.BitmapFactory.decodeStream(input)?.asImageBitmap()
+                }
+            }.getOrNull()
+        }
+    }
+
+    Column {
+        Text(
+            text = "图片",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(if (isDark) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!,
+                    contentDescription = "灵感图片",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text = "点击查看图片",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightAudioPlayerCard(
+    audioUri: String,
+    durationSeconds: Int,
+    isDark: Boolean
+) {
+    val context = LocalContext.current
+    var mediaPlayer by remember(audioUri) { mutableStateOf<android.media.MediaPlayer?>(null) }
+    var isPlaying by remember(audioUri) { mutableStateOf(false) }
+    var currentPosition by remember(audioUri) { mutableStateOf(0) }
+    var totalDuration by remember(audioUri) { mutableStateOf(durationSeconds * 1000) }
+
+    DisposableEffect(audioUri) {
+        val player = runCatching {
+            android.media.MediaPlayer().apply {
+                setDataSource(context, android.net.Uri.parse(audioUri))
+                prepare()
+            }
+        }.getOrNull()
+        mediaPlayer = player
+        totalDuration = player?.duration?.takeIf { it > 0 } ?: (durationSeconds * 1000)
+        player?.setOnCompletionListener {
+            isPlaying = false
+            currentPosition = totalDuration
+        }
+
+        onDispose {
+            player?.release()
+            mediaPlayer = null
+        }
+    }
+
+    LaunchedEffect(isPlaying, mediaPlayer) {
+        while (isPlaying && mediaPlayer != null) {
+            currentPosition = mediaPlayer?.currentPosition ?: currentPosition
+            delay(300)
+        }
+    }
+
+    Column {
+        Text(
+            text = "语音",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(if (isDark) Color(0x33FF8A00) else Color(0x14FF8A00))
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = {
+                    mediaPlayer?.let { player ->
+                        if (player.isPlaying) {
+                            player.pause()
+                            isPlaying = false
+                            currentPosition = player.currentPosition
+                        } else {
+                            player.start()
+                            isPlaying = true
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF8A00))
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "暂停" else "播放",
+                    tint = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "原始语音",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (isDark) Color.White else Color.Black
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = {
+                        if (totalDuration <= 0) 0f else currentPosition.toFloat() / totalDuration.toFloat()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFFFF8A00),
+                    trackColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "${formatDuration(currentPosition / 1000)} / ${formatDuration((if (totalDuration > 0) totalDuration else durationSeconds * 1000) / 1000)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullscreenInsightImage(
+    imageUri: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var bitmap by remember(imageUri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(imageUri) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { input ->
+                    android.graphics.BitmapFactory.decodeStream(input)?.asImageBitmap()
+                }
+            }.getOrNull()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.92f))
+            .clickable(onClick = onDismiss)
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = "灵感图片预览",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+        ) {
+            Icon(Icons.Default.Close, contentDescription = "关闭预览", tint = Color.White)
+        }
+    }
+}
+
+private fun formatDuration(seconds: Int): String {
+    val minutes = seconds / 60
+    val remain = seconds % 60
+    return if (minutes > 0) "%d:%02d".format(minutes, remain) else "0:%02d".format(remain)
 }
 
 /**

@@ -3,6 +3,7 @@ package com.example.ai4research.ui.main
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemMetaData
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
@@ -228,6 +229,78 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    suspend fun saveInsight(
+        id: String?,
+        title: String,
+        body: String,
+        imageUri: String?,
+        audioUri: String?,
+        tags: List<String>,
+        readStatus: ReadStatus,
+        audioDurationSeconds: Int = 0
+    ): Result<ResearchItem> {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isBlank()) {
+            return Result.failure(IllegalArgumentException("Title is required"))
+        }
+
+        val cleanBody = body.trim()
+        val normalizedTags = tags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val summary = buildInsightSummary(cleanBody, imageUri, audioUri)
+        val metaJson = gson.toJson(
+            buildMap<String, Any?> {
+                put("source", "灵感")
+                put("body", cleanBody)
+                put("tags", normalizedTags)
+                put("image_uri", imageUri)
+                put("audio_uri", audioUri)
+                put("audio_duration", audioDurationSeconds)
+                put("has_image", !imageUri.isNullOrBlank())
+                put("has_audio", !audioUri.isNullOrBlank())
+            }
+        )
+
+        val saveResult = if (id.isNullOrBlank()) {
+            itemRepository.createFullItem(
+                title = cleanTitle,
+                summary = summary,
+                contentMd = cleanBody,
+                originUrl = imageUri,
+                type = ItemType.INSIGHT,
+                status = ItemStatus.DONE,
+                metaJson = metaJson,
+                tags = normalizedTags,
+                audioUrl = audioUri
+            )
+        } else {
+            itemRepository.updateItem(
+                id = id,
+                title = cleanTitle,
+                summary = summary,
+                content = cleanBody,
+                originUrl = imageUri ?: "",
+                tags = normalizedTags,
+                metaJson = metaJson,
+                status = ItemStatus.DONE,
+                audioUrl = audioUri ?: ""
+            ).mapCatching {
+                itemRepository.getItem(id) ?: error("Item updated but not found")
+            }
+        }
+
+        return saveResult.fold(
+            onSuccess = { saved ->
+                itemRepository.updateReadStatus(saved.id, readStatus)
+                    .mapCatching { itemRepository.getItem(saved.id) ?: saved.copy(readStatus = readStatus) }
+            },
+            onFailure = { Result.failure(it) }
+        )
+    }
+
+    suspend fun updateInsightReadStatus(id: String, readStatus: ReadStatus): Result<Unit> {
+        return itemRepository.updateReadStatus(id, readStatus)
+    }
+
     fun importScannedImages(
         imageUris: List<Uri>,
         selectedType: ItemType,
@@ -359,6 +432,7 @@ class MainViewModel @Inject constructor(
                 "summary" to item.summary,
                 "content_md" to item.contentMarkdown,
                 "origin_url" to item.originUrl,
+                "audio_url" to item.audioUrl,
                 "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
@@ -370,6 +444,21 @@ class MainViewModel @Inject constructor(
             )
         }
         return gson.toJson(insightDtos)
+    }
+
+    private fun buildInsightSummary(
+        body: String,
+        imageUri: String?,
+        audioUri: String?
+    ): String {
+        if (body.isNotBlank()) {
+            return body.replace('\n', ' ').trim().take(120)
+        }
+
+        val parts = mutableListOf<String>()
+        if (!imageUri.isNullOrBlank()) parts += "含图片"
+        if (!audioUri.isNullOrBlank()) parts += "含语音"
+        return if (parts.isEmpty()) "暂无正文" else parts.joinToString(" · ")
     }
     
     fun getProjectsJson(): String {

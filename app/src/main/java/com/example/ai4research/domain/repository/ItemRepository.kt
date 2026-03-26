@@ -61,7 +61,8 @@ interface ItemRepository {
         note: String? = null,
         tags: List<String>? = null,
         projectId: String? = null,
-        projectName: String? = null
+        projectName: String? = null,
+        audioUrl: String? = null
     ): Result<ResearchItem>
 
     suspend fun createLocalPendingItem(
@@ -111,7 +112,8 @@ interface ItemRepository {
         originUrl: String? = null,
         tags: List<String>? = null,
         metaJson: String? = null,
-        status: ItemStatus? = null
+        status: ItemStatus? = null,
+        audioUrl: String? = null
     ): Result<Unit>
     
     /**
