@@ -235,7 +235,8 @@ class MainViewModel @Inject constructor(
         body: String,
         imageUri: String?,
         audioUri: String?,
-        tags: List<String>,
+        categoryId: String?,
+        categoryName: String?,
         readStatus: ReadStatus,
         audioDurationSeconds: Int = 0
     ): Result<ResearchItem> {
@@ -245,13 +246,13 @@ class MainViewModel @Inject constructor(
         }
 
         val cleanBody = body.trim()
-        val normalizedTags = tags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         val summary = buildInsightSummary(cleanBody, imageUri, audioUri)
         val metaJson = gson.toJson(
             buildMap<String, Any?> {
                 put("source", "灵感")
                 put("body", cleanBody)
-                put("tags", normalizedTags)
+                put("category_id", categoryId?.takeIf { it.isNotBlank() })
+                put("category_name", categoryName?.takeIf { it.isNotBlank() })
                 put("image_uri", imageUri)
                 put("audio_uri", audioUri)
                 put("audio_duration", audioDurationSeconds)
@@ -269,7 +270,7 @@ class MainViewModel @Inject constructor(
                 type = ItemType.INSIGHT,
                 status = ItemStatus.DONE,
                 metaJson = metaJson,
-                tags = normalizedTags,
+                tags = emptyList(),
                 audioUrl = audioUri
             )
         } else {
@@ -279,7 +280,7 @@ class MainViewModel @Inject constructor(
                 summary = summary,
                 content = cleanBody,
                 originUrl = imageUri ?: "",
-                tags = normalizedTags,
+                tags = emptyList(),
                 metaJson = metaJson,
                 status = ItemStatus.DONE,
                 audioUrl = audioUri ?: ""

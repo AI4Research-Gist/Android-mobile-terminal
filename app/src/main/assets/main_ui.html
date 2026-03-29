@@ -265,6 +265,28 @@
         .filter(Boolean);
     };
 
+    const CATEGORY_STORAGE_KEY = 'insight-categories-v1';
+
+    const createCategoryId = () => `cat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const loadInsightCategories = () => {
+      try {
+        const raw = window.localStorage.getItem(CATEGORY_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(item => item && item.id && item.name) : [];
+      } catch (e) {
+        return [];
+      }
+    };
+
+    const saveInsightCategories = (categories) => {
+      try {
+        window.localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(categories));
+      } catch (e) {
+        console.warn('Failed to persist insight categories', e);
+      }
+    };
+
     const buildInsightDraft = (item = null) => ({
       id: item?.id || null,
       title: item?.title || "",
@@ -274,7 +296,8 @@
       audioUri: item?.audioUrl || null,
       audioName: item?.audioUrl ? extractMediaName(item.audioUrl) : "",
       audioDurationSeconds: item?.audioDuration || 0,
-      tagsInput: Array.isArray(item?.tags) ? item.tags.join(", ") : "",
+      categoryId: item?.categoryId || "",
+      categoryName: item?.categoryName || "",
       readStatus: item?.readStatus === 'read' ? 'read' : 'unread'
     });
 
@@ -399,8 +422,8 @@
             : null;
           const absDays = diffDays == null ? 0 : Math.abs(diffDays);
           const fallbackText = diffDays == null
-            ? "时间待补充"
-            : (diffDays < 0 ? ("已过 " + absDays + " 天") : ("距截止时间 " + absDays + " 天"));
+            ? ""
+            : (diffDays < 0 ? "已截止" : ("距截止时间 " + absDays + " 天"));
           const fallbackSortKey = diffDays == null
             ? Number.MAX_SAFE_INTEGER
             : (diffDays < 0 ? 1000000 + absDays : absDays);
@@ -505,13 +528,11 @@
             summary: item.summary || "暂无描述",
             body: item.content_md || meta.body || "",
             source: meta.source || "个人灵感",
-            category: meta.category || "未分类",
+            categoryId: meta.category_id || "",
+            categoryName: meta.category_name || "",
             imageUrl: item.origin_url || meta.image_uri || null,
             audioUrl: item.audio_url || meta.audio_uri || null,
             audioDuration: Number(meta.audio_duration || 0),
-            tags: Array.isArray(meta.tags)
-              ? meta.tags
-              : (item.tags ? String(item.tags).split(/[,，]/).map(tag => tag.trim()).filter(Boolean) : []),
             parseStartedAt: meta.parse_started_at || null,
             parseFinishedAt: meta.parse_finished_at || null,
             parseFeedback: meta.parse_feedback || "",
@@ -819,10 +840,12 @@
               {sortedCompetitions.map((comp, idx) => (
                 <GlassCard key={comp.id} delay={0.1 * idx} className="min-w-[280px]">
                   <div className="flex justify-between items-start mb-3">
-                    <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
-                      }`}>
-                      {comp.urgencyText}
-                    </span>
+                    {comp.urgencyText ? (
+                      <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
+                        }`}>
+                        {comp.urgencyText}
+                      </span>
+                    ) : <span />}
                     <div className={`w-2 h-2 rounded-full ${comp.status === 'active' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-amber-400 shadow-[0_0_8px_#F59E0B]'}`} />
                   </div>
 
@@ -846,7 +869,7 @@
       );
     };
 
-    const InsightEditorModal = ({ isOpen, draft, setDraft, isSaving, errorMessage, onClose, onSave }) => {
+    const InsightEditorModal = ({ isOpen, draft, setDraft, categories, isSaving, errorMessage, onClose, onSave }) => {
       const { isDark } = useContext(ThemeContext);
 
       if (!isOpen) return null;
@@ -973,13 +996,27 @@
               )}
 
               <div>
-                <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white/55' : 'text-slate-500'}`}>标签</p>
-                <input
-                  value={draft.tagsInput}
-                  onChange={(e) => setDraft(prev => ({ ...prev, tagsInput: e.target.value }))}
-                  placeholder="用逗号分隔，例如 产品, 选题, 设计"
-                  className={`w-full rounded-2xl px-4 py-3 outline-none text-sm ${isDark ? 'bg-white/6 text-white placeholder:text-white/25' : 'bg-white text-slate-900 placeholder:text-slate-400'}`}
-                />
+                <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white/55' : 'text-slate-500'}`}>归位词条</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setDraft(prev => ({ ...prev, categoryId: "", categoryName: "" }))}
+                    className={`px-3 py-2 rounded-2xl text-xs font-semibold ${!draft.categoryId ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' : (isDark ? 'bg-white/6 text-white/70' : 'bg-white text-slate-600')}`}
+                  >
+                    未归位
+                  </button>
+                  {categories.map(category => {
+                    const selected = draft.categoryId === category.id;
+                    return (
+                      <button
+                        key={category.id}
+                        onClick={() => setDraft(prev => ({ ...prev, categoryId: category.id, categoryName: category.name }))}
+                        className={`px-3 py-2 rounded-2xl text-xs font-semibold ${selected ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' : (isDark ? 'bg-white/6 text-white/70' : 'bg-white text-slate-600')}`}
+                      >
+                        {category.name}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
@@ -1035,10 +1072,14 @@
       const [showReadItems, setShowReadItems] = useState(false);
       const [searchOpen, setSearchOpen] = useState(false);
       const [searchQuery, setSearchQuery] = useState("");
+      const [activeCategoryId, setActiveCategoryId] = useState("all");
       const [editorOpen, setEditorOpen] = useState(false);
       const [editorError, setEditorError] = useState("");
       const [isSaving, setIsSaving] = useState(false);
       const [draft, setDraft] = useState(buildInsightDraft());
+      const [categories, setCategories] = useState(() => loadInsightCategories());
+      const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+      const [newCategoryName, setNewCategoryName] = useState("");
 
       useEffect(() => {
         const handleImagePicked = (event) => {
@@ -1091,16 +1132,30 @@
         };
       }, []);
 
+      useEffect(() => {
+        saveInsightCategories(categories);
+      }, [categories]);
+
       const sortedInsights = [...(insights || [])].sort((a, b) => {
         const left = new Date(b.createdAt || b.timestamp || 0).getTime();
         const right = new Date(a.createdAt || a.timestamp || 0).getTime();
         return left - right;
       });
 
+      const derivedCategories = [
+        ...categories,
+        ...sortedInsights
+          .filter(item => item.categoryId && item.categoryName)
+          .map(item => ({ id: item.categoryId, name: item.categoryName }))
+          .filter((item, index, arr) => arr.findIndex(entry => entry.id === item.id) === index)
+      ];
+
       const filteredInsights = sortedInsights.filter(item => {
         if (!showReadItems && item.readStatus === 'read') return false;
+        if (activeCategoryId === 'unassigned' && item.categoryId) return false;
+        if (activeCategoryId !== 'all' && activeCategoryId !== 'unassigned' && item.categoryId !== activeCategoryId) return false;
         if (!searchQuery.trim()) return true;
-        const haystack = [item.title, item.body, item.summary, ...(item.tags || [])].join(' ').toLowerCase();
+        const haystack = [item.title, item.body, item.summary, item.categoryName || ""].join(' ').toLowerCase();
         return haystack.includes(searchQuery.trim().toLowerCase());
       });
 
@@ -1132,9 +1187,22 @@
           imageUri: draft.imageUri,
           audioUri: draft.audioUri,
           audioDurationSeconds: draft.audioDurationSeconds,
-          tags: buildTagArray(draft.tagsInput),
+          categoryId: draft.categoryId || null,
+          categoryName: draft.categoryName || null,
           readStatus: draft.readStatus
         }));
+      };
+
+      const createCategory = () => {
+        const name = newCategoryName.trim();
+        if (!name) return;
+        const existing = derivedCategories.find(item => item.name === name);
+        const nextCategory = existing || { id: createCategoryId(), name };
+        if (!existing) {
+          setCategories(prev => [...prev, nextCategory]);
+        }
+        setDraft(prev => ({ ...prev, categoryId: nextCategory.id, categoryName: nextCategory.name }));
+        setNewCategoryName("");
       };
 
       const toggleReadStatus = (item) => {
@@ -1184,12 +1252,45 @@
               <div>
                 <p className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>新建灵感</p>
                 <p className={`text-xs mt-1 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
-                  标题必填，正文、图片、语音都可以往同一条里加
+                  先建词条再归位，标题、正文、图片、语音都可以放进同一条
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/20">
                 <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
               </div>
+            </div>
+          </GlassCard>
+
+          <GlassCard className="px-4 py-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>词条归类</p>
+                <p className={`text-[11px] mt-1 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>先建词条，再让灵感归位</p>
+              </div>
+              <button
+                onClick={() => setCategoryManagerOpen(true)}
+                className={`px-3 py-2 rounded-2xl text-xs font-semibold ${isDark ? 'bg-white/8 text-white/80' : 'bg-white text-slate-700 shadow-sm'}`}
+              >
+                管理词条
+              </button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+              {[
+                { id: 'all', name: '全部' },
+                { id: 'unassigned', name: '未归位' },
+                ...derivedCategories
+              ].map(category => {
+                const selected = activeCategoryId === category.id;
+                return (
+                  <button
+                    key={category.id}
+                    onClick={() => setActiveCategoryId(category.id)}
+                    className={`shrink-0 px-3 py-2 rounded-2xl text-xs font-semibold ${selected ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' : (isDark ? 'bg-white/6 text-white/70' : 'bg-white text-slate-600')}`}
+                  >
+                    {category.name}
+                  </button>
+                );
+              })}
             </div>
           </GlassCard>
 
@@ -1244,11 +1345,9 @@
                   </div>
                 )}
 
-                {item.tags?.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {item.tags.map(tag => <TagBadge key={`${item.id}-${tag}`} text={tag} color="emerald" />)}
-                  </div>
-                )}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <TagBadge text={item.categoryName || '未归位'} color="emerald" />
+                </div>
 
                 <div className="flex items-center gap-3">
                   <button
@@ -1295,6 +1394,7 @@
                 isOpen={editorOpen}
                 draft={draft}
                 setDraft={setDraft}
+                categories={derivedCategories}
                 isSaving={isSaving}
                 errorMessage={editorError}
                 onClose={() => {
@@ -1305,6 +1405,76 @@
                 }}
                 onSave={handleSaveDraft}
               />
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {categoryManagerOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[75] flex items-end justify-center p-4"
+                onClick={() => setCategoryManagerOpen(false)}
+              >
+                <div className="absolute inset-0 bg-black/10 backdrop-blur-[4px]" />
+                <motion.div
+                  initial={{ y: "110%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "110%" }}
+                  transition={{ type: "spring", damping: 26, stiffness: 320 }}
+                  className={`liquid-glass ${isDark ? 'liquid-glass-dark' : ''} relative z-10 w-full max-w-md rounded-[2.5rem] p-5 pb-8`}
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.18)',
+                    backdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
+                    WebkitBackdropFilter: `blur(40px) saturate(180%) contrast(1.1) brightness(${isDark ? '1.05' : '1.02'})`,
+                    border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.35)'
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className={`w-12 h-1.5 rounded-full mx-auto mb-5 ${isDark ? 'bg-white/15' : 'bg-slate-400/40'}`} />
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>词条管理</p>
+                      <p className={`text-xs mt-1 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>先加词条，再让已有灵感归位</p>
+                    </div>
+                    <button
+                      onClick={() => setCategoryManagerOpen(false)}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center ${isDark ? 'bg-white/8 text-white/70' : 'bg-slate-100 text-slate-500'}`}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      placeholder="输入新的词条名称"
+                      className={`flex-1 rounded-2xl px-4 py-3 outline-none text-sm ${isDark ? 'bg-white/6 text-white placeholder:text-white/25' : 'bg-white text-slate-900 placeholder:text-slate-400'}`}
+                    />
+                    <button
+                      onClick={createCategory}
+                      className="px-4 rounded-2xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 to-teal-500"
+                    >
+                      添加
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-[50vh] overflow-y-auto scrollbar-hide">
+                    {derivedCategories.length > 0 ? derivedCategories.map(category => (
+                      <div
+                        key={category.id}
+                        className={`rounded-2xl px-4 py-3 ${isDark ? 'bg-white/6 text-white' : 'bg-white text-slate-900'}`}
+                      >
+                        <span className="text-sm font-semibold">{category.name}</span>
+                      </div>
+                    )) : (
+                      <div className={`rounded-2xl px-4 py-6 text-center text-sm ${isDark ? 'bg-white/6 text-white/55' : 'bg-white text-slate-500'}`}>
+                        还没有词条，先创建一个分类依据
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
@@ -1630,10 +1800,12 @@
                   }
                 }}>
                   <div className="flex justify-between items-start mb-3">
-                    <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
-                      }`}>
-                      {comp.urgencyText}
-                    </span>
+                    {comp.urgencyText ? (
+                      <span className={`text-[10px] font-bold px-2 py-1.5 rounded text-xs tracking-wide ${isDark ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-rose-50 text-rose-600 border border-rose-200'
+                        }`}>
+                        {comp.urgencyText}
+                      </span>
+                    ) : <span />}
                     <div className={`w-2 h-2 rounded-full ${comp.status === 'active' ? 'bg-emerald-400 shadow-[0_0_8px_#34D399]' : 'bg-amber-400 shadow-[0_0_8px_#F59E0B]'}`} />
                   </div>
 
@@ -2032,7 +2204,13 @@
     // --- App Entrance ---
 
     const App = () => {
-      const [activeTab, setActiveTab] = useState('home');
+      const [activeTab, setActiveTab] = useState(() => {
+        try {
+          return window.localStorage.getItem('main-active-tab') || 'home';
+        } catch (e) {
+          return 'home';
+        }
+      });
       const [isCaptureOpen, setIsCaptureOpen] = useState(false);
       const [isDark, setIsDark] = useState(false); // Default to Light Mode per requirement
       const [papers, setPapers] = useState([]);
@@ -2123,6 +2301,14 @@
           delete window.setActiveTab;
         };
       }, [setActiveTab]);
+
+      useEffect(() => {
+        try {
+          window.localStorage.setItem('main-active-tab', activeTab);
+        } catch (e) {
+          console.warn('Failed to persist activeTab', e);
+        }
+      }, [activeTab]);
 
       // Status Bar - 增加顶部安全区域，为系统状态栏留出空间
       const StatusBar = () => (

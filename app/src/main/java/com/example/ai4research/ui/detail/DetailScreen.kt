@@ -1222,7 +1222,7 @@ private fun NoteCard(note: String, isDark: Boolean) {
 
 private data class InsightDetailUi(
     val body: String,
-    val tags: List<String>,
+    val categoryName: String?,
     val imageUri: String?,
     val audioUri: String?,
     val audioDurationSeconds: Int,
@@ -1239,23 +1239,13 @@ private fun parseInsightDetail(item: com.example.ai4research.domain.model.Resear
         ?: metaObject?.optString("body")?.takeIf { it.isNotBlank() }
         ?: item.summary
 
-    val tags = mutableListOf<String>()
-    val insightTags = (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.InsightMeta)?.tags.orEmpty()
-    tags += insightTags
-    metaObject?.optJSONArray("tags")?.let { array ->
-        for (index in 0 until array.length()) {
-            val tag = array.optString(index).trim()
-            if (tag.isNotBlank()) tags += tag
-        }
-    }
-
     val createdAtLabel = runCatching {
         java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(item.createdAt)
     }.getOrDefault("")
 
     return InsightDetailUi(
         body = body,
-        tags = tags.distinct(),
+        categoryName = metaObject?.optString("category_name")?.takeIf { it.isNotBlank() },
         imageUri = item.originUrl?.takeIf { it.isNotBlank() } ?: metaObject?.optString("image_uri")?.takeIf { it?.isNotBlank() == true },
         audioUri = item.audioUrl?.takeIf { it.isNotBlank() } ?: metaObject?.optString("audio_uri")?.takeIf { it?.isNotBlank() == true },
         audioDurationSeconds = metaObject?.optInt("audio_duration") ?: 0,
@@ -1291,9 +1281,9 @@ private fun InsightMediaCard(
             InsightMetaRow("创建时间", detail.createdAtLabel, isDark)
         }
 
-        if (detail.tags.isNotEmpty()) {
+        if (!detail.categoryName.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(10.dp))
-            InsightMetaRow("标签", detail.tags.joinToString(" · "), isDark)
+            InsightMetaRow("归位词条", detail.categoryName, isDark)
         }
 
         detail.imageUri?.let {

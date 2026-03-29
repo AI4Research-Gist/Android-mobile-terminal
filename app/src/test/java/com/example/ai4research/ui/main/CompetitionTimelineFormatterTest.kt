@@ -49,7 +49,36 @@ class CompetitionTimelineFormatterTest {
     }
 
     @Test
-    fun `summarize shows overdue days when timeline has already passed`() {
+    fun `summarize skips passed node and uses next upcoming timeline node`() {
+        val meta = ItemMetaData.CompetitionMeta(
+            timeline = listOf(
+                TimelineEvent(
+                    name = "报名截止",
+                    date = Date.from(Instant.parse("2026-03-12T00:00:00Z")),
+                    isPassed = true
+                ),
+                TimelineEvent(
+                    name = "提交截止",
+                    date = Date.from(Instant.parse("2026-03-20T00:00:00Z")),
+                    isPassed = false
+                )
+            )
+        )
+
+        val summary = CompetitionTimelineFormatter.summarize(
+            meta = meta,
+            now = now,
+            zoneId = ZoneOffset.UTC
+        )
+
+        assertEquals("提交截止", summary.anchorName)
+        assertEquals(5, summary.daysDelta)
+        assertEquals("距提交截止 5 天", summary.displayText)
+        assertFalse(summary.isOverdue)
+    }
+
+    @Test
+    fun `summarize shows closed when all nodes have passed`() {
         val meta = ItemMetaData.CompetitionMeta(
             timeline = listOf(
                 TimelineEvent(
@@ -68,7 +97,7 @@ class CompetitionTimelineFormatterTest {
 
         assertEquals("提交截止", summary.anchorName)
         assertEquals(3, summary.daysDelta)
-        assertEquals("已过 3 天", summary.displayText)
+        assertEquals("已截止", summary.displayText)
         assertTrue(summary.isOverdue)
     }
 
@@ -87,6 +116,25 @@ class CompetitionTimelineFormatterTest {
         assertEquals("截止时间", summary.anchorName)
         assertEquals(1, summary.daysDelta)
         assertEquals("距截止时间 1 天", summary.displayText)
+        assertFalse(summary.isOverdue)
+    }
+
+    @Test
+    fun `summarize returns empty text when no nodes are filled`() {
+        val meta = ItemMetaData.CompetitionMeta(
+            deadline = null,
+            timeline = emptyList()
+        )
+
+        val summary = CompetitionTimelineFormatter.summarize(
+            meta = meta,
+            now = now,
+            zoneId = ZoneOffset.UTC
+        )
+
+        assertEquals("", summary.anchorName)
+        assertEquals("", summary.displayText)
+        assertEquals(Int.MAX_VALUE, summary.sortKey)
         assertFalse(summary.isOverdue)
     }
 

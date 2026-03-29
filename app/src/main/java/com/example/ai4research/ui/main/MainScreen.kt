@@ -672,7 +672,8 @@ class MainAppInterface(
                     body = payload.body.orEmpty(),
                     imageUri = payload.imageUri,
                     audioUri = payload.audioUri,
-                    tags = payload.tags.orEmpty(),
+                    categoryId = payload.categoryId,
+                    categoryName = payload.categoryName,
                     readStatus = readStatus,
                     audioDurationSeconds = payload.audioDurationSeconds ?: 0
                 ).getOrThrow()
@@ -739,7 +740,8 @@ private data class InsightPayload(
     val imageUri: String? = null,
     val audioUri: String? = null,
     val audioDurationSeconds: Int? = null,
-    val tags: List<String>? = null,
+    val categoryId: String? = null,
+    val categoryName: String? = null,
     val readStatus: String? = null
 )
 
