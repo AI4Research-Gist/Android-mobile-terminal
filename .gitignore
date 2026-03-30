@@ -1,10 +1,14 @@
 *.iml
 .gradle
+.gradle-user-home/
 .gradle-user/
 .kotlin/
+.codex-install-build/
 .claude/
 .docker_rpms/
 .rehearsal_transfer/
+.android/
+.android-user-home/
 .tmp/
 .tmp_android/
 .tmp_paramiko/

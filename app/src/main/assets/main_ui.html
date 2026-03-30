@@ -287,6 +287,17 @@
       }
     };
 
+    const dedupeInsightCategories = (categories) => {
+      const seen = new Set();
+      return (categories || []).filter(category => {
+        if (!category || !category.id || !category.name) return false;
+        const key = `${String(category.id).trim()}::${String(category.name).trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
     const buildInsightDraft = (item = null) => ({
       id: item?.id || null,
       title: item?.title || "",
@@ -521,11 +532,20 @@
           const readStatus = rawReadStatus.split(' ')[0].toLowerCase();
           const rawStatus = item.status || 'processing';
           const status = rawStatus.split(' ')[0].toLowerCase();
+          const summaryShort = meta.summary_short || "";
+          const summaryEn = meta.summary_en || "";
+          const summaryZh = meta.summary_zh || "";
+          const keywords = Array.isArray(meta.keywords) ? meta.keywords : [];
+          const displaySummary = summaryShort || summaryZh || item.summary || "暂无描述";
 
           return {
             id: item.Id || item.id,
             title: item.title,
-            summary: item.summary || "暂无描述",
+            summary: displaySummary,
+            summaryShort: summaryShort,
+            summaryEn: summaryEn,
+            summaryZh: summaryZh,
+            keywords: keywords,
             body: item.content_md || meta.body || "",
             source: meta.source || "个人灵感",
             categoryId: meta.category_id || "",
@@ -1142,13 +1162,13 @@
         return left - right;
       });
 
-      const derivedCategories = [
+      const derivedCategories = dedupeInsightCategories([
         ...categories,
         ...sortedInsights
           .filter(item => item.categoryId && item.categoryName)
           .map(item => ({ id: item.categoryId, name: item.categoryName }))
           .filter((item, index, arr) => arr.findIndex(entry => entry.id === item.id) === index)
-      ];
+      ]);
 
       const filteredInsights = sortedInsights.filter(item => {
         if (!showReadItems && item.readStatus === 'read') return false;
@@ -1196,10 +1216,11 @@
       const createCategory = () => {
         const name = newCategoryName.trim();
         if (!name) return;
-        const existing = derivedCategories.find(item => item.name === name);
+        const normalizedName = name.toLowerCase();
+        const existing = derivedCategories.find(item => item.name.trim().toLowerCase() === normalizedName);
         const nextCategory = existing || { id: createCategoryId(), name };
         if (!existing) {
-          setCategories(prev => [...prev, nextCategory]);
+          setCategories(prev => dedupeInsightCategories([...prev, nextCategory]));
         }
         setDraft(prev => ({ ...prev, categoryId: nextCategory.id, categoryName: nextCategory.name }));
         setNewCategoryName("");

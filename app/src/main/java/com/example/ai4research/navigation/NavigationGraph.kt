@@ -3,12 +3,14 @@ package com.example.ai4research.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.example.ai4research.core.util.WebViewCache
 import com.example.ai4research.ui.auth.AuthScreen
 import com.example.ai4research.ui.auth.AuthViewModel
 import com.example.ai4research.ui.detail.DetailScreen
@@ -25,6 +27,7 @@ fun NavigationGraph(
 ) {
     // 使用共享的 AuthViewModel
     val authViewModel: AuthViewModel = hiltViewModel()
+    val mainWebViewCache = remember { WebViewCache() }
     
     // iOS 风格动画配置
     val animationDuration = 400
@@ -105,7 +108,8 @@ fun NavigationGraph(
                 },
                 onNavigateToVoiceRecording = {
                     navController.navigate(Screen.VoiceRecording.route)
-                }
+                },
+                webViewCache = mainWebViewCache
             )
         }
         

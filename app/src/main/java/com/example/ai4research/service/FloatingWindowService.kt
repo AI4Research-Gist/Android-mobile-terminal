@@ -49,9 +49,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import kotlin.math.abs
+import kotlin.coroutines.resume
 import java.time.LocalDate
 import java.time.ZoneOffset
 
@@ -1088,7 +1090,8 @@ class FloatingWindowService : Service() {
 
     private fun showCompetitionFallbackWindow(
         parseResult: FullLinkParseResult,
-        onResult: (FullLinkParseResult) -> Unit
+        onResult: (FullLinkParseResult) -> Unit,
+        onCancel: () -> Unit
     ) {
         if (competitionInputView != null) return
 
@@ -1196,6 +1199,7 @@ class FloatingWindowService : Service() {
             }
             setOnClickListener {
                 hideCompetitionFallbackWindow()
+                onCancel()
             }
         }
         val confirmButton = Button(this).apply {
@@ -1265,6 +1269,32 @@ class FloatingWindowService : Service() {
         }
         competitionInputView = null
     }
+
+    private suspend fun resolveCompetitionFallbackIfNeeded(
+        parseResult: FullLinkParseResult,
+        selectedType: ItemType
+    ): FullLinkParseResult {
+        if (selectedType != ItemType.COMPETITION) return parseResult
+        if (!needsCompetitionFallback(parseResult)) return parseResult
+
+        return withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                showCompetitionFallbackWindow(
+                    parseResult = parseResult,
+                    onResult = { updated ->
+                        if (continuation.isActive) continuation.resume(updated)
+                    },
+                    onCancel = {
+                        if (continuation.isActive) continuation.resume(parseResult)
+                    }
+                )
+
+                continuation.invokeOnCancellation {
+                    hideCompetitionFallbackWindow()
+                }
+            }
+        }
+    }
     
     /**
      * 构建 metaJson，包含作者和来源信息
@@ -1277,7 +1307,7 @@ class FloatingWindowService : Service() {
         }
         return normalized.toMetaJson() ?: "{}"
     }
-    
+
     /**
      * 显示自定义来源输入对话框
      */
@@ -1807,22 +1837,26 @@ class FloatingWindowService : Service() {
             val parsed = result.getOrElse { error ->
                 throw error
             }
+            val resolvedParsed = resolveCompetitionFallbackIfNeeded(
+                parseResult = parsed,
+                selectedType = selectedType
+            )
 
             progressJob.cancel()
 
             val mergedMetaJson = mergeParseTrackingMeta(
-                baseMetaJson = buildMetaJson(parsed, selectedSource),
+                baseMetaJson = buildMetaJson(resolvedParsed, selectedSource),
                 parseStartedAt = parseStartedAt,
                 parseFinishedAt = parseFinishedAt,
-                feedback = parsed.feedbackMessage ?: "链接解析完成"
+                feedback = resolvedParsed.feedbackMessage ?: "链接解析完成"
             )
 
             val updateResult = itemRepository.updateItem(
                 id = itemId,
-                title = parsed.title,
-                summary = parsed.summaryShort?.takeIf { it.isNotBlank() } ?: parsed.summary,
-                content = parsed.toMarkdownContent(),
-                tags = parsed.tags,
+                title = resolvedParsed.title,
+                summary = resolvedParsed.summaryShort?.takeIf { it.isNotBlank() } ?: resolvedParsed.summary,
+                content = resolvedParsed.toMarkdownContent(),
+                tags = resolvedParsed.tags,
                 metaJson = mergedMetaJson,
                 status = ItemStatus.DONE
             )

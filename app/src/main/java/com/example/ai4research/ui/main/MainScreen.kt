@@ -59,10 +59,10 @@ fun MainScreen(
     onLogout: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToVoiceRecording: () -> Unit = {},
+    webViewCache: WebViewCache,
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val webViewCache = remember { WebViewCache() }
     
     // 获取 MainActivity 的 targetTab
     val activity = context as? com.example.ai4research.MainActivity

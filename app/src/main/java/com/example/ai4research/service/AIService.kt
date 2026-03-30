@@ -15,6 +15,8 @@ import com.example.ai4research.data.remote.dto.VLMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -595,9 +597,9 @@ Rules:
 
             Result.success(
                 BilingualSummaryResult(
-                    summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.contentOrNull,
-                    summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.contentOrNull,
-                    summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.contentOrNull
+                    summaryZh = readFlexibleString(jsonObj, "summary_zh"),
+                    summaryEn = readFlexibleString(jsonObj, "summary_en"),
+                    summaryShort = readFlexibleString(jsonObj, "summary_short")
                 )
             )
         } catch (e: Exception) {
@@ -615,9 +617,9 @@ Rules:
             val cleanJson = extractJsonFromResponse(jsonStr)
             val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
             LinkParseResult(
-                linkType = jsonObj["link_type"]?.jsonPrimitive?.content ?: "unknown",
-                id = jsonObj["id"]?.jsonPrimitive?.content,
-                title = jsonObj["title"]?.jsonPrimitive?.content,
+                linkType = readFlexibleString(jsonObj, "link_type") ?: "unknown",
+                id = readFlexibleString(jsonObj, "id"),
+                title = readFlexibleString(jsonObj, "title"),
                 originalUrl = link
             )
         }
@@ -632,16 +634,16 @@ Rules:
                 val cleanJson = extractJsonFromResponse(jsonStr)
                 val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
                 OCRResult(
-                    type = jsonObj["type"]?.jsonPrimitive?.content ?: "text",
-                    title = jsonObj["title"]?.jsonPrimitive?.content,
-                    authors = jsonObj["authors"]?.jsonPrimitive?.content,
-                    identifier = jsonObj["identifier"]?.jsonPrimitive?.contentOrNull
-                        ?: jsonObj["doi"]?.jsonPrimitive?.contentOrNull,
-                    identifierType = jsonObj["identifier_type"]?.jsonPrimitive?.contentOrNull
-                        ?: jsonObj["doi"]?.jsonPrimitive?.contentOrNull?.let { "doi" },
-                    doi = jsonObj["doi"]?.jsonPrimitive?.contentOrNull,
-                    referencedLinks = readStringList(jsonObj, "referenced_links"),
-                    content = jsonObj["content"]?.jsonPrimitive?.content
+                    type = readFlexibleString(jsonObj, "type") ?: "text",
+                    title = readFlexibleString(jsonObj, "title"),
+                    authors = readFlexibleString(jsonObj, "authors"),
+                    identifier = readFlexibleString(jsonObj, "identifier")
+                        ?: readFlexibleString(jsonObj, "doi"),
+                    identifierType = readFlexibleString(jsonObj, "identifier_type")
+                        ?: readFlexibleString(jsonObj, "doi")?.let { "doi" },
+                    doi = readFlexibleString(jsonObj, "doi"),
+                    referencedLinks = readFlexibleStringList(jsonObj, "referenced_links"),
+                    content = readFlexibleString(jsonObj, "content")
                         ?: jsonStr.takeIf { it.isNotBlank() }
                 )
             } catch (_: Exception) {
@@ -716,7 +718,7 @@ Rules:
             val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
             val metaObj = jsonObj["meta"] as? JsonObject
 
-            val title = jsonObj["title"]?.jsonPrimitive?.contentOrNull
+            val title = readFlexibleString(jsonObj, "title")
                 ?.trim()
                 ?.takeIf(String::isNotBlank)
                 ?: hintTitle
@@ -725,50 +727,50 @@ Rules:
                     .firstOrNull { it.length in 4..80 }
                 ?: "图片扫描"
 
-            val identifier = jsonObj["identifier"]?.jsonPrimitive?.contentOrNull
+            val identifier = readFlexibleString(jsonObj, "identifier")
                 ?.trim()
                 ?.takeIf(String::isNotBlank)
                 ?: hintIdentifier
 
-            val summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.contentOrNull
-            val summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.contentOrNull
-            val summary = jsonObj["summary"]?.jsonPrimitive?.contentOrNull
+            val summaryZh = readFlexibleString(jsonObj, "summary_zh")
+            val summaryEn = readFlexibleString(jsonObj, "summary_en")
+            val summary = readFlexibleString(jsonObj, "summary")
                 ?: summaryZh
                 ?: summaryEn
                 ?: trimmedText.take(180)
-            val summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.contentOrNull
+            val summaryShort = readFlexibleString(jsonObj, "summary_short")
                 ?: summaryZh?.take(120)
                 ?: summary.take(120)
 
-            val tags = readStringList(jsonObj, "tags")
-            val domainTags = readStringList(jsonObj, "domain_tags")
+            val tags = readFlexibleStringList(jsonObj, "tags")
+            val domainTags = readFlexibleStringList(jsonObj, "domain_tags")
                 .ifEmpty { inferDomainTags(title) }
-            val keywords = readStringList(jsonObj, "keywords")
+            val keywords = readFlexibleStringList(jsonObj, "keywords")
                 .ifEmpty { tags }
                 .ifEmpty { inferKeywords(title) }
-            val methodTags = readStringList(jsonObj, "method_tags")
-            val mergedReferences = (readStringList(jsonObj, "referenced_links") + hintLinks)
+            val methodTags = readFlexibleStringList(jsonObj, "method_tags")
+            val mergedReferences = (readFlexibleStringList(jsonObj, "referenced_links") + hintLinks)
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .distinct()
-            val topicTags = readStringList(jsonObj, "topic_tags")
+            val topicTags = readFlexibleStringList(jsonObj, "topic_tags")
                 .ifEmpty { domainTags }
-            val corePoints = readStringList(jsonObj, "core_points")
+            val corePoints = readFlexibleStringList(jsonObj, "core_points")
             val paperCandidates = (
                 readPaperCandidates(jsonObj, "paper_candidates") +
                     mergedReferences.mapNotNull(::classifyPaperCandidate) +
                     buildPaperCandidatesFromIdentifier(identifier)
                 ).distinctBy { "${it.kind}:${it.url}" }
 
-            val source = jsonObj["source"]?.jsonPrimitive?.contentOrNull
+            val source = readFlexibleString(jsonObj, "source")
                 ?.takeIf(String::isNotBlank)
                 ?: inferSourceFromOcr(identifier, mergedReferences)
-            val contentType = jsonObj["content_type"]?.jsonPrimitive?.contentOrNull
+            val contentType = readFlexibleString(jsonObj, "content_type")
                 ?.takeIf(String::isNotBlank)
                 ?: inferContentTypeFromOcr(identifier, mergedReferences, trimmedText)
-            val year = metaObj?.get("year")?.jsonPrimitive?.contentOrNull
+            val year = readFlexibleString(metaObj, "year")
                 ?: inferYear(identifier, mergedReferences.firstOrNull() ?: title)
-            val dedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.contentOrNull
+            val dedupKey = readFlexibleString(jsonObj, "dedup_key")
                 ?: buildDedupKey(identifier, title, year)
             val mergedTags = (if (tags.isNotEmpty()) tags else keywords + domainTags + methodTags)
                 .distinct()
@@ -780,7 +782,7 @@ Rules:
             Result.success(
                 FullLinkParseResult(
                     title = title,
-                    authors = jsonObj["authors"]?.jsonPrimitive?.contentOrNull ?: hintAuthors,
+                    authors = readFlexibleString(jsonObj, "authors") ?: hintAuthors,
                     summary = summary,
                     summaryShort = summaryShort,
                     summaryEn = summaryEn,
@@ -790,14 +792,14 @@ Rules:
                     identifier = identifier,
                     tags = mergedTags,
                     originalUrl = primaryUrl,
-                    conference = metaObj?.get("conference")?.jsonPrimitive?.contentOrNull,
+                    conference = readFlexibleString(metaObj, "conference"),
                     year = year,
-                    platform = metaObj?.get("platform")?.jsonPrimitive?.contentOrNull,
-                    accountName = jsonObj["account_name"]?.jsonPrimitive?.contentOrNull,
-                    articleAuthor = jsonObj["author"]?.jsonPrimitive?.contentOrNull
-                        ?: jsonObj["authors"]?.jsonPrimitive?.contentOrNull
+                    platform = readFlexibleString(metaObj, "platform"),
+                    accountName = readFlexibleString(jsonObj, "account_name"),
+                    articleAuthor = readFlexibleString(jsonObj, "author")
+                        ?: readFlexibleString(jsonObj, "authors")
                         ?: hintAuthors,
-                    publishDate = jsonObj["publish_date"]?.jsonPrimitive?.contentOrNull,
+                    publishDate = readFlexibleString(jsonObj, "publish_date"),
                     domainTags = domainTags,
                     keywords = keywords,
                     methodTags = methodTags,
@@ -832,10 +834,10 @@ Rules:
             val cleanJson = extractJsonFromResponse(jsonStr)
             val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
             LiteratureInfo(
-                title = jsonObj["title"]?.jsonPrimitive?.content,
-                authors = jsonObj["authors"]?.jsonPrimitive?.content,
-                doi = jsonObj["doi"]?.jsonPrimitive?.content,
-                summary = jsonObj["summary"]?.jsonPrimitive?.content
+                title = readFlexibleString(jsonObj, "title"),
+                authors = readFlexibleString(jsonObj, "authors"),
+                doi = readFlexibleString(jsonObj, "doi"),
+                summary = readFlexibleString(jsonObj, "summary")
             )
         }
     }
@@ -854,19 +856,51 @@ Rules:
         }
     }
 
-    private fun readStringList(jsonObj: JsonObject?, key: String): List<String> {
+    internal fun readFlexibleString(jsonObj: JsonObject?, key: String): String? {
+        return readFlexibleString(jsonObj?.get(key))
+    }
+
+    internal fun readFlexibleString(element: JsonElement?): String? {
+        return when (element) {
+            null -> null
+            is JsonArray -> element
+                .mapNotNull(::readFlexibleString)
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+                .joinToString(", ")
+                .takeIf { it.isNotBlank() }
+            is JsonObject -> {
+                listOf("title", "name", "text", "label", "value", "content").firstNotNullOfOrNull { key ->
+                    readFlexibleString(element[key])
+                } ?: element.values
+                    .mapNotNull(::readFlexibleString)
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .joinToString(", ")
+                    .takeIf { it.isNotBlank() }
+            }
+            else -> element.jsonPrimitive.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+        }
+    }
+
+    private fun readFlexibleStringList(jsonObj: JsonObject?, key: String): List<String> {
         val element = jsonObj?.get(key) ?: return emptyList()
         return try {
             when (element) {
-                is kotlinx.serialization.json.JsonArray -> {
-                    element.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
-                        .filter { it.isNotBlank() }
-                }
-                else -> {
-                    element.jsonPrimitive.content.split(",", "，")
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                }
+                is JsonArray -> element
+                    .mapNotNull(::readFlexibleString)
+                    .flatMap { value -> value.split(Regex("[,\\uFF0C\\n]+")) }
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                else -> readFlexibleString(element)
+                    ?.split(Regex("[,\\uFF0C\\n]+"))
+                    .orEmpty()
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
             }
         } catch (_: Exception) {
             emptyList()
@@ -1118,15 +1152,22 @@ Rules:
     }
 
     private fun readPaperCandidates(jsonObj: JsonObject?, key: String): List<ArticlePaperCandidate> {
-        val element = jsonObj?.get(key) as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+        val element = jsonObj?.get(key) as? JsonArray ?: return emptyList()
         return element.mapNotNull { entry ->
-            val obj = entry as? JsonObject ?: return@mapNotNull null
-            val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-            ArticlePaperCandidate(
-                url = url,
-                label = obj["label"]?.jsonPrimitive?.contentOrNull,
-                kind = obj["kind"]?.jsonPrimitive?.contentOrNull ?: "unknown"
-            )
+            when (entry) {
+                is JsonObject -> {
+                    val url = readFlexibleString(entry, "url") ?: return@mapNotNull null
+                    ArticlePaperCandidate(
+                        url = url,
+                        label = readFlexibleString(entry, "label"),
+                        kind = readFlexibleString(entry, "kind") ?: "unknown"
+                    )
+                }
+                else -> {
+                    val url = readFlexibleString(entry) ?: return@mapNotNull null
+                    classifyPaperCandidate(url)
+                }
+            }
         }
     }
 
@@ -1223,15 +1264,15 @@ Rules:
             val cleanJson = extractJsonFromResponse(content)
             val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
 
-            val completedConference = jsonObj["conference"]?.jsonPrimitive?.contentOrNull
-            val completedYear = jsonObj["year"]?.jsonPrimitive?.contentOrNull
-            val completedDomainTags = readStringList(jsonObj, "domain_tags")
-            val completedKeywords = readStringList(jsonObj, "keywords")
-            val completedMethodTags = readStringList(jsonObj, "method_tags")
-            val completedDedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.contentOrNull
-            val completedSummaryShort = jsonObj["summary_short"]?.jsonPrimitive?.contentOrNull
-            val completedSummaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.contentOrNull
-            val completedSummaryEn = jsonObj["summary_en"]?.jsonPrimitive?.contentOrNull
+            val completedConference = readFlexibleString(jsonObj, "conference")
+            val completedYear = readFlexibleString(jsonObj, "year")
+            val completedDomainTags = readFlexibleStringList(jsonObj, "domain_tags")
+            val completedKeywords = readFlexibleStringList(jsonObj, "keywords")
+            val completedMethodTags = readFlexibleStringList(jsonObj, "method_tags")
+            val completedDedupKey = readFlexibleString(jsonObj, "dedup_key")
+            val completedSummaryShort = readFlexibleString(jsonObj, "summary_short")
+            val completedSummaryZh = readFlexibleString(jsonObj, "summary_zh")
+            val completedSummaryEn = readFlexibleString(jsonObj, "summary_en")
 
             mergePaperIndexCompletion(
                 base = draft,
@@ -1358,8 +1399,8 @@ Rules:
                 val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
                 
                 // 提取索引标签字段，兼容旧 tags 输出
-                val tagsArray = readStringList(jsonObj, "tags")
-                val methodTags = readStringList(jsonObj, "method_tags")
+                val tagsArray = readFlexibleStringList(jsonObj, "tags")
+                val methodTags = readFlexibleStringList(jsonObj, "method_tags")
                 
                 // 提取meta对象
                 val metaObj = jsonObj["meta"]?.let { element ->
@@ -1369,77 +1410,77 @@ Rules:
                 }
                 
                 // 提取双语摘要
-                val summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.content
-                val summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.content
+                val summaryEn = readFlexibleString(jsonObj, "summary_en")
+                val summaryZh = readFlexibleString(jsonObj, "summary_zh")
                 // 兼容旧格式的单语摘要
-                val summary = jsonObj["summary"]?.jsonPrimitive?.content
+                val summary = readFlexibleString(jsonObj, "summary")
                     ?: summaryZh ?: summaryEn ?: webContent.abstract ?: "已抓取内容，待总结"
-                val summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.content
+                val summaryShort = readFlexibleString(jsonObj, "summary_short")
                     ?: summary.take(160)
                 
-                val organizer = jsonObj["organizer"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("organizer")?.jsonPrimitive?.content
-                val prizePool = jsonObj["prize_pool"]?.jsonPrimitive?.content
-                    ?: jsonObj["prizePool"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("prizePool")?.jsonPrimitive?.content
-                val theme = jsonObj["theme"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("theme")?.jsonPrimitive?.content
-                val competitionType = jsonObj["competition_type"]?.jsonPrimitive?.content
-                    ?: jsonObj["competitionType"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("competitionType")?.jsonPrimitive?.content
-                val website = jsonObj["website"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("website")?.jsonPrimitive?.content
-                val registrationUrl = jsonObj["registration_url"]?.jsonPrimitive?.content
-                    ?: jsonObj["registrationUrl"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("registrationUrl")?.jsonPrimitive?.content
+                val organizer = readFlexibleString(jsonObj, "organizer")
+                    ?: readFlexibleString(metaObj, "organizer")
+                val prizePool = readFlexibleString(jsonObj, "prize_pool")
+                    ?: readFlexibleString(jsonObj, "prizePool")
+                    ?: readFlexibleString(metaObj, "prizePool")
+                val theme = readFlexibleString(jsonObj, "theme")
+                    ?: readFlexibleString(metaObj, "theme")
+                val competitionType = readFlexibleString(jsonObj, "competition_type")
+                    ?: readFlexibleString(jsonObj, "competitionType")
+                    ?: readFlexibleString(metaObj, "competitionType")
+                val website = readFlexibleString(jsonObj, "website")
+                    ?: readFlexibleString(metaObj, "website")
+                val registrationUrl = readFlexibleString(jsonObj, "registration_url")
+                    ?: readFlexibleString(jsonObj, "registrationUrl")
+                    ?: readFlexibleString(metaObj, "registrationUrl")
                 val timeline = parseCompetitionTimeline(jsonObj, metaObj)
 
-                val title = jsonObj["title"]?.jsonPrimitive?.content
+                val title = readFlexibleString(jsonObj, "title")
                     ?: webContent.title.ifEmpty { "未命名链接" }
-                val identifier = jsonObj["identifier"]?.jsonPrimitive?.content
+                val identifier = readFlexibleString(jsonObj, "identifier")
                     ?: extractIdentifierFromUrl(originalUrl)
-                val year = metaObj?.get("year")?.jsonPrimitive?.content
+                val year = readFlexibleString(metaObj, "year")
                     ?: inferYear(identifier, originalUrl)
-                val domainTags = readStringList(jsonObj, "domain_tags")
+                val domainTags = readFlexibleStringList(jsonObj, "domain_tags")
                     .ifEmpty { inferDomainTags(title) }
-                val keywords = readStringList(jsonObj, "keywords")
+                val keywords = readFlexibleStringList(jsonObj, "keywords")
                     .ifEmpty { tagsArray }
                     .ifEmpty { inferKeywords(title) }
-                val dedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.content
+                val dedupKey = readFlexibleString(jsonObj, "dedup_key")
                     ?: buildDedupKey(identifier, title, year)
                 val mergedTags = (if (tagsArray.isNotEmpty()) tagsArray else keywords + domainTags + methodTags)
                     .distinct()
                     .take(8)
-                val referencedLinks = readStringList(jsonObj, "referenced_links")
+                val referencedLinks = readFlexibleStringList(jsonObj, "referenced_links")
                     .ifEmpty { extractReferencedLinks(webContent.content) }
-                val topicTags = readStringList(jsonObj, "topic_tags")
+                val topicTags = readFlexibleStringList(jsonObj, "topic_tags")
                     .ifEmpty { domainTags }
-                val corePoints = readStringList(jsonObj, "core_points")
+                val corePoints = readFlexibleStringList(jsonObj, "core_points")
                 val paperCandidates = readPaperCandidates(jsonObj, "paper_candidates")
                     .ifEmpty { referencedLinks.mapNotNull(::classifyPaperCandidate) }
 
                 val draft = FullLinkParseResult(
                     title = title,
-                    authors = jsonObj["authors"]?.jsonPrimitive?.content 
+                    authors = readFlexibleString(jsonObj, "authors")
                         ?: webContent.authors,
                     summary = summary,
                     summaryShort = summaryShort,
                     summaryEn = summaryEn,
                     summaryZh = summaryZh,
-                    contentType = jsonObj["content_type"]?.jsonPrimitive?.content 
+                    contentType = readFlexibleString(jsonObj, "content_type")
                         ?: guessContentTypeFromUrl(originalUrl),
-                    source = jsonObj["source"]?.jsonPrimitive?.content 
+                    source = readFlexibleString(jsonObj, "source")
                         ?: webContent.source,
                     identifier = identifier,
                     tags = mergedTags,
                     originalUrl = originalUrl,
-                    conference = metaObj?.get("conference")?.jsonPrimitive?.content,
+                    conference = readFlexibleString(metaObj, "conference"),
                     year = year,
-                    platform = metaObj?.get("platform")?.jsonPrimitive?.content,
-                    accountName = jsonObj["account_name"]?.jsonPrimitive?.contentOrNull,
-                    articleAuthor = jsonObj["author"]?.jsonPrimitive?.contentOrNull
-                        ?: jsonObj["authors"]?.jsonPrimitive?.contentOrNull,
-                    publishDate = jsonObj["publish_date"]?.jsonPrimitive?.contentOrNull,
+                    platform = readFlexibleString(metaObj, "platform"),
+                    accountName = readFlexibleString(jsonObj, "account_name"),
+                    articleAuthor = readFlexibleString(jsonObj, "author")
+                        ?: readFlexibleString(jsonObj, "authors"),
+                    publishDate = readFlexibleString(jsonObj, "publish_date"),
                     domainTags = domainTags,
                     keywords = keywords,
                     methodTags = methodTags,
@@ -1475,11 +1516,11 @@ Rules:
         metaObj: JsonObject?
     ): List<CompetitionTimelineNode>? {
         val element = jsonObj["timeline"] ?: metaObj?.get("timeline") ?: return null
-        val array = element as? kotlinx.serialization.json.JsonArray ?: return null
+        val array = element as? JsonArray ?: return null
         val nodes = array.mapNotNull { entry ->
             val obj = entry as? JsonObject ?: return@mapNotNull null
-            val name = obj["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            val date = obj["date"]?.jsonPrimitive?.content ?: return@mapNotNull null
+            val name = readFlexibleString(obj, "name") ?: return@mapNotNull null
+            val date = readFlexibleString(obj, "date") ?: return@mapNotNull null
             CompetitionTimelineNode(name = name, date = date)
         }
         return nodes.ifEmpty { null }
@@ -1548,70 +1589,70 @@ Rules:
                 val cleanJson = extractJsonFromResponse(content)
                 val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
                 
-                val tagsArray = readStringList(jsonObj, "tags")
-                val methodTags = readStringList(jsonObj, "method_tags")
+                val tagsArray = readFlexibleStringList(jsonObj, "tags")
+                val methodTags = readFlexibleStringList(jsonObj, "method_tags")
                 
                 val metaObj = jsonObj["meta"]?.let { element ->
                     try { element as? JsonObject } catch (e: Exception) { null }
                 }
                 
-                val organizer = jsonObj["organizer"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("organizer")?.jsonPrimitive?.content
-                val prizePool = jsonObj["prize_pool"]?.jsonPrimitive?.content
-                    ?: jsonObj["prizePool"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("prizePool")?.jsonPrimitive?.content
-                val theme = jsonObj["theme"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("theme")?.jsonPrimitive?.content
-                val competitionType = jsonObj["competition_type"]?.jsonPrimitive?.content
-                    ?: jsonObj["competitionType"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("competitionType")?.jsonPrimitive?.content
-                val website = jsonObj["website"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("website")?.jsonPrimitive?.content
-                val registrationUrl = jsonObj["registration_url"]?.jsonPrimitive?.content
-                    ?: jsonObj["registrationUrl"]?.jsonPrimitive?.content
-                    ?: metaObj?.get("registrationUrl")?.jsonPrimitive?.content
+                val organizer = readFlexibleString(jsonObj, "organizer")
+                    ?: readFlexibleString(metaObj, "organizer")
+                val prizePool = readFlexibleString(jsonObj, "prize_pool")
+                    ?: readFlexibleString(jsonObj, "prizePool")
+                    ?: readFlexibleString(metaObj, "prizePool")
+                val theme = readFlexibleString(jsonObj, "theme")
+                    ?: readFlexibleString(metaObj, "theme")
+                val competitionType = readFlexibleString(jsonObj, "competition_type")
+                    ?: readFlexibleString(jsonObj, "competitionType")
+                    ?: readFlexibleString(metaObj, "competitionType")
+                val website = readFlexibleString(jsonObj, "website")
+                    ?: readFlexibleString(metaObj, "website")
+                val registrationUrl = readFlexibleString(jsonObj, "registration_url")
+                    ?: readFlexibleString(jsonObj, "registrationUrl")
+                    ?: readFlexibleString(metaObj, "registrationUrl")
                 val timeline = parseCompetitionTimeline(jsonObj, metaObj)
                 
                 val title = jsonObj["title"]?.jsonPrimitive?.content ?: "未命名链接"
-                val identifier = jsonObj["identifier"]?.jsonPrimitive?.content ?: extractIdentifierFromUrl(link)
-                val year = metaObj?.get("year")?.jsonPrimitive?.content
+                val identifier = readFlexibleString(jsonObj, "identifier") ?: extractIdentifierFromUrl(link)
+                val year = readFlexibleString(metaObj, "year")
                     ?: inferYear(identifier, link)
-                val domainTags = readStringList(jsonObj, "domain_tags")
+                val domainTags = readFlexibleStringList(jsonObj, "domain_tags")
                     .ifEmpty { inferDomainTags(title) }
-                val keywords = readStringList(jsonObj, "keywords")
+                val keywords = readFlexibleStringList(jsonObj, "keywords")
                     .ifEmpty { tagsArray }
                     .ifEmpty { inferKeywords(title) }
-                val dedupKey = jsonObj["dedup_key"]?.jsonPrimitive?.content
+                val dedupKey = readFlexibleString(jsonObj, "dedup_key")
                     ?: buildDedupKey(identifier, title, year)
                 val mergedTags = (if (tagsArray.isNotEmpty()) tagsArray else keywords + domainTags + methodTags)
                     .distinct()
                     .take(8)
-                val referencedLinks = readStringList(jsonObj, "referenced_links")
-                val topicTags = readStringList(jsonObj, "topic_tags")
+                val referencedLinks = readFlexibleStringList(jsonObj, "referenced_links")
+                val topicTags = readFlexibleStringList(jsonObj, "topic_tags")
                     .ifEmpty { domainTags }
-                val corePoints = readStringList(jsonObj, "core_points")
+                val corePoints = readFlexibleStringList(jsonObj, "core_points")
                 val paperCandidates = readPaperCandidates(jsonObj, "paper_candidates")
                     .ifEmpty { referencedLinks.mapNotNull(::classifyPaperCandidate) }
 
                 return Result.success(FullLinkParseResult(
                     title = title,
-                    authors = jsonObj["authors"]?.jsonPrimitive?.content,
+                    authors = readFlexibleString(jsonObj, "authors"),
                     summary = jsonObj["summary"]?.jsonPrimitive?.content ?: "链接已保存",
-                    summaryShort = jsonObj["summary_short"]?.jsonPrimitive?.content,
-                    summaryEn = jsonObj["summary_en"]?.jsonPrimitive?.content,
-                    summaryZh = jsonObj["summary_zh"]?.jsonPrimitive?.content,
-                    contentType = jsonObj["content_type"]?.jsonPrimitive?.content ?: "insight",
-                    source = jsonObj["source"]?.jsonPrimitive?.content ?: "web",
+                    summaryShort = readFlexibleString(jsonObj, "summary_short"),
+                    summaryEn = readFlexibleString(jsonObj, "summary_en"),
+                    summaryZh = readFlexibleString(jsonObj, "summary_zh"),
+                    contentType = readFlexibleString(jsonObj, "content_type") ?: "insight",
+                    source = readFlexibleString(jsonObj, "source") ?: "web",
                     identifier = identifier,
                     tags = mergedTags,
                     originalUrl = link,
-                    conference = metaObj?.get("conference")?.jsonPrimitive?.content,
+                    conference = readFlexibleString(metaObj, "conference"),
                     year = year,
-                    platform = metaObj?.get("platform")?.jsonPrimitive?.content,
-                    accountName = jsonObj["account_name"]?.jsonPrimitive?.contentOrNull,
-                    articleAuthor = jsonObj["author"]?.jsonPrimitive?.contentOrNull
-                        ?: jsonObj["authors"]?.jsonPrimitive?.contentOrNull,
-                    publishDate = jsonObj["publish_date"]?.jsonPrimitive?.contentOrNull,
+                    platform = readFlexibleString(metaObj, "platform"),
+                    accountName = readFlexibleString(jsonObj, "account_name"),
+                    articleAuthor = readFlexibleString(jsonObj, "author")
+                        ?: readFlexibleString(jsonObj, "authors"),
+                    publishDate = readFlexibleString(jsonObj, "publish_date"),
                     domainTags = domainTags,
                     keywords = keywords,
                     methodTags = methodTags,

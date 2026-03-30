@@ -354,7 +354,7 @@ class MainViewModel @Inject constructor(
                     ?.keywords
                     ?.ifEmpty { (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)?.tags ?: emptyList() }
                     ?.joinToString(","),
-                "meta_json" to serializeMetaData(item),
+                "meta_json" to (item.rawMetaJson ?: serializeMetaData(item)),
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
@@ -439,7 +439,7 @@ class MainViewModel @Inject constructor(
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
-                "meta_json" to serializeMetaData(item),
+                "meta_json" to (item.rawMetaJson ?: serializeMetaData(item)),
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
