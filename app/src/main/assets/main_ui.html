@@ -218,7 +218,7 @@
     const { motion, AnimatePresence } = FramerMotion;
     const {
       Home, BookOpen, Trophy, Lightbulb, Plus, Search, MoreHorizontal,
-      Clock, Tag, ChevronRight, Mic, Image: ImageIcon, Link: LinkIcon,
+      Clock, Tag, ChevronRight, Mic, Image: ImageIcon, Link: LinkIcon, SlidersHorizontal,
       Sparkles, Calendar, CheckCircle2, X, Sun, Moon, Zap, Settings, LogOut,
       FileText, ImagePlus, Pencil, Eye, EyeOff, Trash2, Volume2
     } = LucideReact;
@@ -263,6 +263,76 @@
         .split(/[\n,，]/)
         .map(tag => tag.trim())
         .filter(Boolean);
+    };
+
+    const normalizeSearchText = (value) => String(value || "").trim().toLowerCase();
+
+    const extractYear = (value) => {
+      const match = String(value || "").match(/\b(19|20)\d{2}\b/);
+      return match ? match[0] : "";
+    };
+
+    const createStructuredFilterState = () => ({
+      project: "",
+      year: "",
+      source: "",
+      tag: ""
+    });
+
+    const collectUniqueOptions = (items, picker) => {
+      const seen = new Set();
+      return (items || [])
+        .flatMap(item => {
+          const value = picker(item);
+          return Array.isArray(value) ? value : [value];
+        })
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+        .filter(value => {
+          const key = value.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    };
+
+    const hasStructuredFilters = (filters) => {
+      return Boolean(filters.project || filters.year || filters.source || filters.tag);
+    };
+
+    const buildPaperStructuredOptions = (papers) => ({
+      projects: collectUniqueOptions(papers, item => item.projectName),
+      years: collectUniqueOptions(papers, item => item.year),
+      sources: collectUniqueOptions(papers, item => [item.author, item.venue, item.source]),
+      tags: collectUniqueOptions(papers, item => [
+        ...(item.domainTags || []),
+        ...(item.tags || []),
+        ...(item.methodTags || [])
+      ])
+    });
+
+    const buildArticleStructuredOptions = (articles) => ({
+      projects: collectUniqueOptions(articles, item => item.projectName),
+      years: collectUniqueOptions(articles, item => extractYear(item.publishDate)),
+      sources: collectUniqueOptions(articles, item => [item.accountName, item.author, item.platform]),
+      tags: collectUniqueOptions(articles, item => [
+        ...(item.keywords || []),
+        ...(item.topicTags || [])
+      ])
+    });
+
+    const matchesStructuredFilters = (item, filters, config) => {
+      const projectValue = String(config.project(item) || "");
+      const yearValue = String(config.year(item) || "");
+      const sourceCandidates = (config.sources(item) || []).map(value => String(value || ""));
+      const tagCandidates = (config.tags(item) || []).map(value => String(value || ""));
+
+      if (filters.project && projectValue !== filters.project) return false;
+      if (filters.year && yearValue !== filters.year) return false;
+      if (filters.source && !sourceCandidates.includes(filters.source)) return false;
+      if (filters.tag && !tagCandidates.includes(filters.tag)) return false;
+      return true;
     };
 
     const CATEGORY_STORAGE_KEY = 'insight-categories-v1';
@@ -499,6 +569,8 @@
             topicTags: Array.isArray(meta.topic_tags) ? meta.topic_tags : [],
             corePoints: Array.isArray(meta.core_points) ? meta.core_points : [],
             paperCandidates: Array.isArray(meta.paper_candidates) ? meta.paper_candidates : [],
+            projectId: item.project_id || '',
+            projectName: item.project_name || '',
             parseStartedAt: meta.parse_started_at || null,
             parseFinishedAt: meta.parse_finished_at || null,
             parseFeedback: meta.parse_feedback || "",
@@ -1502,30 +1574,140 @@
       );
     };
 
+    const StructuredFilterPanel = ({ isOpen, onToggle, filters, options, onChange, onReset, resultText }) => {
+      const { isDark } = useContext(ThemeContext);
+      const activeCount = [filters.project, filters.year, filters.source, filters.tag].filter(Boolean).length;
+
+      const renderSelect = (label, value, values, placeholder, onSelect) => (
+        <div>
+          <p className={`text-[11px] font-bold uppercase tracking-[0.24em] mb-2 ${isDark ? 'text-white/35' : 'text-slate-400'}`}>{label}</p>
+          <div className={`rounded-2xl px-3 py-3 ${isDark ? 'bg-white/6 border border-white/8' : 'bg-white border border-slate-200 shadow-sm'}`}>
+            <select
+              value={value}
+              onChange={(e) => onSelect(e.target.value)}
+              className={`w-full bg-transparent text-sm outline-none ${isDark ? 'text-white' : 'text-slate-800'}`}
+            >
+              <option value="">{placeholder}</option>
+              {values.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="px-1">
+          <div className="flex items-center justify-between mb-2">
+            <button
+              onClick={onToggle}
+              className={`px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 transition-all duration-300 ${isOpen
+                ? (isDark ? 'bg-cyan-400 text-slate-950 shadow-[0_8px_24px_rgba(34,211,238,0.28)]' : 'bg-slate-900 text-white shadow-lg')
+                : (isDark ? 'bg-white/8 text-white/75 border border-white/8' : 'bg-white text-slate-700 border border-slate-200 shadow-sm')
+                }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              结构化筛选
+              {activeCount > 0 && (
+                <span className={`min-w-5 h-5 px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${isOpen
+                  ? 'bg-black/15 text-current'
+                  : (isDark ? 'bg-cyan-400/20 text-cyan-200' : 'bg-cyan-50 text-cyan-700')
+                  }`}>
+                  {activeCount}
+                </span>
+              )}
+            </button>
+            <span className={`text-xs ${isDark ? 'text-white/35' : 'text-slate-400'}`}>{resultText}</span>
+          </div>
+
+          <AnimatePresence initial={false}>
+            {isOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0, y: -6 }}
+                animate={{ opacity: 1, height: 'auto', y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -6 }}
+                transition={{ duration: 0.24 }}
+              >
+                <div
+                  className={`rounded-[1.75rem] p-4 space-y-4 ${isDark ? 'bg-white/5 border border-white/8' : 'bg-white border border-slate-200 shadow-[0_12px_32px_rgba(15,23,42,0.08)]'}`}
+                >
+                  <div className="grid grid-cols-1 gap-3">
+                    {renderSelect("项目", filters.project, options.projects, "全部项目", value => onChange('project', value))}
+                    {renderSelect("年份", filters.year, options.years, "全部年份", value => onChange('year', value))}
+                    {renderSelect("来源 / 作者", filters.source, options.sources, "全部来源", value => onChange('source', value))}
+                    {renderSelect("关键词 / 标签", filters.tag, options.tags, "全部标签", value => onChange('tag', value))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex flex-wrap gap-2">
+                      {filters.project && <TagBadge text={`项目 ${filters.project}`} color="blue" />}
+                      {filters.year && <TagBadge text={`年份 ${filters.year}`} color="emerald" />}
+                      {filters.source && <TagBadge text={filters.source} color="purple" />}
+                      {filters.tag && <TagBadge text={filters.tag} color="purple" />}
+                    </div>
+                    <button
+                      onClick={onReset}
+                      className={`text-xs font-semibold px-3 py-2 rounded-full ${isDark ? 'text-white/70 bg-white/6' : 'text-slate-600 bg-slate-100'}`}
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      );
+    };
+
     const PapersView = ({ papers, projects, onFilterChange, currentFilter, nowTick }) => {
       const { isDark } = useContext(ThemeContext);
       const [showSearch, setShowSearch] = useState(false);
       const [searchQuery, setSearchQuery] = useState("");
+      const [showStructuredFilters, setShowStructuredFilters] = useState(false);
+      const [structuredFilters, setStructuredFilters] = useState(createStructuredFilterState());
       const [activeFilterIndex, setActiveFilterIndex] = useState(0);
       const [menuOpenId, setMenuOpenId] = useState(null);  // 跟踪哪个卡片的菜单已打开
 
       const handleSearch = (e) => {
-        const query = e.target.value;
-        setSearchQuery(query);
-        if (window.AndroidInterface && window.AndroidInterface.search) {
-          window.AndroidInterface.search(query);
-        }
+        setSearchQuery(e.target.value);
       };
 
       const handleToggleSearch = () => {
-        if (showSearch) {
-          // 收起时先清空搜索
-          setSearchQuery("");
-          if (window.AndroidInterface && window.AndroidInterface.search) {
-            window.AndroidInterface.search("");
-          }
-        }
+        if (showSearch) setSearchQuery("");
         setShowSearch(!showSearch);
+      };
+
+      const paperStructuredOptions = buildPaperStructuredOptions(papers);
+      const filteredPapers = (papers || []).filter(paper => {
+        const query = normalizeSearchText(searchQuery);
+        if (query) {
+          const haystack = normalizeSearchText([
+            paper.title,
+            paper.author,
+            paper.source,
+            paper.venue,
+            paper.summary,
+            paper.identifier,
+            paper.note,
+            paper.projectName,
+            ...(paper.domainTags || []),
+            ...(paper.tags || []),
+            ...(paper.methodTags || [])
+          ].join(' '));
+          if (!haystack.includes(query)) return false;
+        }
+
+        return matchesStructuredFilters(paper, structuredFilters, {
+          project: item => item.projectName,
+          year: item => item.year,
+          sources: item => [item.author, item.venue, item.source],
+          tags: item => [...(item.domainTags || []), ...(item.tags || []), ...(item.methodTags || [])]
+        });
+      });
+
+      const updateStructuredFilter = (key, value) => {
+        setStructuredFilters(prev => ({ ...prev, [key]: value }));
       };
 
       // 构建筛选按钮列表：全部、未读、星标和项目列表
@@ -1536,9 +1718,21 @@
         ...projects.map(p => ({ label: p.name, type: "project", projectId: p.id }))
       ];
 
+      useEffect(() => {
+        const nextIndex = filters.findIndex(filter =>
+          filter.type === (currentFilter?.type || 'all') &&
+          String(filter.projectId || '') === String(currentFilter?.projectId || '')
+        );
+        if (nextIndex >= 0) {
+          setActiveFilterIndex(nextIndex);
+        }
+      }, [currentFilter, projects.length]);
+
       const handleFilterClick = (index, filter) => {
         console.log("Filter clicked:", index, filter);
         setActiveFilterIndex(index);
+        setStructuredFilters(createStructuredFilterState());
+        setSearchQuery("");
         if (window.AndroidInterface && window.AndroidInterface.applyFilter) {
           console.log("Calling AndroidInterface.applyFilter:", filter.type, filter.projectId);
           window.AndroidInterface.applyFilter(filter.type, filter.projectId ? String(filter.projectId) : null);
@@ -1617,6 +1811,16 @@
             </div>
           )}
 
+          <StructuredFilterPanel
+            isOpen={showStructuredFilters}
+            onToggle={() => setShowStructuredFilters(prev => !prev)}
+            filters={structuredFilters}
+            options={paperStructuredOptions}
+            onChange={updateStructuredFilter}
+            onReset={() => setStructuredFilters(createStructuredFilterState())}
+            resultText={`${filteredPapers.length} / ${papers.length}`}
+          />
+
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
             {filters.map((filter, i) => (
               <button
@@ -1648,12 +1852,12 @@
             ))}
           </div>
 
-          {papers.length === 0 ? (
+          {filteredPapers.length === 0 ? (
             <div className={`text-center py-20 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
-              <p>没有找到相关论文</p>
+              <p>{searchQuery || hasStructuredFilters(structuredFilters) ? '没有符合筛选条件的论文' : '没有找到相关论文'}</p>
             </div>
           ) : (
-            papers.map((paper, idx) => (
+            filteredPapers.map((paper, idx) => (
               <GlassCard
                 key={paper.id}
                 delay={0.05 * idx}
@@ -1851,19 +2055,98 @@
 
     const ArticlesView = ({ articles, nowTick }) => {
       const { isDark } = useContext(ThemeContext);
+      const [showSearch, setShowSearch] = useState(false);
+      const [searchQuery, setSearchQuery] = useState("");
+      const [showStructuredFilters, setShowStructuredFilters] = useState(false);
+      const [structuredFilters, setStructuredFilters] = useState(createStructuredFilterState());
+
+      const articleStructuredOptions = buildArticleStructuredOptions(articles);
+      const filteredArticles = (articles || []).filter(article => {
+        const query = normalizeSearchText(searchQuery);
+        if (query) {
+          const haystack = normalizeSearchText([
+            article.title,
+            article.summary,
+            article.platform,
+            article.accountName,
+            article.author,
+            article.publishDate,
+            article.note,
+            article.projectName,
+            ...(article.keywords || []),
+            ...(article.topicTags || []),
+            ...(article.corePoints || [])
+          ].join(' '));
+          if (!haystack.includes(query)) return false;
+        }
+
+        return matchesStructuredFilters(article, structuredFilters, {
+          project: item => item.projectName,
+          year: item => extractYear(item.publishDate),
+          sources: item => [item.accountName, item.author, item.platform],
+          tags: item => [...(item.keywords || []), ...(item.topicTags || [])]
+        });
+      });
+
+      const updateStructuredFilter = (key, value) => {
+        setStructuredFilters(prev => ({ ...prev, [key]: value }));
+      };
 
       return (
         <div className="space-y-4 pb-28">
-          <div className="flex justify-between items-end mb-6 px-2">
+          <div className="flex justify-between items-end mb-2 px-2">
             <h1 className={`text-3xl font-bold transition-colors duration-500 ${isDark ? 'text-white' : 'text-slate-900'}`}>资料</h1>
+            <button
+              onClick={() => {
+                if (showSearch) setSearchQuery("");
+                setShowSearch(prev => !prev);
+              }}
+              className={`p-2.5 rounded-full transition-all duration-300 ${showSearch
+                ? (isDark ? 'bg-indigo-500/20 text-indigo-300' : 'bg-indigo-50 text-indigo-600')
+                : (isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50')
+                }`}
+            >
+              {showSearch ? <X className="w-5 h-5" /> : <Search className="w-5 h-5" />}
+            </button>
           </div>
 
-          {articles.length === 0 ? (
+          {showSearch && (
+            <div className="px-1">
+              <input
+                type="text"
+                placeholder="搜索资料标题、来源、关键词或核心观点..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
+                className={`liquid-glass ${isDark ? 'liquid-glass-dark' : ''} w-full p-3 rounded-xl outline-none transition-colors duration-300`}
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.12)',
+                  backdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
+                  WebkitBackdropFilter: `blur(30px) saturate(160%) contrast(1.05) brightness(${isDark ? '1.03' : '1.01'})`,
+                  border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(255, 255, 255, 0.3)',
+                  color: isDark ? '#fff' : '#1e293b',
+                  boxShadow: isDark ? 'inset 0 1px 0 rgba(255, 255, 255, 0.04)' : 'inset 0 1px 0 rgba(255, 255, 255, 0.4)'
+                }}
+              />
+            </div>
+          )}
+
+          <StructuredFilterPanel
+            isOpen={showStructuredFilters}
+            onToggle={() => setShowStructuredFilters(prev => !prev)}
+            filters={structuredFilters}
+            options={articleStructuredOptions}
+            onChange={updateStructuredFilter}
+            onReset={() => setStructuredFilters(createStructuredFilterState())}
+            resultText={`${filteredArticles.length} / ${articles.length}`}
+          />
+
+          {filteredArticles.length === 0 ? (
             <div className={`text-center py-20 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>
-              <p>暂无资料内容</p>
+              <p>{searchQuery || hasStructuredFilters(structuredFilters) ? '没有符合筛选条件的资料' : '暂无资料内容'}</p>
             </div>
           ) : (
-            articles.map((article, idx) => (
+            filteredArticles.map((article, idx) => (
               <GlassCard key={article.id} delay={0.05 * idx} className="flex flex-col gap-3" onClick={() => {
                 if (window.AndroidInterface && window.AndroidInterface.navigateToDetail) {
                   window.AndroidInterface.navigateToDetail(String(article.id));
@@ -1888,6 +2171,11 @@
                     {article.paperCandidates?.length > 0 && (
                       <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-amber-500/20 text-amber-200 border border-amber-500/30' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
                         含论文线索
+                      </span>
+                    )}
+                    {article.projectName && (
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${isDark ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' : 'bg-cyan-50 text-cyan-600 border border-cyan-200'}`}>
+                        {article.projectName}
                       </span>
                     )}
                   </div>

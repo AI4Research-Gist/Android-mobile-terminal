@@ -5,6 +5,7 @@ import android.util.Base64
 import android.util.Log
 import com.example.ai4research.BuildConfig
 import com.example.ai4research.domain.model.ArticlePaperCandidate
+import com.example.ai4research.domain.model.StructuredReadingCard
 import com.example.ai4research.data.remote.api.SiliconFlowApiService
 import com.example.ai4research.data.remote.dto.SimpleChatRequest
 import com.example.ai4research.data.remote.dto.SimpleMessage
@@ -541,6 +542,230 @@ Rules:
             android.util.Log.e("AIService", "音频转写失败: ${e.message}", e)
             Result.failure(e)
         }
+    }
+
+    suspend fun generateStructuredReadingCard(
+        title: String,
+        sourceContent: String,
+        existingSummary: String? = null,
+        existingCard: StructuredReadingCard? = null,
+        itemType: String = "paper"
+    ): Result<StructuredReadingCardResult> = withContext(Dispatchers.IO) {
+        try {
+            val prompt = buildString {
+                appendLine("Build a structured reading card for a mobile research app.")
+                appendLine("Item type: $itemType")
+                appendLine("Title: $title")
+                existingSummary?.takeIf { it.isNotBlank() }?.let {
+                    appendLine("Existing summary: $it")
+                }
+                existingCard?.takeUnless { it.isEmpty() }?.let { card ->
+                    appendLine("Existing reading card draft:")
+                    appendLine("research_question=${card.researchQuestion ?: "null"}")
+                    appendLine("method=${card.method ?: "null"}")
+                    appendLine("dataset=${card.dataset ?: "null"}")
+                    appendLine("findings=${card.findings ?: "null"}")
+                    appendLine("limitations=${card.limitations ?: "null"}")
+                    appendLine("reuse_points=${card.reusePoints ?: "null"}")
+                    appendLine("my_notes=${card.myNotes ?: "null"}")
+                }
+                appendLine()
+                appendLine("Source content:")
+                appendLine(sourceContent.take(8000))
+            }
+
+            val systemPrompt = """
+You are a research reading assistant.
+Turn a paper or article into a concise structured reading card.
+
+Return strict JSON only:
+{
+  "research_question": "string|null",
+  "method": "string|null",
+  "dataset": "string|null",
+  "findings": "string|null",
+  "limitations": "string|null",
+  "reuse_points": "string|null",
+  "my_notes": "string|null"
+}
+
+Rules:
+- Be evidence-based and conservative.
+- Use concise Chinese by default.
+- my_notes should contain only concrete takeaways grounded in the source.
+- Unknown fields must be null.
+- Do not output markdown or explanations outside JSON.
+""".trimIndent()
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = prompt)
+                ),
+                maxTokens = 1000,
+                temperature = 0.3
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return@withContext Result.failure(Exception("Reading card generation returned empty content"))
+            val cleanJson = extractJsonFromResponse(content)
+            val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+
+            Result.success(
+                StructuredReadingCardResult(
+                    card = StructuredReadingCard(
+                        researchQuestion = readFlexibleString(jsonObj, "research_question"),
+                        method = readFlexibleString(jsonObj, "method"),
+                        dataset = readFlexibleString(jsonObj, "dataset"),
+                        findings = readFlexibleString(jsonObj, "findings"),
+                        limitations = readFlexibleString(jsonObj, "limitations"),
+                        reusePoints = readFlexibleString(jsonObj, "reuse_points"),
+                        myNotes = readFlexibleString(jsonObj, "my_notes")
+                    ),
+                    rawJson = cleanJson
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun answerQuestionAboutItem(
+        title: String,
+        summary: String,
+        contentMarkdown: String,
+        metaJson: String?,
+        question: String,
+        itemType: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (question.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Question is empty"))
+        }
+
+        val compactMeta = buildCompactItemMeta(metaJson)
+        val compactContent = buildCompactItemContent(summary, contentMarkdown)
+
+        val prompt = buildString {
+            appendLine("Answer the user's question about one research item from a mobile app.")
+            appendLine("Item type: $itemType")
+            appendLine("Title: $title")
+            appendLine("Summary: ${summary.ifBlank { "null" }}")
+            appendLine("Compact meta: $compactMeta")
+            appendLine()
+            appendLine("Prioritized context:")
+            appendLine(compactContent)
+            appendLine()
+            appendLine("User question:")
+            appendLine(question.trim())
+        }
+
+        val systemPrompt = """
+You are an academic reading assistant.
+Answer only using the provided item context.
+
+Rules:
+- Respond in concise Chinese unless the user asks otherwise.
+- If evidence is insufficient, say what is missing.
+- Prefer concrete, structured answers.
+- Prioritize the summary and compact meta first, then use the excerpted content.
+- Do not fabricate experiments, metrics, or conclusions.
+""".trimIndent()
+
+        try {
+            val messages = listOf(
+                SimpleMessage(role = "system", content = systemPrompt),
+                SimpleMessage(role = "user", content = prompt)
+            )
+
+            fun buildRequest(model: String) = SimpleChatRequest(
+                model = model,
+                messages = messages,
+                maxTokens = 700,
+                temperature = 0.2,
+                enableThinking = false
+            )
+
+            val response = runCatching {
+                siliconFlowApi.chatCompletion(AUTH_HEADER, buildRequest(SiliconFlowApiService.MODEL_FAST_TEXT))
+            }.recoverCatching {
+                siliconFlowApi.chatCompletion(AUTH_HEADER, buildRequest(SiliconFlowApiService.MODEL_TEXT))
+            }.getOrThrow()
+
+            val content = response.choices.firstOrNull()?.message?.content
+
+            if (content != null) {
+                Result.success(content)
+            } else {
+                Result.failure(Exception("AI returned empty content"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun buildCompactItemMeta(metaJson: String?): String {
+        if (metaJson.isNullOrBlank()) return "null"
+
+        return runCatching {
+            val jsonObj = json.decodeFromString<JsonObject>(metaJson)
+            buildMap<String, Any?> {
+                readFlexibleString(jsonObj, "identifier")?.let { put("identifier", it) }
+                readFlexibleString(jsonObj, "conference")?.let { put("conference", it) }
+                readFlexibleString(jsonObj, "year")?.let { put("year", it) }
+                readFlexibleString(jsonObj, "platform")?.let { put("platform", it) }
+                readFlexibleString(jsonObj, "account_name")?.let { put("account_name", it) }
+                readFlexibleString(jsonObj, "summary_short")?.let { put("summary_short", it) }
+                readFlexibleString(jsonObj, "summary_zh")?.let { put("summary_zh", it) }
+                readFlexibleString(jsonObj, "summary_en")?.let { put("summary_en", it) }
+                readFlexibleStringList(jsonObj, "keywords").takeIf { it.isNotEmpty() }?.let { put("keywords", it.take(8)) }
+                readFlexibleStringList(jsonObj, "domain_tags").takeIf { it.isNotEmpty() }?.let { put("domain_tags", it.take(8)) }
+                readFlexibleStringList(jsonObj, "method_tags").takeIf { it.isNotEmpty() }?.let { put("method_tags", it.take(8)) }
+                (jsonObj["reading_card"] as? JsonObject)?.let { readingCard ->
+                    put(
+                        "reading_card",
+                        buildMap<String, String> {
+                            readFlexibleString(readingCard, "research_question")?.let { put("research_question", it) }
+                            readFlexibleString(readingCard, "method")?.let { put("method", it) }
+                            readFlexibleString(readingCard, "dataset")?.let { put("dataset", it) }
+                            readFlexibleString(readingCard, "findings")?.let { put("findings", it) }
+                            readFlexibleString(readingCard, "limitations")?.let { put("limitations", it) }
+                            readFlexibleString(readingCard, "reuse_points")?.let { put("reuse_points", it) }
+                            readFlexibleString(readingCard, "my_notes")?.let { put("my_notes", it) }
+                        }
+                    )
+                }
+            }.let { compact ->
+                if (compact.isEmpty()) "null" else com.google.gson.Gson().toJson(compact)
+            }
+        }.getOrDefault("null")
+    }
+
+    private fun buildCompactItemContent(summary: String, contentMarkdown: String): String {
+        val normalizedContent = contentMarkdown.trim()
+            .replace(Regex("```[\\s\\S]*?```"), " ")
+            .replace(Regex("`([^`]*)`"), "$1")
+            .replace(Regex("#{1,6}\\s*"), "")
+            .replace(Regex("\\[(.*?)\\]\\((.*?)\\)"), "$1")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        val excerpt = when {
+            normalizedContent.isBlank() -> summary
+            normalizedContent.length <= 2400 -> normalizedContent
+            else -> normalizedContent.take(2400) + " ..."
+        }
+
+        return buildString {
+            if (summary.isNotBlank()) {
+                appendLine("Summary-first view:")
+                appendLine(summary.take(600))
+                appendLine()
+            }
+            appendLine("Excerpted content:")
+            appendLine(excerpt.ifBlank { "null" })
+        }.trim()
     }
 
     suspend fun generateBilingualSummary(
@@ -1851,6 +2076,11 @@ data class BilingualSummaryResult(
     val summaryZh: String?,
     val summaryEn: String?,
     val summaryShort: String?
+)
+
+data class StructuredReadingCardResult(
+    val card: StructuredReadingCard,
+    val rawJson: String? = null
 )
 
 data class CompetitionTimelineNode(

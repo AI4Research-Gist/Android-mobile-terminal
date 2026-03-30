@@ -11,6 +11,7 @@ import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
 import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
+import com.example.ai4research.domain.model.StructuredReadingCard
 import com.example.ai4research.domain.model.TimelineEvent
 import com.google.gson.Gson
 import java.text.SimpleDateFormat
@@ -74,6 +75,21 @@ object ItemMapper {
             android.util.Log.w("ItemMapper", "Failed to parse metaJson: $metaJson, error: ${e.message}")
             null
         }
+    }
+
+    private fun parseStructuredReadingCard(map: Map<String, Any?>): StructuredReadingCard? {
+        val readingCardMap = map["reading_card"] as? Map<*, *>
+        val source = readingCardMap ?: map
+        val card = StructuredReadingCard(
+            researchQuestion = source["research_question"]?.toString(),
+            method = source["method"]?.toString(),
+            dataset = source["dataset"]?.toString(),
+            findings = source["findings"]?.toString(),
+            limitations = source["limitations"]?.toString(),
+            reusePoints = source["reuse_points"]?.toString(),
+            myNotes = source["my_notes"]?.toString()
+        )
+        return card.takeUnless { it.isEmpty() }
     }
 
     private fun normalizeMetaJson(element: JsonElement?): String? {
@@ -179,6 +195,17 @@ object ItemMapper {
                 meta.summaryShort?.let { existing["summary_short"] = it }
                 meta.summaryEn?.let { existing["summary_en"] = it }
                 meta.summaryZh?.let { existing["summary_zh"] = it }
+                meta.readingCard?.takeUnless { it.isEmpty() }?.let { card ->
+                    existing["reading_card"] = mapOf(
+                        "research_question" to card.researchQuestion,
+                        "method" to card.method,
+                        "dataset" to card.dataset,
+                        "findings" to card.findings,
+                        "limitations" to card.limitations,
+                        "reuse_points" to card.reusePoints,
+                        "my_notes" to card.myNotes
+                    )
+                }
             }
 
             is ItemMetaData.ArticleMeta -> {
@@ -200,6 +227,17 @@ object ItemMapper {
                             "kind" to candidate.kind
                         )
                     }
+                }
+                meta.readingCard?.takeUnless { it.isEmpty() }?.let { card ->
+                    existing["reading_card"] = mapOf(
+                        "research_question" to card.researchQuestion,
+                        "method" to card.method,
+                        "dataset" to card.dataset,
+                        "findings" to card.findings,
+                        "limitations" to card.limitations,
+                        "reuse_points" to card.reusePoints,
+                        "my_notes" to card.myNotes
+                    )
                 }
             }
 
@@ -265,7 +303,8 @@ object ItemMapper {
                         dedupKey = map["dedup_key"]?.toString(),
                         summaryShort = map["summary_short"]?.toString(),
                         summaryEn = map["summary_en"]?.toString(),
-                        summaryZh = map["summary_zh"]?.toString()
+                        summaryZh = map["summary_zh"]?.toString(),
+                        readingCard = parseStructuredReadingCard(map)
                     )
                 }
 
@@ -321,7 +360,8 @@ object ItemMapper {
                         topicTags = topicTags,
                         corePoints = corePoints,
                         referencedLinks = referencedLinks,
-                        paperCandidates = paperCandidates
+                        paperCandidates = paperCandidates,
+                        readingCard = parseStructuredReadingCard(map)
                     )
                 }
 

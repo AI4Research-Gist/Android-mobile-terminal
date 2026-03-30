@@ -521,6 +521,17 @@ class MainViewModel @Inject constructor(
                 this["summary_en"] = meta.summaryEn
                 this["summary_zh"] = meta.summaryZh
                 this["tags"] = meta.tags
+                this["reading_card"] = meta.readingCard?.let { card ->
+                    mapOf(
+                        "research_question" to card.researchQuestion,
+                        "method" to card.method,
+                        "dataset" to card.dataset,
+                        "findings" to card.findings,
+                        "limitations" to card.limitations,
+                        "reuse_points" to card.reusePoints,
+                        "my_notes" to card.myNotes
+                    )
+                }
                 this["note"] = item.note
             }
             is com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta -> existingMeta.apply {
@@ -555,6 +566,17 @@ class MainViewModel @Inject constructor(
                         "url" to candidate.url,
                         "label" to candidate.label,
                         "kind" to candidate.kind
+                    )
+                }
+                this["reading_card"] = meta.readingCard?.let { card ->
+                    mapOf(
+                        "research_question" to card.researchQuestion,
+                        "method" to card.method,
+                        "dataset" to card.dataset,
+                        "findings" to card.findings,
+                        "limitations" to card.limitations,
+                        "reuse_points" to card.reusePoints,
+                        "my_notes" to card.myNotes
                     )
                 }
                 this["note"] = item.note

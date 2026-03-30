@@ -1,5 +1,6 @@
 package com.example.ai4research.di
 
+import com.example.ai4research.BuildConfig
 import com.example.ai4research.core.network.NocoAuthInterceptor
 import com.example.ai4research.core.util.Constants
 import com.example.ai4research.data.remote.api.NocoApiService
@@ -46,7 +47,11 @@ object NetworkModule {
     @Named("noco")
     fun provideNocoOkHttpClient(): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BASIC
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
         }
         
         return OkHttpClient.Builder()

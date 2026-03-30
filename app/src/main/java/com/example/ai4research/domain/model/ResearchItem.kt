@@ -110,7 +110,8 @@ sealed class ItemMetaData {
         val dedupKey: String? = null,
         val summaryShort: String? = null,
         val summaryEn: String? = null,
-        val summaryZh: String? = null
+        val summaryZh: String? = null,
+        val readingCard: StructuredReadingCard? = null
     ) : ItemMetaData()
 
     data class ArticleMeta(
@@ -124,7 +125,8 @@ sealed class ItemMetaData {
         val topicTags: List<String> = emptyList(),
         val corePoints: List<String> = emptyList(),
         val referencedLinks: List<String> = emptyList(),
-        val paperCandidates: List<ArticlePaperCandidate> = emptyList()
+        val paperCandidates: List<ArticlePaperCandidate> = emptyList(),
+        val readingCard: StructuredReadingCard? = null
     ) : ItemMetaData()
 
     data class CompetitionMeta(
@@ -159,6 +161,26 @@ data class ArticlePaperCandidate(
     val label: String? = null,
     val kind: String = "unknown"
 )
+
+data class StructuredReadingCard(
+    val researchQuestion: String? = null,
+    val method: String? = null,
+    val dataset: String? = null,
+    val findings: String? = null,
+    val limitations: String? = null,
+    val reusePoints: String? = null,
+    val myNotes: String? = null
+) {
+    fun isEmpty(): Boolean {
+        return researchQuestion.isNullOrBlank() &&
+            method.isNullOrBlank() &&
+            dataset.isNullOrBlank() &&
+            findings.isNullOrBlank() &&
+            limitations.isNullOrBlank() &&
+            reusePoints.isNullOrBlank() &&
+            myNotes.isNullOrBlank()
+    }
+}
 
 data class Project(
     val id: String,

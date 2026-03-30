@@ -110,7 +110,9 @@ data class SimpleChatRequest(
     val stream: Boolean = false,
     @SerialName("max_tokens")
     val maxTokens: Int = 2048,
-    val temperature: Double = 0.7
+    val temperature: Double = 0.7,
+    @SerialName("enable_thinking")
+    val enableThinking: Boolean? = null
 )
 
 @Serializable

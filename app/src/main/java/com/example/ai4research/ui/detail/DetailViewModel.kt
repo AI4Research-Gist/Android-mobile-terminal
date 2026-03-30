@@ -2,9 +2,12 @@ package com.example.ai4research.ui.detail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai4research.domain.model.ItemMetaData
+import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
 import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
+import com.example.ai4research.domain.model.StructuredReadingCard
 import com.example.ai4research.domain.repository.ItemRepository
 import com.example.ai4research.domain.repository.ProjectRepository
 import com.example.ai4research.service.AIService
@@ -24,8 +27,23 @@ data class DetailUiState(
     val isProjectSaving: Boolean = false,
     val isCreatingProject: Boolean = false,
     val isRegeneratingSummary: Boolean = false,
+    val isGeneratingReadingCard: Boolean = false,
+    val generatedReadingCard: StructuredReadingCard? = null,
+    val isAiSheetVisible: Boolean = false,
+    val chatMessages: List<AiChatMessage> = emptyList(),
+    val isAiResponding: Boolean = false,
     val errorMessage: String? = null
 )
+
+data class AiChatMessage(
+    val role: AiChatRole,
+    val content: String
+)
+
+enum class AiChatRole {
+    USER,
+    ASSISTANT
+}
 
 @HiltViewModel
 class DetailViewModel @Inject constructor(
@@ -48,15 +66,21 @@ class DetailViewModel @Inject constructor(
 
     fun load(itemId: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                errorMessage = null,
+                generatedReadingCard = null,
+                chatMessages = emptyList(),
+                isAiResponding = false
+            )
             val item = itemRepository.getItem(itemId)
-            _uiState.value = DetailUiState(
+            _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 item = item,
-                projects = _uiState.value.projects,
                 isProjectSaving = false,
                 isRegeneratingSummary = false,
-                errorMessage = if (item == null) "未找到该条目" else null
+                isGeneratingReadingCard = false,
+                errorMessage = if (item == null) "Item not found" else null
             )
 
             if (item != null && item.readStatus == ReadStatus.UNREAD) {
@@ -96,7 +120,7 @@ class DetailViewModel @Inject constructor(
             } else {
                 _uiState.value = _uiState.value.copy(
                     isProjectSaving = false,
-                    errorMessage = "删除项目失败: ${result.exceptionOrNull()?.message}"
+                    errorMessage = "Delete project failed: ${result.exceptionOrNull()?.message}"
                 )
             }
         }
@@ -112,7 +136,7 @@ class DetailViewModel @Inject constructor(
             } else {
                 _uiState.value = _uiState.value.copy(
                     isProjectSaving = false,
-                    errorMessage = "更新项目失败: ${result.exceptionOrNull()?.message}"
+                    errorMessage = "Update project failed: ${result.exceptionOrNull()?.message}"
                 )
             }
         }
@@ -144,7 +168,7 @@ class DetailViewModel @Inject constructor(
     fun saveContent(summary: String, note: String?, content: String, metaJson: String? = null) {
         val item = _uiState.value.item ?: return
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             val result = itemRepository.updateItem(
                 id = item.id,
                 summary = summary,
@@ -158,7 +182,7 @@ class DetailViewModel @Inject constructor(
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = "保存失败: ${result.exceptionOrNull()?.message}"
+                    errorMessage = "Save failed: ${result.exceptionOrNull()?.message}"
                 )
             }
         }
@@ -195,13 +219,142 @@ class DetailViewModel @Inject constructor(
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isRegeneratingSummary = false,
-                        errorMessage = "重新生成摘要失败: ${updateResult.exceptionOrNull()?.message}"
+                        errorMessage = "Regenerate summary failed: ${updateResult.exceptionOrNull()?.message}"
                     )
                 }
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     isRegeneratingSummary = false,
-                    errorMessage = "重新生成摘要失败: ${error.message}"
+                    errorMessage = "Regenerate summary failed: ${error.message}"
+                )
+            }
+        }
+    }
+
+    fun generateReadingCardDraft() {
+        val item = _uiState.value.item ?: return
+        if (item.type != ItemType.PAPER && item.type != ItemType.ARTICLE) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isGeneratingReadingCard = true, errorMessage = null)
+
+            val existingCard = when (val meta = item.metaData) {
+                is ItemMetaData.PaperMeta -> meta.readingCard
+                is ItemMetaData.ArticleMeta -> meta.readingCard
+                else -> null
+            }
+
+            val result = aiService.generateStructuredReadingCard(
+                title = item.title,
+                sourceContent = item.contentMarkdown.ifBlank { item.summary },
+                existingSummary = item.summary,
+                existingCard = existingCard,
+                itemType = item.type.toServerString()
+            )
+
+            result.onSuccess { generated ->
+                _uiState.value = _uiState.value.copy(
+                    isGeneratingReadingCard = false,
+                    generatedReadingCard = generated.card
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    isGeneratingReadingCard = false,
+                    errorMessage = "Generate reading card failed: ${error.message}"
+                )
+            }
+        }
+    }
+
+    fun consumeGeneratedReadingCard() {
+        _uiState.value = _uiState.value.copy(generatedReadingCard = null)
+    }
+
+    fun openAiAssistant() {
+        _uiState.value = _uiState.value.copy(isAiSheetVisible = true, errorMessage = null)
+    }
+
+    fun closeAiAssistant() {
+        _uiState.value = _uiState.value.copy(isAiSheetVisible = false)
+    }
+
+    fun askAboutCurrentItem(question: String) {
+        val item = _uiState.value.item ?: return
+        val trimmedQuestion = question.trim()
+        if (trimmedQuestion.isBlank()) return
+
+        viewModelScope.launch {
+            val currentMessages = _uiState.value.chatMessages + AiChatMessage(
+                role = AiChatRole.USER,
+                content = trimmedQuestion
+            )
+            _uiState.value = _uiState.value.copy(
+                chatMessages = currentMessages,
+                isAiResponding = true,
+                errorMessage = null
+            )
+
+            val result = aiService.answerQuestionAboutItem(
+                title = item.title,
+                summary = item.summary,
+                contentMarkdown = item.contentMarkdown,
+                metaJson = item.rawMetaJson,
+                question = trimmedQuestion,
+                itemType = item.type.toServerString()
+            )
+
+            result.onSuccess { answer ->
+                _uiState.value = _uiState.value.copy(
+                    chatMessages = _uiState.value.chatMessages + AiChatMessage(
+                        role = AiChatRole.ASSISTANT,
+                        content = answer
+                    ),
+                    isAiResponding = false
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    chatMessages = _uiState.value.chatMessages + AiChatMessage(
+                        role = AiChatRole.ASSISTANT,
+                        content = "I could not answer this yet: ${error.message ?: "unknown error"}"
+                    ),
+                    isAiResponding = false,
+                    errorMessage = "AI answer failed: ${error.message}"
+                )
+            }
+        }
+    }
+
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(errorMessage = null)
+    }
+
+    fun createProject(name: String, autoAssign: Boolean = true) {
+        if (name.isBlank()) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Project name cannot be empty")
+            return
+        }
+
+        val item = _uiState.value.item
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isCreatingProject = true, errorMessage = null)
+
+            val result = projectRepository.createProject(name)
+
+            result.onSuccess { newProject ->
+                projectRepository.refreshProjects()
+
+                if (autoAssign && item != null) {
+                    val updateResult = itemRepository.updateItemProject(item.id, newProject.id)
+                    if (updateResult.isSuccess) {
+                        load(item.id)
+                    }
+                }
+
+                _uiState.value = _uiState.value.copy(isCreatingProject = false)
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    isCreatingProject = false,
+                    errorMessage = "Create project failed: ${error.message}"
                 )
             }
         }
@@ -226,37 +379,5 @@ class DetailViewModel @Inject constructor(
         summaryShort?.let { map["summary_short"] = it }
 
         return gson.toJson(map)
-    }
-
-    fun createProject(name: String, autoAssign: Boolean = true) {
-        if (name.isBlank()) {
-            _uiState.value = _uiState.value.copy(errorMessage = "项目名称不能为空")
-            return
-        }
-
-        val item = _uiState.value.item
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isCreatingProject = true, errorMessage = null)
-
-            val result = projectRepository.createProject(name)
-
-            result.onSuccess { newProject ->
-                projectRepository.refreshProjects()
-
-                if (autoAssign && item != null) {
-                    val updateResult = itemRepository.updateItemProject(item.id, newProject.id)
-                    if (updateResult.isSuccess) {
-                        load(item.id)
-                    }
-                }
-
-                _uiState.value = _uiState.value.copy(isCreatingProject = false)
-            }.onFailure { error ->
-                _uiState.value = _uiState.value.copy(
-                    isCreatingProject = false,
-                    errorMessage = "创建项目失败: ${error.message}"
-                )
-            }
-        }
     }
 }

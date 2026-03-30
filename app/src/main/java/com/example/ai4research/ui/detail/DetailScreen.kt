@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.domain.model.ItemType
+import com.example.ai4research.domain.model.StructuredReadingCard
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -109,6 +110,7 @@ fun DetailScreen(
     val projects = uiState.projects
     val paperMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta
     val articleMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.ArticleMeta
+    val currentReadingCard = remember(item) { item?.let(::extractStructuredReadingCard) }
     val insightMeta = remember(item) { item?.let(::parseInsightDetail) }
     
     // 解析竞赛元数据
@@ -125,6 +127,7 @@ fun DetailScreen(
     var showProjectSheet by remember { mutableStateOf(false) }  // 改用底部弹出面板
     var showMoreMenu by remember { mutableStateOf(false) }
     var showInsightImagePreview by remember { mutableStateOf(false) }
+    var aiPrompt by rememberSaveable(itemId) { mutableStateOf("") }
     
     // 竞赛特有字段编辑状态
     var editOrganizer by remember(competitionMeta) { mutableStateOf(competitionMeta?.organizer ?: "") }
@@ -164,6 +167,27 @@ fun DetailScreen(
     
     // 语音特有字段编辑状态
     var editTranscription by remember(voiceMeta) { mutableStateOf(voiceMeta?.transcription ?: item?.summary ?: "") }
+    var editResearchQuestion by remember(currentReadingCard) { mutableStateOf(currentReadingCard?.researchQuestion ?: "") }
+    var editMethod by remember(currentReadingCard) { mutableStateOf(currentReadingCard?.method ?: "") }
+    var editDataset by remember(currentReadingCard) { mutableStateOf(currentReadingCard?.dataset ?: "") }
+    var editFindings by remember(currentReadingCard) { mutableStateOf(currentReadingCard?.findings ?: "") }
+    var editLimitations by remember(currentReadingCard) { mutableStateOf(currentReadingCard?.limitations ?: "") }
+    var editReusePoints by remember(currentReadingCard) { mutableStateOf(currentReadingCard?.reusePoints ?: "") }
+    var editMyNotes by remember(currentReadingCard) { mutableStateOf(currentReadingCard?.myNotes ?: "") }
+
+    LaunchedEffect(uiState.generatedReadingCard) {
+        uiState.generatedReadingCard?.let { card ->
+            editResearchQuestion = card.researchQuestion.orEmpty()
+            editMethod = card.method.orEmpty()
+            editDataset = card.dataset.orEmpty()
+            editFindings = card.findings.orEmpty()
+            editLimitations = card.limitations.orEmpty()
+            editReusePoints = card.reusePoints.orEmpty()
+            editMyNotes = card.myNotes.orEmpty()
+            isEditing = true
+            viewModel.consumeGeneratedReadingCard()
+        }
+    }
     
     // Create project dialog state
     var showCreateProjectDialog by remember { mutableStateOf(false) }
@@ -258,6 +282,15 @@ fun DetailScreen(
                                     transcription = editTranscription,
                                     duration = voiceMeta?.duration ?: 0
                                 )
+                                ItemType.PAPER, ItemType.ARTICLE -> buildReadingCardMetaJson(
+                                    researchQuestion = editResearchQuestion,
+                                    method = editMethod,
+                                    dataset = editDataset,
+                                    findings = editFindings,
+                                    limitations = editLimitations,
+                                    reusePoints = editReusePoints,
+                                    myNotes = editMyNotes
+                                )
                                 else -> null
                             }
                             // 语音类型使用转写文本作为summary
@@ -288,6 +321,24 @@ fun DetailScreen(
                                         viewModel.regeneratePaperBilingualSummary()
                                     },
                                     enabled = !uiState.isRegeneratingSummary
+                                )
+                            }
+                            if (type == ItemType.PAPER || type == ItemType.ARTICLE) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (uiState.isGeneratingReadingCard) {
+                                                "AI building reading card..."
+                                            } else {
+                                                "Generate reading card"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        viewModel.generateReadingCardDraft()
+                                    },
+                                    enabled = !uiState.isGeneratingReadingCard
                                 )
                             }
                         }
@@ -339,7 +390,7 @@ fun DetailScreen(
                             tint = if (isStarred) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                     }
-                    IconButton(onClick = { /* Chat */ }) {
+                    IconButton(onClick = { viewModel.openAiAssistant() }) {
                         Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "AI 对话", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = {
@@ -474,6 +525,22 @@ fun DetailScreen(
                     item = item,
                     meta = articleMeta,
                     isDark = isDarkTheme
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+            if (!isEditing && (type == ItemType.PAPER || type == ItemType.ARTICLE)) {
+                StructuredReadingCardView(
+                    card = StructuredReadingCard(
+                        researchQuestion = editResearchQuestion,
+                        method = editMethod,
+                        dataset = editDataset,
+                        findings = editFindings,
+                        limitations = editLimitations,
+                        reusePoints = editReusePoints,
+                        myNotes = editMyNotes
+                    ),
+                    isDark = isDarkTheme,
+                    isLoading = uiState.isGeneratingReadingCard
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -649,6 +716,32 @@ fun DetailScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                         }
 
+                        if (type == ItemType.PAPER || type == ItemType.ARTICLE) {
+                            StructuredReadingCardEditor(
+                                isDark = isDarkTheme,
+                                isGenerating = uiState.isGeneratingReadingCard,
+                                researchQuestion = editResearchQuestion,
+                                onResearchQuestionChange = { editResearchQuestion = it },
+                                method = editMethod,
+                                onMethodChange = { editMethod = it },
+                                dataset = editDataset,
+                                onDatasetChange = { editDataset = it },
+                                findings = editFindings,
+                                onFindingsChange = { editFindings = it },
+                                limitations = editLimitations,
+                                onLimitationsChange = { editLimitations = it },
+                                reusePoints = editReusePoints,
+                                onReusePointsChange = { editReusePoints = it },
+                                myNotes = editMyNotes,
+                                onMyNotesChange = { editMyNotes = it },
+                                onGenerateClick = { viewModel.generateReadingCardDraft() }
+                            )
+
+                            Spacer(modifier = Modifier.height(20.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
+
                         OutlinedTextField(
                             value = editNote,
                             onValueChange = { editNote = it },
@@ -724,6 +817,32 @@ fun DetailScreen(
             FullscreenInsightImage(
                 imageUri = item?.originUrl.orEmpty(),
                 onDismiss = { showInsightImagePreview = false }
+            )
+        }
+        uiState.errorMessage?.let { errorMessage ->
+            AlertDialog(
+                onDismissRequest = { viewModel.clearError() },
+                title = { Text("Action failed") },
+                text = { Text(errorMessage) },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.clearError() }) {
+                        Text("OK")
+                    }
+                }
+            )
+        }
+        if (uiState.isAiSheetVisible) {
+            AiAssistantDialog(
+                itemTitle = title,
+                messages = uiState.chatMessages,
+                prompt = aiPrompt,
+                onPromptChange = { aiPrompt = it },
+                isResponding = uiState.isAiResponding,
+                onDismiss = { viewModel.closeAiAssistant() },
+                onSend = {
+                    viewModel.askAboutCurrentItem(aiPrompt)
+                    aiPrompt = ""
+                }
             )
         }
         if (showProjectSheet) {
@@ -905,6 +1024,266 @@ private fun getItemAccent(type: ItemType): Color = when (type) {
     ItemType.INSIGHT -> Color(0xFFB24DFF)
     ItemType.VOICE -> Color(0xFFFF8A00)
     ItemType.COMPETITION -> Color(0xFFFF2D55)
+}
+
+private fun extractStructuredReadingCard(
+    item: com.example.ai4research.domain.model.ResearchItem
+): StructuredReadingCard? {
+    return when (val meta = item.metaData) {
+        is com.example.ai4research.domain.model.ItemMetaData.PaperMeta -> meta.readingCard
+        is com.example.ai4research.domain.model.ItemMetaData.ArticleMeta -> meta.readingCard
+        else -> null
+    }
+}
+
+private fun buildReadingCardMetaJson(
+    researchQuestion: String,
+    method: String,
+    dataset: String,
+    findings: String,
+    limitations: String,
+    reusePoints: String,
+    myNotes: String
+): String {
+    val card = mapOf(
+        "research_question" to researchQuestion,
+        "method" to method,
+        "dataset" to dataset,
+        "findings" to findings,
+        "limitations" to limitations,
+        "reuse_points" to reusePoints,
+        "my_notes" to myNotes
+    )
+    return org.json.JSONObject(mapOf("reading_card" to card)).toString()
+}
+
+@Composable
+private fun StructuredReadingCardView(
+    card: StructuredReadingCard,
+    isDark: Boolean,
+    isLoading: Boolean
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFF2563EB)
+    val sections = listOf(
+        "Research Question" to card.researchQuestion,
+        "Method" to card.method,
+        "Dataset" to card.dataset,
+        "Findings" to card.findings,
+        "Limitations" to card.limitations,
+        "Reuse Points" to card.reusePoints,
+        "My Notes" to card.myNotes
+    ).filter { !it.second.isNullOrBlank() }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Reading Card",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = accentColor
+            )
+            if (isLoading) {
+                Text(
+                    text = "AI drafting...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = accentColor
+                )
+            }
+        }
+
+        if (sections.isEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = if (isLoading) {
+                    "Generating a first draft from the current item."
+                } else {
+                    "No reading card yet. Use the menu or edit mode to create one."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.65f)
+            )
+        } else {
+            sections.forEach { (label, value) ->
+                Spacer(modifier = Modifier.height(10.dp))
+                PaperSummarySection(label, value.orEmpty(), isDark)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StructuredReadingCardEditor(
+    isDark: Boolean,
+    isGenerating: Boolean,
+    researchQuestion: String,
+    onResearchQuestionChange: (String) -> Unit,
+    method: String,
+    onMethodChange: (String) -> Unit,
+    dataset: String,
+    onDatasetChange: (String) -> Unit,
+    findings: String,
+    onFindingsChange: (String) -> Unit,
+    limitations: String,
+    onLimitationsChange: (String) -> Unit,
+    reusePoints: String,
+    onReusePointsChange: (String) -> Unit,
+    myNotes: String,
+    onMyNotesChange: (String) -> Unit,
+    onGenerateClick: () -> Unit
+) {
+    Text(
+        text = "Reading Card",
+        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        color = if (isDark) Color(0xFF9CC2FF) else Color(0xFF2563EB)
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+        text = "Capture the core problem, method, evidence, and your own reuse notes.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    TextButton(onClick = onGenerateClick, enabled = !isGenerating) {
+        Text(if (isGenerating) "AI drafting..." else "Generate with AI")
+    }
+    Spacer(modifier = Modifier.height(8.dp))
+    ReadingCardField("Research Question", researchQuestion, onResearchQuestionChange)
+    Spacer(modifier = Modifier.height(12.dp))
+    ReadingCardField("Method", method, onMethodChange)
+    Spacer(modifier = Modifier.height(12.dp))
+    ReadingCardField("Dataset", dataset, onDatasetChange)
+    Spacer(modifier = Modifier.height(12.dp))
+    ReadingCardField("Findings", findings, onFindingsChange)
+    Spacer(modifier = Modifier.height(12.dp))
+    ReadingCardField("Limitations", limitations, onLimitationsChange)
+    Spacer(modifier = Modifier.height(12.dp))
+    ReadingCardField("Reuse Points", reusePoints, onReusePointsChange)
+    Spacer(modifier = Modifier.height(12.dp))
+    ReadingCardField("My Notes", myNotes, onMyNotesChange)
+}
+
+@Composable
+private fun ReadingCardField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = Modifier.fillMaxWidth(),
+        minLines = 2
+    )
+}
+
+@Composable
+private fun AiAssistantDialog(
+    itemTitle: String,
+    messages: List<AiChatMessage>,
+    prompt: String,
+    onPromptChange: (String) -> Unit,
+    isResponding: Boolean,
+    onDismiss: () -> Unit,
+    onSend: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ask AI about this item") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = itemTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                if (messages.isEmpty()) {
+                    Text(
+                        text = "Try asking about the problem, method, findings, limitations, or how to reuse this item.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    messages.forEach { message ->
+                        AiMessageBubble(message = message)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                if (isResponding) {
+                    Text(
+                        text = "AI is thinking...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = onPromptChange,
+                    label = { Text("Question") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSend,
+                enabled = prompt.isNotBlank() && !isResponding
+            ) {
+                Text("Send")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun AiMessageBubble(message: AiChatMessage) {
+    val isUser = message.role == AiChatRole.USER
+    val background = if (isUser) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(background)
+            .padding(12.dp)
+    ) {
+        Text(
+            text = if (isUser) "You" else "AI",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = message.content,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
 }
 
 @Composable
