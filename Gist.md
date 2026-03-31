@@ -3,6 +3,11 @@
 ## 1. 文档目标
 本文档以当前代码库为唯一依据，完整说明 **Gist**（原名 AI4Research）的产品定位、架构设计、核心流程、数据模型、服务能力与技术细节，便于后续维护、迭代与交接。
 
+当前版本核心说明文档：
+- [`changelog/v0.5.0.md`](D:/Android-mobile-terminal/changelog/v0.5.0.md)
+- [`V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md`](D:/Android-mobile-terminal/V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md)
+- [`V0_6_RESEARCH_ASSISTANT_PRD.md`](D:/Android-mobile-terminal/V0_6_RESEARCH_ASSISTANT_PRD.md)
+
 `v0.3.0` 灵感页接口与字段补充说明见：
 - [INSPIRATION_PAGE_V0.3.0_SPEC.md](D:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
 
@@ -61,10 +66,16 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - **灵感页**：底部导航首页已重构为 `灵感`，支持页面内新建、搜索、显示已读、隐藏已读。
 - **灵感手动录入**：单条灵感支持标题、正文、图片、原始语音四模块自由组合。
 - **详情页**：Markdown 渲染、编辑保存、标记已读、星标、删除、项目归属同步；灵感详情支持图片预览与原始语音播放。
+- **结构化阅读卡**：paper / article 支持阅读卡字段编辑与 AI 初稿生成。
+- **详情页 AI 对话**：支持围绕当前条目进行问答。
 - **账号系统**：NocoDB 用户表注册/登录；本地使用 EncryptedSharedPreferences 缓存 token。
 - **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接。
 - **语音采集**：保留独立语音卡片录音 → SiliconFlow ASR 转写 → AI 优化润色链路；同时灵感页支持原始语音附件手动保存。
 - **AI 解析**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
+- **知识连接**：支持 `paper` 去重分组、`article -> paper` 自动关联、`insight` 手动关联已有条目。
+- **项目总览**：支持查看项目概况、最近新增、重点论文、灵感汇总、关系统计。
+- **结构化筛选**：论文与资料页面支持细粒度前端筛选。
+- **OCR 摘要修正**：支持 `medium_summary` 与更完整的 OCR 问答上下文构造。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
 > Web UI 使用 CDN/ESM（React、Tailwind、Framer Motion、Lucide），**运行时需要网络**。

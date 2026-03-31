@@ -1,8 +1,10 @@
 package com.example.ai4research.di
 
 import com.example.ai4research.data.repository.ItemRepositoryImpl
+import com.example.ai4research.data.repository.KnowledgeConnectionRepositoryImpl
 import com.example.ai4research.data.repository.ProjectRepositoryImpl
 import com.example.ai4research.domain.repository.ItemRepository
+import com.example.ai4research.domain.repository.KnowledgeConnectionRepository
 import com.example.ai4research.domain.repository.ProjectRepository
 import dagger.Binds
 import dagger.Module
@@ -23,6 +25,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindProjectRepository(impl: ProjectRepositoryImpl): ProjectRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindKnowledgeConnectionRepository(impl: KnowledgeConnectionRepositoryImpl): KnowledgeConnectionRepository
 }
 
 

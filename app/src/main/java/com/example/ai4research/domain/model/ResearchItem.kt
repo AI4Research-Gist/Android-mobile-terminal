@@ -109,6 +109,7 @@ sealed class ItemMetaData {
         val methodTags: List<String> = emptyList(),
         val dedupKey: String? = null,
         val summaryShort: String? = null,
+        val mediumSummary: String? = null,
         val summaryEn: String? = null,
         val summaryZh: String? = null,
         val readingCard: StructuredReadingCard? = null
@@ -121,6 +122,7 @@ sealed class ItemMetaData {
         val publishDate: String? = null,
         val identifier: String? = null,
         val summaryShort: String? = null,
+        val mediumSummary: String? = null,
         val keywords: List<String> = emptyList(),
         val topicTags: List<String> = emptyList(),
         val corePoints: List<String> = emptyList(),

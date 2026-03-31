@@ -11,6 +11,7 @@ import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.repository.ItemRepository
+import com.example.ai4research.domain.repository.KnowledgeConnectionRepository
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -27,7 +28,8 @@ class ItemRepositoryImpl @Inject constructor(
     private val api: NocoApiService,
     private val itemDao: ItemDao,
     private val projectDao: ProjectDao,
-    private val tokenManager: TokenManager
+    private val tokenManager: TokenManager,
+    private val knowledgeConnectionRepository: KnowledgeConnectionRepository
 ) : ItemRepository {
 
     private val gson = Gson()
@@ -243,6 +245,14 @@ class ItemRepositoryImpl @Inject constructor(
             if (localPendingItems.isNotEmpty()) {
                 itemDao.insertItems(localPendingItems)
             }
+            (itemEntities + localPendingItems)
+                .filter { entity ->
+                    val itemType = ItemType.fromString(entity.type)
+                    itemType == ItemType.PAPER || itemType == ItemType.ARTICLE
+                }
+                .forEach { entity ->
+                    knowledgeConnectionRepository.rebuildAutoConnectionsForItem(entity.id)
+                }
             Result.success(Unit)
         } catch (e: Exception) {
             android.util.Log.e("ItemRepository", "Failed to refresh items", e)
@@ -280,6 +290,7 @@ class ItemRepositoryImpl @Inject constructor(
             val created = mergeServerItem(api.createItem(dto), dto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
+            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(entity.id)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
             Result.failure(e)
@@ -310,6 +321,7 @@ class ItemRepositoryImpl @Inject constructor(
             val created = mergeServerItem(api.createItem(dto), dto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
+            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(entity.id)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
             Result.failure(e)
@@ -335,6 +347,7 @@ class ItemRepositoryImpl @Inject constructor(
             val created = mergeServerItem(api.createItem(dto), dto)
             val entity = ItemMapper.dtoToEntity(created, ownerUserId = ownerUserId)
             itemDao.insertItem(entity)
+            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(entity.id)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
             Result.failure(e)
@@ -382,6 +395,7 @@ class ItemRepositoryImpl @Inject constructor(
                 ownerUserId = ownerUserId
             )
             itemDao.insertItem(entity)
+            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(entity.id)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
             android.util.Log.e(
@@ -404,6 +418,7 @@ class ItemRepositoryImpl @Inject constructor(
                     ownerUserId = ownerUserId
                 )
                 itemDao.insertItem(entity)
+                knowledgeConnectionRepository.rebuildAutoConnectionsForItem(entity.id)
                 android.util.Log.w(
                     "ItemRepository",
                     "Create full item fallback succeeded without tags/metaJson. type=${type.toServerString()}, title=${title.take(40)}"
@@ -455,6 +470,7 @@ class ItemRepositoryImpl @Inject constructor(
                 projectName = projectName
             )
             itemDao.insertItem(entity)
+            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(entity.id)
             Result.success(ItemMapper.entityToDomain(entity))
         } catch (e: Exception) {
             Result.failure(e)
@@ -480,6 +496,7 @@ class ItemRepositoryImpl @Inject constructor(
             )
             itemDao.deleteItemById(ownerUserId, local.id)
             itemDao.insertItem(remoteEntity)
+            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(remoteEntity.id)
             Result.success(ItemMapper.entityToDomain(remoteEntity))
         } catch (e: Exception) {
             android.util.Log.e("ItemRepository", "Failed to sync local item to remote: ${e.message}", e)
@@ -623,6 +640,7 @@ class ItemRepositoryImpl @Inject constructor(
                     ownerUserId = ownerUserId
                 )
             )
+            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(id)
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -665,6 +683,7 @@ class ItemRepositoryImpl @Inject constructor(
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
         return try {
+            knowledgeConnectionRepository.deleteConnectionsForItem(id)
             itemDao.deleteItemById(ownerUserId, id)
             runCatching { api.deleteItem(id) }
             Result.success(Unit)

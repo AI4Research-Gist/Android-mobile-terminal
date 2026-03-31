@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Language-Kotlin-blue.svg"/>
   <img src="https://img.shields.io/badge/UI-Hybrid%20(WebView%20%2B%20Compose)-orange.svg"/>
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean-purple.svg"/>
-  <img src="https://img.shields.io/badge/Version-v0.2.3-red.svg"/>
+  <img src="https://img.shields.io/badge/Version-v0.5.0-red.svg"/>
   <img src="https://img.shields.io/badge/Min%20SDK-26-gray.svg"/>
 </p>
 
@@ -41,14 +41,20 @@
 - **灵感页**：底部导航已将首页收敛为 `灵感`，支持页面内新建、搜索、显示已读、隐藏已读。
 - **灵感录入**：单条灵感支持标题、正文、图片、原始语音四模块组合；标题必填，其余选填。
 - **详情页**：Markdown 渲染、编辑保存、标记已读/星标/删除、项目归属同步；灵感详情支持图片预览与原始语音播放。
+- **结构化阅读卡**：paper / article 支持“研究问题 / 方法 / 数据集 / 核心发现 / 局限性 / 可复用点 / 我的笔记”。
+- **详情页 AI 对话**：支持围绕当前条目进行问答，并优先利用 OCR 原文与中等摘要构造上下文。
 - **账号系统**：NocoDB 用户表注册/登录；本地 EncryptedSharedPreferences 缓存 token。
 - **比赛版用户分离**：按当前登录用户隔离 `items/projects`；新账号默认空数据；历史数据统一归档到测试账号。
 - **悬浮窗助手**：全局悬浮球，支持全屏/区域截图、剪贴板链接检测、手动输入链接；AI 解析入库。
 - **语音采集**：保留独立语音录制页（录音 + ASR + AI 优化）能力；同时灵感页支持原始语音作为附件手动保存。
 - **AI 能力**：SiliconFlow（Qwen2.5 文本/视觉）用于链接解析、OCR、摘要、语音优化。
 - **OCR 稳定化**：截图授权、投影会话、图片解码与 OCR 主链路已完成第一轮稳定性修复。
+- **知识连接**：支持 `paper` 去重分组、`article -> paper` 自动关联、`insight` 手动关联已有条目。
+- **项目总览**：新增项目概况、最近新增、重点论文、灵感汇总与关系统计页面。
+- **结构化筛选**：论文页和资料页支持按项目、年份、来源/作者、关键词/标签细筛。
 - **解析状态可视化**：链接现已支持先分类入库、后台解析、前端状态字条与解析耗时展示。
 - **资料页本地优先显示**：资料条目现已支持先写本地占位、后异步同步远端，避免整栏空白。
+- **OCR 摘要修正**：长 OCR 文本引入 `medium_summary`，显示层优先使用中等摘要，避免只展示短截断内容。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
 > 注意：Web UI 依赖 CDN/ESM（React、Tailwind、Framer Motion、Lucide），运行时需要网络。
@@ -137,10 +143,12 @@ app/src/main/
 
 ## 当前版本
 
-- 当前版本：`v0.3.0`
-- 本版本重点：灵感页重构、手动灵感录入闭环、灵感详情页图片/语音查看、导航图标区分
-- 更新日志入口：[`v0.3.0`](d:/Android-mobile-terminal/changelog/v0.3.0.md)
+- 当前版本：`v0.5.0`
+- 本版本重点：知识连接、项目总览、结构化筛选、阅读卡、详情页 AI 对话、OCR 摘要链路修正
+- 更新日志入口：[`v0.5.0`](d:/Android-mobile-terminal/changelog/v0.5.0.md)
 - 灵感模块补充说明：[`INSPIRATION_PAGE_V0.3.0_SPEC.md`](d:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
+- 知识连接参考文档：[`V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md`](d:/Android-mobile-terminal/V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md)
+- 研究助手 PRD：[`V0_6_RESEARCH_ASSISTANT_PRD.md`](d:/Android-mobile-terminal/V0_6_RESEARCH_ASSISTANT_PRD.md)
 - 版本明细目录：[`changelog/`](d:/Android-mobile-terminal/changelog)
 
 ## 配置说明（开发环境）
@@ -178,6 +186,10 @@ app/src/main/
 - 当前首页已正式切换为“灵感”页，不再承担旧的动态聚合职责。
 - 当前灵感页已支持页面内新建 / 编辑 / 搜索 / 已读隐藏与详情查看。
 - 当前灵感详情页已支持查看上传图片与播放原始语音。
+- 当前 `paper / article` 已支持结构化阅读卡与详情页 AI 问答。
+- 当前项目已支持基础知识连接：paper 去重关系、article 关联论文、insight 手动关联条目。
+- 当前项目已支持项目总览页，用于查看项目概况、重点论文和灵感汇总。
+- 当前 OCR 链路已补充 `medium_summary`，长图摘要与问答的上下文完整性已有明显改善。
 
 ## 权限说明
 

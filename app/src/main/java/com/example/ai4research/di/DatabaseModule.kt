@@ -3,6 +3,7 @@ package com.example.ai4research.di
 import android.content.Context
 import androidx.room.Room
 import com.example.ai4research.data.local.dao.ItemDao
+import com.example.ai4research.data.local.dao.ItemRelationDao
 import com.example.ai4research.data.local.dao.ProjectDao
 import com.example.ai4research.data.local.dao.UserDao
 import com.example.ai4research.data.local.database.AI4ResearchDatabase
@@ -44,6 +45,12 @@ object DatabaseModule {
     @Singleton
     fun provideItemDao(database: AI4ResearchDatabase): ItemDao {
         return database.itemDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideItemRelationDao(database: AI4ResearchDatabase): ItemRelationDao {
+        return database.itemRelationDao()
     }
     
     /**

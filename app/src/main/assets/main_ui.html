@@ -433,6 +433,9 @@
           const summaryZh = meta.summary_zh || "";
           let displaySummary = item.summary || "暂无摘要";
           let summaryObj = { en: summaryEn, zh: summaryZh, display: displaySummary };
+          if (mediumSummary) {
+            displaySummary = mediumSummary;
+          }
           // 如果有双语摘要，优先使用中文
           if (summaryZh) {
             displaySummary = summaryZh;
@@ -458,6 +461,7 @@
             year: year,
             identifier: identifier,
             summary: displaySummary,
+            mediumSummary: mediumSummary,
             summaryEn: summaryEn,
             summaryZh: summaryZh,
             note: note,
@@ -557,10 +561,13 @@
           const rawStatus = item.status || 'processing';
           const status = rawStatus.split(' ')[0].toLowerCase();
 
+          const mediumSummary = meta.medium_summary || "";
+
           return {
             id: item.Id || item.id,
             title: item.title,
-            summary: meta.summary_short || item.summary || '??????',
+            summary: mediumSummary || meta.summary_short || item.summary || '暂无摘要',
+            mediumSummary: mediumSummary,
             platform: meta.platform || 'web',
             accountName: meta.account_name || '',
             author: meta.author || item.author || '',
@@ -605,6 +612,7 @@
           const rawStatus = item.status || 'processing';
           const status = rawStatus.split(' ')[0].toLowerCase();
           const summaryShort = meta.summary_short || "";
+          const mediumSummary = meta.medium_summary || "";
           const summaryEn = meta.summary_en || "";
           const summaryZh = meta.summary_zh || "";
           const keywords = Array.isArray(meta.keywords) ? meta.keywords : [];
@@ -1679,6 +1687,7 @@
       };
 
       const paperStructuredOptions = buildPaperStructuredOptions(papers);
+      const currentProject = projects.find(project => String(project.id) === String(currentFilter?.projectId || ""));
       const filteredPapers = (papers || []).filter(paper => {
         const query = normalizeSearchText(searchQuery);
         if (query) {
@@ -1820,6 +1829,20 @@
             onReset={() => setStructuredFilters(createStructuredFilterState())}
             resultText={`${filteredPapers.length} / ${papers.length}`}
           />
+
+          {currentProject && (
+            <div className="px-1">
+              <button
+                onClick={() => window.AndroidInterface?.openProjectOverview?.(String(currentProject.id))}
+                className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold text-left transition-all duration-300 ${isDark
+                  ? 'bg-cyan-500/12 text-cyan-200 border border-cyan-500/25'
+                  : 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                  }`}
+              >
+                查看项目总览 · {currentProject.name}
+              </button>
+            </div>
+          )}
 
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">
             {filters.map((filter, i) => (
@@ -2091,6 +2114,9 @@
       const updateStructuredFilter = (key, value) => {
         setStructuredFilters(prev => ({ ...prev, [key]: value }));
       };
+      const currentArticleProject = filteredArticles.find(article => article.projectId)?.projectName
+        ? filteredArticles.find(article => article.projectId)
+        : null;
 
       return (
         <div className="space-y-4 pb-28">
@@ -2140,6 +2166,20 @@
             onReset={() => setStructuredFilters(createStructuredFilterState())}
             resultText={`${filteredArticles.length} / ${articles.length}`}
           />
+
+          {currentArticleProject && (
+            <div className="px-1">
+              <button
+                onClick={() => window.AndroidInterface?.openProjectOverview?.(String(currentArticleProject.projectId))}
+                className={`w-full rounded-2xl px-4 py-3 text-sm font-semibold text-left transition-all duration-300 ${isDark
+                  ? 'bg-cyan-500/12 text-cyan-200 border border-cyan-500/25'
+                  : 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                  }`}
+              >
+                查看项目总览 · {currentArticleProject.projectName}
+              </button>
+            </div>
+          )}
 
           {filteredArticles.length === 0 ? (
             <div className={`text-center py-20 ${isDark ? 'text-white/30' : 'text-slate-400'}`}>

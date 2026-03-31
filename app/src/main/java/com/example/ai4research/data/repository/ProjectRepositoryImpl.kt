@@ -1,11 +1,18 @@
 package com.example.ai4research.data.repository
 
 import com.example.ai4research.core.security.TokenManager
+import com.example.ai4research.data.local.dao.ItemDao
+import com.example.ai4research.data.local.dao.ItemRelationDao
 import com.example.ai4research.data.local.dao.ProjectDao
 import com.example.ai4research.data.mapper.ItemMapper
+import com.example.ai4research.data.mapper.ItemRelationMapper
 import com.example.ai4research.data.remote.api.NocoApiService
 import com.example.ai4research.data.remote.dto.NocoProjectDto
+import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
+import com.example.ai4research.domain.model.ProjectOverview
+import com.example.ai4research.domain.model.ProjectOverviewStats
+import com.example.ai4research.domain.model.RelationType
 import com.example.ai4research.domain.repository.ProjectRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -16,6 +23,8 @@ import javax.inject.Singleton
 @Singleton
 class ProjectRepositoryImpl @Inject constructor(
     private val api: NocoApiService,
+    private val itemDao: ItemDao,
+    private val itemRelationDao: ItemRelationDao,
     private val projectDao: ProjectDao,
     private val tokenManager: TokenManager
 ) : ProjectRepository {
@@ -69,6 +78,48 @@ class ProjectRepositoryImpl @Inject constructor(
             android.util.Log.e("ProjectRepository", "Failed to create project", e)
             Result.failure(e)
         }
+    }
+
+    override suspend fun getProjectOverview(projectId: String): ProjectOverview? {
+        val ownerUserId = currentUserId() ?: return null
+        val project = projectDao.getProjectById(ownerUserId, projectId)?.let(ItemMapper::projectEntityToDomain) ?: return null
+        val projectItems = itemDao.getItemsByProject(ownerUserId, projectId).map(ItemMapper::entityToDomain)
+        val projectItemIds = projectItems.map { it.id }
+        val relations = if (projectItemIds.isEmpty()) {
+            emptyList()
+        } else {
+            itemRelationDao.getRelationsForItems(ownerUserId, projectItemIds).map(ItemRelationMapper::entityToDomain)
+        }
+
+        val keyPapers = projectItems
+            .filter { it.type == ItemType.PAPER }
+            .sortedWith(
+                compareByDescending<com.example.ai4research.domain.model.ResearchItem> { it.isStarred }
+                    .thenByDescending { (it.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)?.identifier != null }
+                    .thenByDescending { (it.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)?.readingCard?.isEmpty() == false }
+                    .thenByDescending { it.createdAt.time }
+            )
+            .take(5)
+
+        val recentInsights = projectItems
+            .filter { it.type == ItemType.INSIGHT }
+            .sortedByDescending { it.createdAt.time }
+            .take(10)
+
+        return ProjectOverview(
+            project = project,
+            recentItems = projectItems.sortedByDescending { it.createdAt.time }.take(10),
+            keyPapers = keyPapers,
+            recentInsights = recentInsights,
+            stats = ProjectOverviewStats(
+                totalItems = projectItems.size,
+                paperCount = projectItems.count { it.type == ItemType.PAPER },
+                articleCount = projectItems.count { it.type == ItemType.ARTICLE },
+                insightCount = projectItems.count { it.type == ItemType.INSIGHT },
+                duplicateRelationCount = relations.count { it.relationType == RelationType.DUPLICATE_OF },
+                articlePaperRelationCount = relations.count { it.relationType == RelationType.ARTICLE_MENTIONS_PAPER || it.relationType == RelationType.ARTICLE_RELATED_PAPER }
+            )
+        )
     }
 
     override suspend fun deleteProject(projectId: String): Result<Unit> {

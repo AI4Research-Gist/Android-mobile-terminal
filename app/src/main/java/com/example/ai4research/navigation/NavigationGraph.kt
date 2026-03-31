@@ -15,6 +15,7 @@ import com.example.ai4research.ui.auth.AuthScreen
 import com.example.ai4research.ui.auth.AuthViewModel
 import com.example.ai4research.ui.detail.DetailScreen
 import com.example.ai4research.ui.main.MainScreen
+import com.example.ai4research.ui.project.ProjectOverviewScreen
 
 /**
  * 应用导航图
@@ -106,6 +107,9 @@ fun NavigationGraph(
                 onNavigateToDetail = { itemId ->
                     navController.navigate(Screen.Detail.createRoute(itemId))
                 },
+                onNavigateToProjectOverview = { projectId ->
+                    navController.navigate(Screen.ProjectOverview.createRoute(projectId))
+                },
                 onNavigateToVoiceRecording = {
                     navController.navigate(Screen.VoiceRecording.route)
                 },
@@ -121,8 +125,28 @@ fun NavigationGraph(
             val itemId = backStackEntry.arguments?.getString("itemId") ?: ""
             DetailScreen(
                 itemId = itemId,
+                onNavigateToDetail = { relatedItemId ->
+                    navController.navigate(Screen.Detail.createRoute(relatedItemId))
+                },
+                onNavigateToProject = { projectId ->
+                    navController.navigate(Screen.ProjectOverview.createRoute(projectId))
+                },
                 onNavigateBack = {
                     navController.popBackStack()
+                }
+            )
+        }
+
+        composable(
+            route = Screen.ProjectOverview.route,
+            arguments = listOf(navArgument("projectId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
+            ProjectOverviewScreen(
+                projectId = projectId,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToDetail = { itemId ->
+                    navController.navigate(Screen.Detail.createRoute(itemId))
                 }
             )
         }

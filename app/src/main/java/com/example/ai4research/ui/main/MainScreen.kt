@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 fun MainScreen(
     onLogout: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
+    onNavigateToProjectOverview: (String) -> Unit,
     onNavigateToVoiceRecording: () -> Unit = {},
     webViewCache: WebViewCache,
     viewModel: MainViewModel = hiltViewModel()
@@ -289,6 +290,7 @@ fun MainScreen(
             viewModel = viewModel,
             onLogout = onLogout,
             onNavigateToDetail = onNavigateToDetail,
+            onNavigateToProjectOverview = onNavigateToProjectOverview,
             onNavigateToVoiceRecording = onNavigateToVoiceRecording,
             onOpenLinkCapture = { floatingWindowManager.openQuickLinkCapture() },
             onStartScanCapture = { imagePickerLauncher.launch(arrayOf("image/*")) },
@@ -512,6 +514,7 @@ class MainAppInterface(
     private val viewModel: MainViewModel,
     private val onLogout: () -> Unit,
     private val onNavigateToDetail: (String) -> Unit,
+    private val onNavigateToProjectOverview: (String) -> Unit,
     private val onNavigateToVoiceRecording: () -> Unit = {},
     private val onOpenLinkCapture: () -> Unit = {},
     private val onStartScanCapture: () -> Unit = {},
@@ -544,6 +547,15 @@ class MainAppInterface(
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             android.util.Log.d("MainAppInterface", "Executing navigation to detail: $itemId")
             onNavigateToDetail(itemId)
+        }
+    }
+
+    @JavascriptInterface
+    fun openProjectOverview(projectId: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            if (projectId.isNotBlank()) {
+                onNavigateToProjectOverview(projectId)
+            }
         }
     }
 

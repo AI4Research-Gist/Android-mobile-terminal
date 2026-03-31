@@ -3,12 +3,14 @@ package com.example.ai4research.ui.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ai4research.domain.model.ItemMetaData
+import com.example.ai4research.domain.model.ItemConnection
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
 import com.example.ai4research.domain.model.ReadStatus
 import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.model.StructuredReadingCard
 import com.example.ai4research.domain.repository.ItemRepository
+import com.example.ai4research.domain.repository.KnowledgeConnectionRepository
 import com.example.ai4research.domain.repository.ProjectRepository
 import com.example.ai4research.service.AIService
 import com.google.gson.Gson
@@ -17,18 +19,23 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class DetailUiState(
     val isLoading: Boolean = true,
     val item: ResearchItem? = null,
+    val connections: List<ItemConnection> = emptyList(),
+    val availableLinkTargets: List<ResearchItem> = emptyList(),
     val projects: List<Project> = emptyList(),
     val isProjectSaving: Boolean = false,
     val isCreatingProject: Boolean = false,
     val isRegeneratingSummary: Boolean = false,
     val isGeneratingReadingCard: Boolean = false,
     val generatedReadingCard: StructuredReadingCard? = null,
+    val isInsightLinkEditorVisible: Boolean = false,
+    val isSavingInsightLinks: Boolean = false,
     val isAiSheetVisible: Boolean = false,
     val chatMessages: List<AiChatMessage> = emptyList(),
     val isAiResponding: Boolean = false,
@@ -48,6 +55,7 @@ enum class AiChatRole {
 @HiltViewModel
 class DetailViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
+    private val knowledgeConnectionRepository: KnowledgeConnectionRepository,
     private val projectRepository: ProjectRepository,
     private val aiService: AIService
 ) : ViewModel() {
@@ -77,10 +85,26 @@ class DetailViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 item = item,
+                connections = if (item != null) {
+                    knowledgeConnectionRepository.getConnectionsForItem(item.id)
+                } else {
+                    emptyList()
+                },
+                availableLinkTargets = if (item?.type == ItemType.INSIGHT) {
+                    itemRepository.observeItems().first()
+                        .filter { candidate -> candidate.id != item.id }
+                        .sortedWith(compareByDescending<ResearchItem> { candidate ->
+                            calculateInsightLinkScore(item, candidate)
+                        }.thenByDescending { candidate ->
+                            candidate.createdAt.time
+                        })
+                } else {
+                    emptyList()
+                },
                 isProjectSaving = false,
                 isRegeneratingSummary = false,
                 isGeneratingReadingCard = false,
-                errorMessage = if (item == null) "Item not found" else null
+                errorMessage = if (item == null) "未找到该条目" else null
             )
 
             if (item != null && item.readStatus == ReadStatus.UNREAD) {
@@ -120,7 +144,7 @@ class DetailViewModel @Inject constructor(
             } else {
                 _uiState.value = _uiState.value.copy(
                     isProjectSaving = false,
-                    errorMessage = "Delete project failed: ${result.exceptionOrNull()?.message}"
+                    errorMessage = "删除项目失败: ${result.exceptionOrNull()?.message}"
                 )
             }
         }
@@ -136,7 +160,7 @@ class DetailViewModel @Inject constructor(
             } else {
                 _uiState.value = _uiState.value.copy(
                     isProjectSaving = false,
-                    errorMessage = "Update project failed: ${result.exceptionOrNull()?.message}"
+                    errorMessage = "更新项目失败: ${result.exceptionOrNull()?.message}"
                 )
             }
         }
@@ -182,7 +206,7 @@ class DetailViewModel @Inject constructor(
             } else {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    errorMessage = "Save failed: ${result.exceptionOrNull()?.message}"
+                    errorMessage = "保存失败: ${result.exceptionOrNull()?.message}"
                 )
             }
         }
@@ -219,13 +243,13 @@ class DetailViewModel @Inject constructor(
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isRegeneratingSummary = false,
-                        errorMessage = "Regenerate summary failed: ${updateResult.exceptionOrNull()?.message}"
+                        errorMessage = "重新生成摘要失败: ${updateResult.exceptionOrNull()?.message}"
                     )
                 }
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     isRegeneratingSummary = false,
-                    errorMessage = "Regenerate summary failed: ${error.message}"
+                    errorMessage = "重新生成摘要失败: ${error.message}"
                 )
             }
         }
@@ -260,7 +284,7 @@ class DetailViewModel @Inject constructor(
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     isGeneratingReadingCard = false,
-                    errorMessage = "Generate reading card failed: ${error.message}"
+                    errorMessage = "生成阅读卡失败: ${error.message}"
                 )
             }
         }
@@ -276,6 +300,36 @@ class DetailViewModel @Inject constructor(
 
     fun closeAiAssistant() {
         _uiState.value = _uiState.value.copy(isAiSheetVisible = false)
+    }
+
+    fun openInsightLinkEditor() {
+        _uiState.value = _uiState.value.copy(isInsightLinkEditorVisible = true, errorMessage = null)
+    }
+
+    fun closeInsightLinkEditor() {
+        _uiState.value = _uiState.value.copy(isInsightLinkEditorVisible = false)
+    }
+
+    fun saveInsightLinks(targetItemIds: List<String>) {
+        val item = _uiState.value.item ?: return
+        if (item.type != ItemType.INSIGHT) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isSavingInsightLinks = true, errorMessage = null)
+            val result = knowledgeConnectionRepository.replaceInsightConnections(item.id, targetItemIds)
+            if (result.isSuccess) {
+                _uiState.value = _uiState.value.copy(
+                    isSavingInsightLinks = false,
+                    isInsightLinkEditorVisible = false
+                )
+                load(item.id)
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isSavingInsightLinks = false,
+                    errorMessage = "保存关联失败: ${result.exceptionOrNull()?.message}"
+                )
+            }
+        }
     }
 
     fun askAboutCurrentItem(question: String) {
@@ -315,10 +369,10 @@ class DetailViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     chatMessages = _uiState.value.chatMessages + AiChatMessage(
                         role = AiChatRole.ASSISTANT,
-                        content = "I could not answer this yet: ${error.message ?: "unknown error"}"
+                        content = "我暂时还回答不了这个问题：${error.message ?: "未知错误"}"
                     ),
                     isAiResponding = false,
-                    errorMessage = "AI answer failed: ${error.message}"
+                    errorMessage = "AI 回答失败: ${error.message}"
                 )
             }
         }
@@ -330,7 +384,7 @@ class DetailViewModel @Inject constructor(
 
     fun createProject(name: String, autoAssign: Boolean = true) {
         if (name.isBlank()) {
-            _uiState.value = _uiState.value.copy(errorMessage = "Project name cannot be empty")
+            _uiState.value = _uiState.value.copy(errorMessage = "项目名称不能为空")
             return
         }
 
@@ -354,7 +408,7 @@ class DetailViewModel @Inject constructor(
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     isCreatingProject = false,
-                    errorMessage = "Create project failed: ${error.message}"
+                    errorMessage = "创建项目失败: ${error.message}"
                 )
             }
         }
@@ -379,5 +433,47 @@ class DetailViewModel @Inject constructor(
         summaryShort?.let { map["summary_short"] = it }
 
         return gson.toJson(map)
+    }
+
+    private fun calculateInsightLinkScore(
+        insight: ResearchItem,
+        candidate: ResearchItem
+    ): Int {
+        var score = 0
+
+        if (!insight.projectId.isNullOrBlank() && insight.projectId == candidate.projectId) {
+            score += 6
+        }
+
+        if (candidate.type == ItemType.PAPER || candidate.type == ItemType.ARTICLE) {
+            score += 3
+        }
+
+        val insightText = buildSearchTokens(insight)
+        val candidateText = buildSearchTokens(candidate)
+        val overlapCount = insightText.intersect(candidateText).size
+        score += overlapCount.coerceAtMost(6)
+
+        return score
+    }
+
+    private fun buildSearchTokens(item: ResearchItem): Set<String> {
+        val metaKeywords = when (val meta = item.metaData) {
+            is ItemMetaData.PaperMeta -> meta.keywords + meta.domainTags + meta.methodTags + meta.tags
+            is ItemMetaData.ArticleMeta -> meta.keywords + meta.topicTags + meta.corePoints
+            else -> emptyList()
+        }
+
+        return (
+            listOf(item.title, item.summary, item.contentMarkdown, item.projectName.orEmpty()) + metaKeywords
+            )
+            .flatMap { text ->
+                text.lowercase()
+                    .replace(Regex("[^\\p{L}\\p{N}\\u4e00-\\u9fa5]+"), " ")
+                    .split(" ")
+                    .map(String::trim)
+                    .filter { it.length >= 2 }
+            }
+            .toSet()
     }
 }

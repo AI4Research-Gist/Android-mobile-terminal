@@ -38,6 +38,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -87,6 +88,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DetailScreen(
     itemId: String,
+    onNavigateToDetail: (String) -> Unit,
+    onNavigateToProject: (String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val viewModel: DetailViewModel = hiltViewModel()
@@ -128,6 +131,7 @@ fun DetailScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     var showInsightImagePreview by remember { mutableStateOf(false) }
     var aiPrompt by rememberSaveable(itemId) { mutableStateOf("") }
+    var selectedInsightLinkIds by remember(itemId) { mutableStateOf(setOf<String>()) }
     
     // 竞赛特有字段编辑状态
     var editOrganizer by remember(competitionMeta) { mutableStateOf(competitionMeta?.organizer ?: "") }
@@ -186,6 +190,12 @@ fun DetailScreen(
             editMyNotes = card.myNotes.orEmpty()
             isEditing = true
             viewModel.consumeGeneratedReadingCard()
+        }
+    }
+
+    LaunchedEffect(uiState.isInsightLinkEditorVisible, uiState.connections) {
+        if (uiState.isInsightLinkEditorVisible) {
+            selectedInsightLinkIds = uiState.connections.map { it.item.id }.toSet()
         }
     }
     
@@ -328,9 +338,9 @@ fun DetailScreen(
                                     text = {
                                         Text(
                                             if (uiState.isGeneratingReadingCard) {
-                                                "AI building reading card..."
+                                                "AI 正在生成阅读卡..."
                                             } else {
-                                                "Generate reading card"
+                                                "生成阅读卡"
                                             }
                                         )
                                     },
@@ -509,6 +519,35 @@ fun DetailScreen(
                 }
             }
 
+            if (item?.projectId != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier.clickable {
+                        onNavigateToProject(item.projectId)
+                    }
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF06B6D4).copy(alpha = 0.10f))
+                            .border(1.dp, Color(0xFF06B6D4).copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = "查看项目总览",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = Color(0xFF06B6D4)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "进入该项目的最近新增、重点论文和灵感汇总",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             if (type == ItemType.PAPER && paperMeta != null && item != null) {
@@ -541,6 +580,23 @@ fun DetailScreen(
                     ),
                     isDark = isDarkTheme,
                     isLoading = uiState.isGeneratingReadingCard
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+            if (!isEditing && type != ItemType.INSIGHT && uiState.connections.isNotEmpty()) {
+                RelatedItemsCard(
+                    connections = uiState.connections,
+                    isDark = isDarkTheme,
+                    onOpenItem = onNavigateToDetail
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+            if (!isEditing && type == ItemType.INSIGHT) {
+                InsightLinksCard(
+                    connections = uiState.connections,
+                    isDark = isDarkTheme,
+                    onOpenItem = onNavigateToDetail,
+                    onManageLinks = { viewModel.openInsightLinkEditor() }
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -822,13 +878,31 @@ fun DetailScreen(
         uiState.errorMessage?.let { errorMessage ->
             AlertDialog(
                 onDismissRequest = { viewModel.clearError() },
-                title = { Text("Action failed") },
+                title = { Text("操作失败") },
                 text = { Text(errorMessage) },
                 confirmButton = {
                     TextButton(onClick = { viewModel.clearError() }) {
-                        Text("OK")
+                        Text("确定")
                     }
                 }
+            )
+        }
+        if (uiState.isInsightLinkEditorVisible && item?.type == ItemType.INSIGHT) {
+            InsightLinkEditorDialog(
+                availableItems = uiState.availableLinkTargets,
+                selectedItemIds = selectedInsightLinkIds,
+                onToggleItem = { targetId ->
+                    selectedInsightLinkIds = selectedInsightLinkIds.toMutableSet().also { current ->
+                        if (current.contains(targetId)) {
+                            current.remove(targetId)
+                        } else {
+                            current.add(targetId)
+                        }
+                    }
+                },
+                isSaving = uiState.isSavingInsightLinks,
+                onDismiss = { viewModel.closeInsightLinkEditor() },
+                onConfirm = { viewModel.saveInsightLinks(selectedInsightLinkIds.toList()) }
             )
         }
         if (uiState.isAiSheetVisible) {
@@ -1058,6 +1132,179 @@ private fun buildReadingCardMetaJson(
 }
 
 @Composable
+private fun InsightLinksCard(
+    connections: List<com.example.ai4research.domain.model.ItemConnection>,
+    isDark: Boolean,
+    onOpenItem: (String) -> Unit,
+    onManageLinks: () -> Unit
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFF14B8A6)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "关联条目",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = accentColor
+            )
+            Text(
+                text = "管理关联",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = accentColor,
+                modifier = Modifier.clickable(onClick = onManageLinks)
+            )
+        }
+
+        if (connections.isEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "这条灵感还没有关联到论文或资料，可以手动补充。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.65f)
+            )
+        } else {
+            Spacer(modifier = Modifier.height(10.dp))
+            connections.take(5).forEachIndexed { index, connection ->
+                RelatedItemRow(
+                    connection = connection,
+                    isDark = isDark,
+                    onOpenItem = onOpenItem
+                )
+                if (index != connections.take(5).lastIndex) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelatedItemsCard(
+    connections: List<com.example.ai4research.domain.model.ItemConnection>,
+    isDark: Boolean,
+    onOpenItem: (String) -> Unit
+) {
+    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
+    val accentColor = Color(0xFF06B6D4)
+    val groupedConnections = connections.groupBy { connection ->
+        relationGroupLabel(connection.relation.relationType)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(cardBg)
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "关联条目",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = accentColor
+        )
+        groupedConnections.forEach { (groupLabel, groupedItems) ->
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = groupLabel,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            groupedItems.forEachIndexed { index, connection ->
+                RelatedItemRow(
+                    connection = connection,
+                    isDark = isDark,
+                    onOpenItem = onOpenItem
+                )
+                if (index != groupedItems.lastIndex) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelatedItemRow(
+    connection: com.example.ai4research.domain.model.ItemConnection,
+    isDark: Boolean,
+    onOpenItem: (String) -> Unit
+) {
+    val relatedItem = connection.item
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenItem(relatedItem.id) }
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = getItemTypeName(relatedItem.type),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.55f)
+            )
+            Text(
+                text = relationTypeLabel(connection.relation.relationType),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = Color(0xFF06B6D4)
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = relatedItem.title,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+            color = if (isDark) Color.White else Color.Black
+        )
+        if (relatedItem.summary.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = relatedItem.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
+                maxLines = 2
+            )
+        }
+    }
+}
+
+private fun relationTypeLabel(type: com.example.ai4research.domain.model.RelationType): String {
+    return when (type) {
+        com.example.ai4research.domain.model.RelationType.DUPLICATE_OF -> "重复条目"
+        com.example.ai4research.domain.model.RelationType.ARTICLE_MENTIONS_PAPER -> "文章提到的论文"
+        com.example.ai4research.domain.model.RelationType.ARTICLE_RELATED_PAPER -> "相关论文"
+        com.example.ai4research.domain.model.RelationType.INSIGHT_REFERENCES_ITEM -> "灵感关联"
+    }
+}
+
+private fun relationGroupLabel(type: com.example.ai4research.domain.model.RelationType): String {
+    return when (type) {
+        com.example.ai4research.domain.model.RelationType.DUPLICATE_OF -> "重复来源"
+        com.example.ai4research.domain.model.RelationType.ARTICLE_MENTIONS_PAPER -> "引用与提及"
+        com.example.ai4research.domain.model.RelationType.ARTICLE_RELATED_PAPER -> "相关文献"
+        com.example.ai4research.domain.model.RelationType.INSIGHT_REFERENCES_ITEM -> "灵感关联"
+    }
+}
+
+@Composable
 private fun StructuredReadingCardView(
     card: StructuredReadingCard,
     isDark: Boolean,
@@ -1066,13 +1313,13 @@ private fun StructuredReadingCardView(
     val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF2563EB)
     val sections = listOf(
-        "Research Question" to card.researchQuestion,
-        "Method" to card.method,
-        "Dataset" to card.dataset,
-        "Findings" to card.findings,
-        "Limitations" to card.limitations,
-        "Reuse Points" to card.reusePoints,
-        "My Notes" to card.myNotes
+        "研究问题" to card.researchQuestion,
+        "方法" to card.method,
+        "数据集" to card.dataset,
+        "核心发现" to card.findings,
+        "局限性" to card.limitations,
+        "可复用点" to card.reusePoints,
+        "我的笔记" to card.myNotes
     ).filter { !it.second.isNullOrBlank() }
 
     Column(
@@ -1088,13 +1335,13 @@ private fun StructuredReadingCardView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Reading Card",
+                text = "阅读卡",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = accentColor
             )
             if (isLoading) {
                 Text(
-                    text = "AI drafting...",
+                    text = "AI 正在生成...",
                     style = MaterialTheme.typography.bodySmall,
                     color = accentColor
                 )
@@ -1105,9 +1352,9 @@ private fun StructuredReadingCardView(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = if (isLoading) {
-                    "Generating a first draft from the current item."
+                    "正在根据当前条目生成阅读卡初稿。"
                 } else {
-                    "No reading card yet. Use the menu or edit mode to create one."
+                    "还没有阅读卡，可以从右上角菜单生成，或在编辑模式下手动填写。"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.65f)
@@ -1142,34 +1389,34 @@ private fun StructuredReadingCardEditor(
     onGenerateClick: () -> Unit
 ) {
     Text(
-        text = "Reading Card",
+        text = "阅读卡",
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
         color = if (isDark) Color(0xFF9CC2FF) else Color(0xFF2563EB)
     )
     Spacer(modifier = Modifier.height(8.dp))
     Text(
-        text = "Capture the core problem, method, evidence, and your own reuse notes.",
+        text = "记录这条资料的研究问题、方法、证据与可复用点。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
     )
     Spacer(modifier = Modifier.height(12.dp))
     TextButton(onClick = onGenerateClick, enabled = !isGenerating) {
-        Text(if (isGenerating) "AI drafting..." else "Generate with AI")
+        Text(if (isGenerating) "AI 正在生成..." else "用 AI 生成")
     }
     Spacer(modifier = Modifier.height(8.dp))
-    ReadingCardField("Research Question", researchQuestion, onResearchQuestionChange)
+    ReadingCardField("研究问题", researchQuestion, onResearchQuestionChange)
     Spacer(modifier = Modifier.height(12.dp))
-    ReadingCardField("Method", method, onMethodChange)
+    ReadingCardField("方法", method, onMethodChange)
     Spacer(modifier = Modifier.height(12.dp))
-    ReadingCardField("Dataset", dataset, onDatasetChange)
+    ReadingCardField("数据集", dataset, onDatasetChange)
     Spacer(modifier = Modifier.height(12.dp))
-    ReadingCardField("Findings", findings, onFindingsChange)
+    ReadingCardField("核心发现", findings, onFindingsChange)
     Spacer(modifier = Modifier.height(12.dp))
-    ReadingCardField("Limitations", limitations, onLimitationsChange)
+    ReadingCardField("局限性", limitations, onLimitationsChange)
     Spacer(modifier = Modifier.height(12.dp))
-    ReadingCardField("Reuse Points", reusePoints, onReusePointsChange)
+    ReadingCardField("可复用点", reusePoints, onReusePointsChange)
     Spacer(modifier = Modifier.height(12.dp))
-    ReadingCardField("My Notes", myNotes, onMyNotesChange)
+    ReadingCardField("我的笔记", myNotes, onMyNotesChange)
 }
 
 @Composable
@@ -1199,7 +1446,7 @@ private fun AiAssistantDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Ask AI about this item") },
+        title = { Text("围绕当前条目提问") },
         text = {
             Column(
                 modifier = Modifier
@@ -1214,7 +1461,7 @@ private fun AiAssistantDialog(
                 Spacer(modifier = Modifier.height(12.dp))
                 if (messages.isEmpty()) {
                     Text(
-                        text = "Try asking about the problem, method, findings, limitations, or how to reuse this item.",
+                        text = "可以问研究问题、方法、结论、局限性，或者这条资料能怎样复用。",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 } else {
@@ -1225,7 +1472,7 @@ private fun AiAssistantDialog(
                 }
                 if (isResponding) {
                     Text(
-                        text = "AI is thinking...",
+                        text = "AI 正在思考...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -1234,7 +1481,7 @@ private fun AiAssistantDialog(
                 OutlinedTextField(
                     value = prompt,
                     onValueChange = onPromptChange,
-                    label = { Text("Question") },
+                    label = { Text("问题") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3
                 )
@@ -1245,12 +1492,12 @@ private fun AiAssistantDialog(
                 onClick = onSend,
                 enabled = prompt.isNotBlank() && !isResponding
             ) {
-                Text("Send")
+                Text("发送")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text("关闭")
             }
         }
     )
@@ -1273,7 +1520,7 @@ private fun AiMessageBubble(message: AiChatMessage) {
             .padding(12.dp)
     ) {
         Text(
-            text = if (isUser) "You" else "AI",
+            text = if (isUser) "我" else "AI",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary
         )
@@ -1284,6 +1531,79 @@ private fun AiMessageBubble(message: AiChatMessage) {
             color = MaterialTheme.colorScheme.onSurface
         )
     }
+}
+
+@Composable
+private fun InsightLinkEditorDialog(
+    availableItems: List<com.example.ai4research.domain.model.ResearchItem>,
+    selectedItemIds: Set<String>,
+    onToggleItem: (String) -> Unit,
+    isSaving: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("管理灵感关联") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "选择与这条灵感直接相关的论文、资料或其他条目。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                if (availableItems.isEmpty()) {
+                    Text(
+                        text = "当前还没有可关联的条目。",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    availableItems.take(20).forEach { target ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggleItem(target.id) }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedItemIds.contains(target.id),
+                                onCheckedChange = { onToggleItem(target.id) }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = target.title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = getItemTypeName(target.type),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !isSaving) {
+                Text(if (isSaving) "保存中..." else "保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
+                Text("取消")
+            }
+        }
+    )
 }
 
 @Composable
@@ -1298,7 +1618,10 @@ private fun PaperIndexInfoCard(
     val venue = meta.conference ?: meta.source ?: item.originUrl
     val authorText = meta.authors.joinToString(", ").ifBlank { "未知作者" }
     val keywords = meta.keywords.ifEmpty { meta.tags }
-    val summaryShort = meta.summaryShort?.takeIf { it.isNotBlank() } ?: item.summary.takeIf { it.isNotBlank() }
+    val summaryShort = meta.mediumSummary?.takeIf { it.isNotBlank() }
+        ?: meta.summaryZh?.takeIf { it.isNotBlank() }
+        ?: meta.summaryShort?.takeIf { it.isNotBlank() }
+        ?: item.summary.takeIf { it.isNotBlank() }
     val hasBilingualSummary = !meta.summaryZh.isNullOrBlank() && !meta.summaryEn.isNullOrBlank()
     var showEnglishSummary by rememberSaveable(item.id, meta.summaryZh, meta.summaryEn) {
         mutableStateOf(summaryPrefs.getString("paper_summary_language", "zh") == "en")
@@ -1516,7 +1839,7 @@ private fun ArticleInfoCard(
         meta.publishDate?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("发布时间", it, isDark) }
         meta.identifier?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("提及编号", it, isDark) }
         item.originUrl?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("原始链接", it, isDark) }
-        meta.summaryShort?.takeIf { it.isNotBlank() }?.let {
+        (meta.mediumSummary?.takeIf { it.isNotBlank() } ?: meta.summaryShort?.takeIf { it.isNotBlank() })?.let {
             Spacer(modifier = Modifier.height(12.dp))
             PaperSummarySection("资料摘要", it, isDark)
         }

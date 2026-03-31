@@ -518,6 +518,7 @@ class MainViewModel @Inject constructor(
                 this["method_tags"] = meta.methodTags
                 this["dedup_key"] = meta.dedupKey
                 this["summary_short"] = meta.summaryShort
+                this["medium_summary"] = meta.mediumSummary
                 this["summary_en"] = meta.summaryEn
                 this["summary_zh"] = meta.summaryZh
                 this["tags"] = meta.tags
@@ -557,6 +558,7 @@ class MainViewModel @Inject constructor(
                 this["publish_date"] = meta.publishDate
                 this["identifier"] = meta.identifier
                 this["summary_short"] = meta.summaryShort
+                this["medium_summary"] = meta.mediumSummary
                 this["keywords"] = meta.keywords
                 this["topic_tags"] = meta.topicTags
                 this["core_points"] = meta.corePoints

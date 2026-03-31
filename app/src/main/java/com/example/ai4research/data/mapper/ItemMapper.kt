@@ -193,6 +193,7 @@ object ItemMapper {
                 if (meta.methodTags.isNotEmpty()) existing["method_tags"] = meta.methodTags
                 meta.dedupKey?.let { existing["dedup_key"] = it }
                 meta.summaryShort?.let { existing["summary_short"] = it }
+                meta.mediumSummary?.let { existing["medium_summary"] = it }
                 meta.summaryEn?.let { existing["summary_en"] = it }
                 meta.summaryZh?.let { existing["summary_zh"] = it }
                 meta.readingCard?.takeUnless { it.isEmpty() }?.let { card ->
@@ -215,6 +216,7 @@ object ItemMapper {
                 meta.publishDate?.let { existing["publish_date"] = it }
                 meta.identifier?.let { existing["identifier"] = it }
                 meta.summaryShort?.let { existing["summary_short"] = it }
+                meta.mediumSummary?.let { existing["medium_summary"] = it }
                 if (meta.keywords.isNotEmpty()) existing["keywords"] = meta.keywords
                 if (meta.topicTags.isNotEmpty()) existing["topic_tags"] = meta.topicTags
                 if (meta.corePoints.isNotEmpty()) existing["core_points"] = meta.corePoints
@@ -302,6 +304,7 @@ object ItemMapper {
                         methodTags = methodTags,
                         dedupKey = map["dedup_key"]?.toString(),
                         summaryShort = map["summary_short"]?.toString(),
+                        mediumSummary = map["medium_summary"]?.toString(),
                         summaryEn = map["summary_en"]?.toString(),
                         summaryZh = map["summary_zh"]?.toString(),
                         readingCard = parseStructuredReadingCard(map)
@@ -356,6 +359,7 @@ object ItemMapper {
                         publishDate = map["publish_date"]?.toString(),
                         identifier = map["identifier"]?.toString(),
                         summaryShort = map["summary_short"]?.toString(),
+                        mediumSummary = map["medium_summary"]?.toString(),
                         keywords = keywords,
                         topicTags = topicTags,
                         corePoints = corePoints,

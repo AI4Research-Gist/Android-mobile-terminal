@@ -89,6 +89,7 @@ Return JSON in this shape:
   "title": "string",
   "authors": "string|null",
   "summary": "string",
+  "medium_summary": "string",
   "summary_short": "string",
   "summary_zh": "string",
   "summary_en": "string|null",
@@ -120,6 +121,7 @@ Rules:
 - Be conservative and factual.
 - Do not fabricate links or identifiers.
 - If the OCR text is article-like, keep content_type as article even if it mentions papers.
+- medium_summary should preserve the main structure and cover multiple important points.
 - If the screenshots clearly show a paper page, use content_type=paper.
 - summary_short must be concise Chinese within 2 sentences.
 - core_points should be 0 to 5 short bullet-like points.
@@ -645,7 +647,7 @@ Rules:
         }
 
         val compactMeta = buildCompactItemMeta(metaJson)
-        val compactContent = buildCompactItemContent(summary, contentMarkdown)
+        val compactContent = buildCompactItemContent(summary, contentMarkdown, metaJson)
 
         val prompt = buildString {
             appendLine("Answer the user's question about one research item from a mobile app.")
@@ -717,6 +719,7 @@ Rules:
                 readFlexibleString(jsonObj, "platform")?.let { put("platform", it) }
                 readFlexibleString(jsonObj, "account_name")?.let { put("account_name", it) }
                 readFlexibleString(jsonObj, "summary_short")?.let { put("summary_short", it) }
+                readFlexibleString(jsonObj, "medium_summary")?.let { put("medium_summary", it) }
                 readFlexibleString(jsonObj, "summary_zh")?.let { put("summary_zh", it) }
                 readFlexibleString(jsonObj, "summary_en")?.let { put("summary_en", it) }
                 readFlexibleStringList(jsonObj, "keywords").takeIf { it.isNotEmpty() }?.let { put("keywords", it.take(8)) }
@@ -742,8 +745,9 @@ Rules:
         }.getOrDefault("null")
     }
 
-    private fun buildCompactItemContent(summary: String, contentMarkdown: String): String {
-        val normalizedContent = contentMarkdown.trim()
+    private fun buildCompactItemContent(summary: String, contentMarkdown: String, metaJson: String?): String {
+        val ocrFocusedContent = extractOcrOriginalContent(contentMarkdown)
+        val normalizedContent = (ocrFocusedContent ?: contentMarkdown).trim()
             .replace(Regex("```[\\s\\S]*?```"), " ")
             .replace(Regex("`([^`]*)`"), "$1")
             .replace(Regex("#{1,6}\\s*"), "")
@@ -751,21 +755,80 @@ Rules:
             .replace(Regex("\\s+"), " ")
             .trim()
 
+        val isOcrSource = isOcrDerived(metaJson)
         val excerpt = when {
             normalizedContent.isBlank() -> summary
+            isOcrSource -> buildMultiWindowExcerpt(normalizedContent, 9000)
             normalizedContent.length <= 2400 -> normalizedContent
-            else -> normalizedContent.take(2400) + " ..."
+            else -> buildMultiWindowExcerpt(normalizedContent, 3600)
         }
+
+        val summaryLabel = if (isOcrSource) "中等摘要：" else "摘要优先视图："
+        val contentLabel = if (isOcrSource) "OCR 原文关键片段：" else "正文摘录："
 
         return buildString {
             if (summary.isNotBlank()) {
-                appendLine("Summary-first view:")
-                appendLine(summary.take(600))
+                appendLine(summaryLabel)
+                appendLine(summary.take(if (isOcrSource) 1200 else 600))
                 appendLine()
             }
-            appendLine("Excerpted content:")
+            appendLine(contentLabel)
             appendLine(excerpt.ifBlank { "null" })
         }.trim()
+    }
+
+    private fun extractOcrOriginalContent(contentMarkdown: String): String? {
+        val marker = "## OCR原文"
+        val start = contentMarkdown.indexOf(marker)
+        if (start == -1) return null
+
+        val section = contentMarkdown.substring(start + marker.length).trim()
+        return when {
+            section.startsWith("```text") -> {
+                section.removePrefix("```text")
+                    .substringBeforeLast("```")
+                    .trim()
+                    .takeIf { it.isNotBlank() }
+            }
+            section.startsWith("```") -> {
+                section.removePrefix("```")
+                    .substringBeforeLast("```")
+                    .trim()
+                    .takeIf { it.isNotBlank() }
+            }
+            else -> section.takeIf { it.isNotBlank() }
+        }
+    }
+
+    private fun buildMultiWindowExcerpt(text: String, maxChars: Int): String {
+        if (text.length <= maxChars) return text
+
+        val window = maxChars / 3
+        val head = text.take(window)
+        val middleStart = (text.length / 2 - window / 2).coerceAtLeast(0)
+        val middleEnd = (middleStart + window).coerceAtMost(text.length)
+        val middle = text.substring(middleStart, middleEnd)
+        val tail = text.takeLast(window)
+
+        return buildString {
+            appendLine("【开头片段】")
+            appendLine(head)
+            appendLine()
+            appendLine("【中间片段】")
+            appendLine(middle)
+            appendLine()
+            appendLine("【结尾片段】")
+            appendLine(tail)
+        }.trim()
+    }
+
+    private fun isOcrDerived(metaJson: String?): Boolean {
+        if (metaJson.isNullOrBlank()) return false
+        return runCatching {
+            val jsonObj = json.decodeFromString<JsonObject>(metaJson)
+            val source = readFlexibleString(jsonObj, "source")
+            source == "ocr" || jsonObj["ocr_page_count"] != null || jsonObj["capture_mode"] != null
+        }.getOrDefault(false)
     }
 
     suspend fun generateBilingualSummary(
@@ -914,7 +977,7 @@ Rules:
                 appendLine("Detected links: ${if (hintLinks.isEmpty()) "[]" else hintLinks.joinToString(", ")}")
                 appendLine()
                 appendLine("OCR text:")
-                appendLine(trimmedText.take(12000))
+                appendLine(buildOcrPromptText(trimmedText))
             }
 
             val request = SimpleChatRequest(
@@ -959,13 +1022,15 @@ Rules:
 
             val summaryZh = readFlexibleString(jsonObj, "summary_zh")
             val summaryEn = readFlexibleString(jsonObj, "summary_en")
-            val summary = readFlexibleString(jsonObj, "summary")
+            val mediumSummary = readFlexibleString(jsonObj, "medium_summary")
+                ?: readFlexibleString(jsonObj, "summary")
                 ?: summaryZh
                 ?: summaryEn
-                ?: trimmedText.take(180)
+                ?: buildFallbackMediumSummary(trimmedText)
+            val summary = mediumSummary
             val summaryShort = readFlexibleString(jsonObj, "summary_short")
                 ?: summaryZh?.take(120)
-                ?: summary.take(120)
+                ?: mediumSummary.take(120)
 
             val tags = readFlexibleStringList(jsonObj, "tags")
             val domainTags = readFlexibleStringList(jsonObj, "domain_tags")
@@ -1010,6 +1075,7 @@ Rules:
                     authors = readFlexibleString(jsonObj, "authors") ?: hintAuthors,
                     summary = summary,
                     summaryShort = summaryShort,
+                    mediumSummary = mediumSummary,
                     summaryEn = summaryEn,
                     summaryZh = summaryZh,
                     contentType = contentType,
@@ -1306,6 +1372,49 @@ Rules:
         }
     }
 
+    private fun buildOcrPromptText(rawText: String): String {
+        val normalized = rawText.trim()
+        if (normalized.length <= 12000) return normalized
+
+        val head = normalized.take(5000)
+        val middleStart = (normalized.length / 2 - 2500).coerceAtLeast(0)
+        val middle = normalized.substring(middleStart, (middleStart + 5000).coerceAtMost(normalized.length))
+        val tail = normalized.takeLast(5000)
+
+        return buildString {
+            appendLine("[OCR total length: ${normalized.length}]")
+            appendLine("[Because the OCR text is long, the context below keeps the beginning, middle, and ending sections.]")
+            appendLine()
+            appendLine("=== OCR BEGINNING ===")
+            appendLine(head)
+            appendLine()
+            appendLine("=== OCR MIDDLE ===")
+            appendLine(middle)
+            appendLine()
+            appendLine("=== OCR ENDING ===")
+            appendLine(tail)
+        }.trim()
+    }
+
+    private fun buildFallbackMediumSummary(rawText: String): String {
+        val normalized = rawText
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        if (normalized.length <= 420) return normalized.ifBlank { "已完成 OCR 扫描" }
+
+        val head = normalized.take(180)
+        val middleStart = (normalized.length / 2 - 90).coerceAtLeast(0)
+        val middle = normalized.substring(middleStart, (middleStart + 180).coerceAtMost(normalized.length))
+        val tail = normalized.takeLast(180)
+
+        return listOf(head, middle, tail)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+            .joinToString(" ... ")
+    }
+
     private fun createOcrFallbackResult(
         rawText: String,
         hintTitle: String?,
@@ -1329,11 +1438,14 @@ Rules:
         val year = inferYear(identifier, references.firstOrNull() ?: title)
         val summary = rawText.take(180).ifBlank { "已完成 OCR 扫描" }
 
+        val mediumSummary = buildFallbackMediumSummary(rawText)
+
         return FullLinkParseResult(
             title = title,
             authors = hintAuthors,
-            summary = summary,
+            summary = mediumSummary,
             summaryShort = summary.take(120),
+            mediumSummary = mediumSummary,
             summaryEn = null,
             summaryZh = summary.take(120),
             contentType = contentType,
@@ -2096,6 +2208,7 @@ data class FullLinkParseResult(
     val authors: String?,
     val summary: String,          // 主摘要（兼容旧格式）
     val summaryShort: String? = null,
+    val mediumSummary: String? = null,
     val summaryEn: String? = null,  // 英文摘要
     val summaryZh: String? = null,  // 中文摘要
     val contentType: String,  // paper, competition, article, insight
@@ -2212,6 +2325,7 @@ data class FullLinkParseResult(
             articleAuthor?.let { metaMap["author"] = it }
             publishDate?.let { metaMap["publish_date"] = it }
             summaryShort?.let { metaMap["summary_short"] = it }
+            mediumSummary?.let { metaMap["medium_summary"] = it }
             summaryEn?.let { metaMap["summary_en"] = it }
             summaryZh?.let { metaMap["summary_zh"] = it }
             if (domainTags.isNotEmpty()) metaMap["domain_tags"] = domainTags

@@ -251,9 +251,9 @@ class ImageScanImportService @Inject constructor(
             ?: organizedResult.originalUrl.takeIf { it.startsWith("http") }
 
         val title = organizedResult.title.ifBlank { "图片扫描" }
-        val summary = organizedResult.summaryShort?.takeIf { it.isNotBlank() }
+        val summary = organizedResult.mediumSummary?.takeIf { it.isNotBlank() }
             ?: organizedResult.summaryZh?.takeIf { it.isNotBlank() }
-            ?: organizedResult.summary.take(160)
+            ?: organizedResult.summary
 
         ScanPayload(
             title = title,

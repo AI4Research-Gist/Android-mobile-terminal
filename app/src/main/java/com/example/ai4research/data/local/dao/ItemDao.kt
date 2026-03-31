@@ -26,6 +26,9 @@ interface ItemDao {
     @Query("SELECT * FROM items WHERE owner_user_id = :ownerUserId AND project_id = :projectId ORDER BY created_at DESC")
     fun observeItemsByProject(ownerUserId: String, projectId: String): Flow<List<ItemEntity>>
 
+    @Query("SELECT * FROM items WHERE owner_user_id = :ownerUserId AND project_id = :projectId ORDER BY created_at DESC")
+    suspend fun getItemsByProject(ownerUserId: String, projectId: String): List<ItemEntity>
+
     @Query("SELECT * FROM items WHERE owner_user_id = :ownerUserId AND type = :type AND read_status LIKE :readStatus || '%' ORDER BY created_at DESC")
     fun observeItemsByTypeAndReadStatus(ownerUserId: String, type: String, readStatus: String): Flow<List<ItemEntity>>
 
