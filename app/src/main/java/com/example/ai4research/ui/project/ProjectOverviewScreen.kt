@@ -1,5 +1,10 @@
 package com.example.ai4research.ui.project
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -27,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,10 +42,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.domain.model.ItemType
+import com.example.ai4research.domain.model.ProjectContextDocument
 import com.example.ai4research.domain.model.ProjectOverview
 import com.example.ai4research.domain.model.ResearchItem
 
@@ -51,9 +60,29 @@ fun ProjectOverviewScreen(
     viewModel: ProjectOverviewViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     LaunchedEffect(projectId) {
         viewModel.load(projectId)
+    }
+
+    val markdownPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        readMarkdownFile(context, uri)?.let { (fileName, content) ->
+            viewModel.saveProjectContext(
+                projectId = projectId,
+                fileName = fileName,
+                markdownContent = content
+            )
+        } ?: viewModel.clearError()
     }
 
     Scaffold(
@@ -69,6 +98,13 @@ fun ProjectOverviewScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { markdownPickerLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*")) }
+                    ) {
+                        Icon(Icons.Default.UploadFile, contentDescription = "上传研究背景")
                     }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -111,6 +147,10 @@ fun ProjectOverviewScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
+                    isSavingContext = uiState.isSavingContext,
+                    onUploadContext = {
+                        markdownPickerLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*"))
+                    },
                     onOpenItem = onNavigateToDetail
                 )
             }
@@ -122,6 +162,8 @@ fun ProjectOverviewScreen(
 private fun ProjectOverviewContent(
     overview: ProjectOverview,
     modifier: Modifier = Modifier,
+    isSavingContext: Boolean,
+    onUploadContext: () -> Unit,
     onOpenItem: (String) -> Unit
 ) {
     LazyColumn(
@@ -130,6 +172,14 @@ private fun ProjectOverviewContent(
     ) {
         item {
             Spacer(modifier = Modifier.height(8.dp))
+            ProjectContextCard(
+                contextDocument = overview.contextDocument,
+                isSaving = isSavingContext,
+                onUploadContext = onUploadContext
+            )
+        }
+
+        item {
             ProjectStatsCard(overview)
         }
 
@@ -157,6 +207,80 @@ private fun ProjectOverviewContent(
         item {
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+@Composable
+private fun ProjectContextCard(
+    contextDocument: ProjectContextDocument?,
+    isSaving: Boolean,
+    onUploadContext: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        ),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "研究背景",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                TextButton(onClick = onUploadContext, enabled = !isSaving) {
+                    Text(if (isSaving) "上传中..." else if (contextDocument == null) "上传 Markdown" else "替换 Markdown")
+                }
+            }
+
+            if (contextDocument == null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "上传一份 Markdown 文档，描述当前研究方向、问题、边界与目标，后续项目级 AI 能基于它做联动分析。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                )
+            } else {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = contextDocument.title,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = contextDocument.summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.76f)
+                )
+                if (contextDocument.keywords.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        contextDocument.keywords.take(4).forEach { keyword ->
+                            KeywordChip(keyword)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeywordChip(text: String) {
+    Box(
+        modifier = Modifier
+            .background(Color(0xFF06B6D4).copy(alpha = 0.12f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFF0891B2)
+        )
     }
 }
 
@@ -282,4 +406,23 @@ private fun typeAccent(type: ItemType): Color = when (type) {
     ItemType.COMPETITION -> Color(0xFFEF4444)
     ItemType.INSIGHT -> Color(0xFF10B981)
     ItemType.VOICE -> Color(0xFFF97316)
+}
+
+private fun readMarkdownFile(context: Context, uri: Uri): Pair<String, String>? {
+    return runCatching {
+        val fileName = context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: "research-context.md"
+
+        val content = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+            ?: return null
+
+        fileName to content
+    }.getOrNull()
 }

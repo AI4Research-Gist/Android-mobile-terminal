@@ -19,7 +19,7 @@
   <img src="https://img.shields.io/badge/Language-Kotlin-blue.svg"/>
   <img src="https://img.shields.io/badge/UI-Hybrid%20(WebView%20%2B%20Compose)-orange.svg"/>
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%2B%20Clean-purple.svg"/>
-  <img src="https://img.shields.io/badge/Version-v0.5.0-red.svg"/>
+  <img src="https://img.shields.io/badge/Version-v0.5.1-red.svg"/>
   <img src="https://img.shields.io/badge/Min%20SDK-26-gray.svg"/>
 </p>
 
@@ -51,10 +51,13 @@
 - **OCR 稳定化**：截图授权、投影会话、图片解码与 OCR 主链路已完成第一轮稳定性修复。
 - **知识连接**：支持 `paper` 去重分组、`article -> paper` 自动关联、`insight` 手动关联已有条目。
 - **项目总览**：新增项目概况、最近新增、重点论文、灵感汇总与关系统计页面。
+- **项目研究背景**：项目总览页支持上传 Markdown 研究背景文档，并生成摘要与关键词。
 - **结构化筛选**：论文页和资料页支持按项目、年份、来源/作者、关键词/标签细筛。
 - **解析状态可视化**：链接现已支持先分类入库、后台解析、前端状态字条与解析耗时展示。
 - **资料页本地优先显示**：资料条目现已支持先写本地占位、后异步同步远端，避免整栏空白。
 - **OCR 摘要修正**：长 OCR 文本引入 `medium_summary`，显示层优先使用中等摘要，避免只展示短截断内容。
+- **同步诊断**：设置页新增同步诊断卡片，可直接查看当前用户 ID、本地条目数量、最近同步状态与前端接收数量。
+- **数据库升级保护**：数据库版本升级改为正式 migration，不再默认使用破坏性迁移清空本地库。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
 > 注意：Web UI 依赖 CDN/ESM（React、Tailwind、Framer Motion、Lucide），运行时需要网络。
@@ -143,12 +146,14 @@ app/src/main/
 
 ## 当前版本
 
-- 当前版本：`v0.5.0`
-- 本版本重点：知识连接、项目总览、结构化筛选、阅读卡、详情页 AI 对话、OCR 摘要链路修正
-- 更新日志入口：[`v0.5.0`](d:/Android-mobile-terminal/changelog/v0.5.0.md)
+- 当前版本：`v0.5.1`
+- 本版本重点：主界面数据展示修复、同步诊断、正式数据库 migration、项目研究背景 Markdown 上下文基础
+- 更新日志入口：[`v0.5.1`](d:/Android-mobile-terminal/changelog/v0.5.1.md)
+- 上一版本说明：[`v0.5.0`](d:/Android-mobile-terminal/changelog/v0.5.0.md)
 - 灵感模块补充说明：[`INSPIRATION_PAGE_V0.3.0_SPEC.md`](d:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
 - 知识连接参考文档：[`V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md`](d:/Android-mobile-terminal/V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md)
 - 研究助手 PRD：[`V0_6_RESEARCH_ASSISTANT_PRD.md`](d:/Android-mobile-terminal/V0_6_RESEARCH_ASSISTANT_PRD.md)
+- 数据库迁移策略：[`DATABASE_MIGRATION_POLICY.md`](d:/Android-mobile-terminal/DATABASE_MIGRATION_POLICY.md)
 - 版本明细目录：[`changelog/`](d:/Android-mobile-terminal/changelog)
 
 ## 配置说明（开发环境）
@@ -189,7 +194,10 @@ app/src/main/
 - 当前 `paper / article` 已支持结构化阅读卡与详情页 AI 问答。
 - 当前项目已支持基础知识连接：paper 去重关系、article 关联论文、insight 手动关联条目。
 - 当前项目已支持项目总览页，用于查看项目概况、重点论文和灵感汇总。
+- 当前项目已支持上传项目研究背景 Markdown，并在项目总览页显示摘要与关键词。
 - 当前 OCR 链路已补充 `medium_summary`，长图摘要与问答的上下文完整性已有明显改善。
+- 当前设置页已支持同步诊断，可直接排查“云端有数据但手机端不显示”的问题。
+- 当前数据库升级已切换为正式 migration 策略，后续版本升级不再默认清空本地库。
 
 ## 权限说明
 

@@ -14,6 +14,7 @@ import javax.inject.Inject
 data class ProjectOverviewUiState(
     val isLoading: Boolean = true,
     val overview: ProjectOverview? = null,
+    val isSavingContext: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -42,5 +43,29 @@ class ProjectOverviewViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun saveProjectContext(projectId: String, fileName: String, markdownContent: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isSavingContext = true, errorMessage = null)
+            val result = projectRepository.saveProjectContextDocument(
+                projectId = projectId,
+                fileName = fileName,
+                markdownContent = markdownContent
+            )
+
+            if (result.isSuccess) {
+                load(projectId)
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isSavingContext = false,
+                    errorMessage = "保存研究背景失败: ${result.exceptionOrNull()?.message}"
+                )
+            }
+        }
+    }
+
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(errorMessage = null)
     }
 }

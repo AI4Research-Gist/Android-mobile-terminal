@@ -3,8 +3,9 @@ package com.example.ai4research.ui.main
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.ai4research.domain.model.ItemStatus
+import com.example.ai4research.data.repository.AuthRepository
 import com.example.ai4research.domain.model.ItemMetaData
+import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
 import com.example.ai4research.domain.model.ReadStatus
@@ -22,18 +23,31 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * 筛选类型枚举
- */
 enum class FilterType {
-    ALL,        // 全部
-    UNREAD,     // 未读
-    STARRED,    // 标星 (暂时用 read 状态表示)
-    PROJECT     // 按项目筛选
+    ALL,
+    UNREAD,
+    STARRED,
+    PROJECT
 }
+
+data class SyncDiagnostics(
+    val currentUserId: String? = null,
+    val currentUsername: String? = null,
+    val currentEmail: String? = null,
+    val localPaperCount: Int = 0,
+    val localArticleCount: Int = 0,
+    val localCompetitionCount: Int = 0,
+    val localInsightCount: Int = 0,
+    val localVoiceCount: Int = 0,
+    val localProjectCount: Int = 0,
+    val lastSyncStatus: String = "idle",
+    val lastSyncError: String? = null,
+    val lastSyncAt: Long? = null
+)
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    private val authRepository: AuthRepository,
     private val itemRepository: ItemRepository,
     private val projectRepository: ProjectRepository,
     private val imageScanImportService: ImageScanImportService,
@@ -48,13 +62,13 @@ class MainViewModel @Inject constructor(
 
     private val _competitions = MutableStateFlow<List<ResearchItem>>(emptyList())
     val competitions: StateFlow<List<ResearchItem>> = _competitions.asStateFlow()
-    
+
     private val _insights = MutableStateFlow<List<ResearchItem>>(emptyList())
     val insights: StateFlow<List<ResearchItem>> = _insights.asStateFlow()
-    
+
     private val _voiceItems = MutableStateFlow<List<ResearchItem>>(emptyList())
     val voiceItems: StateFlow<List<ResearchItem>> = _voiceItems.asStateFlow()
-    
+
     private val _projects = MutableStateFlow<List<Project>>(emptyList())
     val projects: StateFlow<List<Project>> = _projects.asStateFlow()
 
@@ -63,15 +77,18 @@ class MainViewModel @Inject constructor(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-    
+
     private val _currentFilter = MutableStateFlow(FilterType.ALL)
     val currentFilter: StateFlow<FilterType> = _currentFilter.asStateFlow()
-    
+
     private val _currentProjectId = MutableStateFlow<String?>(null)
     val currentProjectId: StateFlow<String?> = _currentProjectId.asStateFlow()
 
+    private val _syncDiagnostics = MutableStateFlow(SyncDiagnostics())
+    val syncDiagnostics: StateFlow<SyncDiagnostics> = _syncDiagnostics.asStateFlow()
+
     private val gson = Gson()
-    
+
     private var papersCollectionJob: Job? = null
     private var articlesCollectionJob: Job? = null
     private var competitionsCollectionJob: Job? = null
@@ -79,52 +96,48 @@ class MainViewModel @Inject constructor(
     private var voiceCollectionJob: Job? = null
 
     init {
+        refreshDiagnostics()
         fetchData()
         observeProjects()
         applyFilter(FilterType.ALL, null)
     }
-    
+
     private fun observeProjects() {
         viewModelScope.launch {
             projectRepository.observeProjects().collect { projectList ->
                 android.util.Log.d("MainViewModel", "Projects observed: ${projectList.size}")
                 _projects.value = projectList
+                refreshDiagnostics()
             }
         }
     }
-    
-    /**
-     * 应用筛选条件
-     */
+
     fun applyFilter(filterType: FilterType, projectId: String? = null) {
         _currentFilter.value = filterType
         _currentProjectId.value = projectId
-        
-        // 取消之前的收集任务
+
         papersCollectionJob?.cancel()
         articlesCollectionJob?.cancel()
         competitionsCollectionJob?.cancel()
         insightsCollectionJob?.cancel()
         voiceCollectionJob?.cancel()
-        
+
         android.util.Log.d("MainViewModel", "Applying filter: $filterType, projectId=$projectId")
-        
+
         papersCollectionJob = viewModelScope.launch {
             val flow = when (filterType) {
                 FilterType.ALL -> itemRepository.observeItems(type = ItemType.PAPER, query = null)
                 FilterType.UNREAD -> itemRepository.observeItemsByReadStatus(ItemType.PAPER, ReadStatus.UNREAD)
                 FilterType.STARRED -> itemRepository.observeStarredItems(ItemType.PAPER)
                 FilterType.PROJECT -> {
-                    if (projectId != null) {
-                        itemRepository.observeItemsByProject(ItemType.PAPER, projectId)
-                    } else {
-                        itemRepository.observeItems(type = ItemType.PAPER, query = null)
-                    }
+                    if (projectId != null) itemRepository.observeItemsByProject(ItemType.PAPER, projectId)
+                    else itemRepository.observeItems(type = ItemType.PAPER, query = null)
                 }
             }
             flow.collect { items ->
                 android.util.Log.d("MainViewModel", "Papers filtered: ${items.size} items")
                 _papers.value = items
+                refreshDiagnostics()
             }
         }
 
@@ -132,41 +145,40 @@ class MainViewModel @Inject constructor(
             itemRepository.observeItems(type = ItemType.ARTICLE, query = null).collect { items ->
                 android.util.Log.d("MainViewModel", "Articles observed: ${items.size} items")
                 _articles.value = items
+                refreshDiagnostics()
             }
         }
-        
+
         competitionsCollectionJob = viewModelScope.launch {
             val flow = when (filterType) {
                 FilterType.ALL -> itemRepository.observeItems(type = ItemType.COMPETITION, query = null)
                 FilterType.UNREAD -> itemRepository.observeItemsByReadStatus(ItemType.COMPETITION, ReadStatus.UNREAD)
                 FilterType.STARRED -> itemRepository.observeStarredItems(ItemType.COMPETITION)
                 FilterType.PROJECT -> {
-                    if (projectId != null) {
-                        itemRepository.observeItemsByProject(ItemType.COMPETITION, projectId)
-                    } else {
-                        itemRepository.observeItems(type = ItemType.COMPETITION, query = null)
-                    }
+                    if (projectId != null) itemRepository.observeItemsByProject(ItemType.COMPETITION, projectId)
+                    else itemRepository.observeItems(type = ItemType.COMPETITION, query = null)
                 }
             }
             flow.collect { items ->
                 android.util.Log.d("MainViewModel", "Competitions filtered: ${items.size} items")
                 _competitions.value = items
+                refreshDiagnostics()
             }
         }
-        
-        // 同时观察 insights 数据
+
         insightsCollectionJob = viewModelScope.launch {
             itemRepository.observeItems(type = ItemType.INSIGHT, query = null).collect { items ->
                 android.util.Log.d("MainViewModel", "Insights observed: ${items.size} items")
                 _insights.value = items
+                refreshDiagnostics()
             }
         }
-        
-        // 同时观察 voice 数据
+
         voiceCollectionJob = viewModelScope.launch {
             itemRepository.observeItems(type = ItemType.VOICE, query = null).collect { items ->
                 android.util.Log.d("MainViewModel", "Voice items observed: ${items.size} items")
                 _voiceItems.value = items
+                refreshDiagnostics()
             }
         }
     }
@@ -174,19 +186,37 @@ class MainViewModel @Inject constructor(
     fun fetchData() {
         viewModelScope.launch {
             _isLoading.value = true
+            _syncDiagnostics.value = _syncDiagnostics.value.copy(
+                lastSyncStatus = "synchronizing",
+                lastSyncError = null
+            )
             try {
-                // 从远程同步数据到本地数据库
                 val result = itemRepository.refreshItems()
                 if (result.isSuccess) {
                     android.util.Log.d("MainViewModel", "Data refresh successful")
+                    _syncDiagnostics.value = _syncDiagnostics.value.copy(
+                        lastSyncStatus = "success",
+                        lastSyncError = null,
+                        lastSyncAt = System.currentTimeMillis()
+                    )
                 } else {
                     android.util.Log.e("MainViewModel", "Data refresh failed: ${result.exceptionOrNull()?.message}")
+                    _syncDiagnostics.value = _syncDiagnostics.value.copy(
+                        lastSyncStatus = "failure",
+                        lastSyncError = result.exceptionOrNull()?.message,
+                        lastSyncAt = System.currentTimeMillis()
+                    )
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "Data refresh exception: ${e.message}", e)
-                e.printStackTrace()
+                _syncDiagnostics.value = _syncDiagnostics.value.copy(
+                    lastSyncStatus = "failure",
+                    lastSyncError = e.message,
+                    lastSyncAt = System.currentTimeMillis()
+                )
             } finally {
                 _isLoading.value = false
+                refreshDiagnostics()
             }
         }
     }
@@ -196,24 +226,27 @@ class MainViewModel @Inject constructor(
         papersCollectionJob?.cancel()
         articlesCollectionJob?.cancel()
         competitionsCollectionJob?.cancel()
-        
+
         papersCollectionJob = viewModelScope.launch {
             itemRepository.observeItems(type = ItemType.PAPER, query = query).collect { items ->
                 _papers.value = items
+                refreshDiagnostics()
             }
         }
         competitionsCollectionJob = viewModelScope.launch {
             itemRepository.observeItems(type = ItemType.COMPETITION, query = query).collect { items ->
                 _competitions.value = items
+                refreshDiagnostics()
             }
         }
         articlesCollectionJob = viewModelScope.launch {
             itemRepository.observeItems(type = ItemType.ARTICLE, query = query).collect { items ->
                 _articles.value = items
+                refreshDiagnostics()
             }
         }
     }
-    
+
     fun deleteItem(itemId: String) {
         viewModelScope.launch {
             try {
@@ -225,6 +258,8 @@ class MainViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 android.util.Log.e("MainViewModel", "Delete exception: ${e.message}", e)
+            } finally {
+                refreshDiagnostics()
             }
         }
     }
@@ -249,7 +284,7 @@ class MainViewModel @Inject constructor(
         val summary = buildInsightSummary(cleanBody, imageUri, audioUri)
         val metaJson = gson.toJson(
             buildMap<String, Any?> {
-                put("source", "灵感")
+                put("source", "鐏垫劅")
                 put("body", cleanBody)
                 put("category_id", categoryId?.takeIf { it.isNotBlank() })
                 put("category_name", categoryName?.takeIf { it.isNotBlank() })
@@ -289,13 +324,15 @@ class MainViewModel @Inject constructor(
             }
         }
 
-        return saveResult.fold(
+        val finalResult = saveResult.fold(
             onSuccess = { saved ->
                 itemRepository.updateReadStatus(saved.id, readStatus)
                     .mapCatching { itemRepository.getItem(saved.id) ?: saved.copy(readStatus = readStatus) }
             },
             onFailure = { Result.failure(it) }
         )
+        refreshDiagnostics()
+        return finalResult
     }
 
     suspend fun updateInsightReadStatus(id: String, readStatus: ReadStatus): Result<Unit> {
@@ -331,6 +368,7 @@ class MainViewModel @Inject constructor(
                     onFinished(failure)
                 }
             )
+            refreshDiagnostics()
         }
     }
 
@@ -350,9 +388,9 @@ class MainViewModel @Inject constructor(
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
-                "tags" to (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)
+                "tags" to (item.metaData as? ItemMetaData.PaperMeta)
                     ?.keywords
-                    ?.ifEmpty { (item.metaData as? com.example.ai4research.domain.model.ItemMetaData.PaperMeta)?.tags ?: emptyList() }
+                    ?.ifEmpty { (item.metaData as? ItemMetaData.PaperMeta)?.tags ?: emptyList() }
                     ?.joinToString(","),
                 "meta_json" to (item.rawMetaJson ?: serializeMetaData(item)),
                 "CreatedAt" to item.createdAt.toString(),
@@ -422,7 +460,7 @@ class MainViewModel @Inject constructor(
         }
         return gson.toJson(articleDtos)
     }
-    
+
     fun getInsightsJson(): String {
         val insightDtos = _insights.value.map { item ->
             mapOf(
@@ -447,21 +485,6 @@ class MainViewModel @Inject constructor(
         return gson.toJson(insightDtos)
     }
 
-    private fun buildInsightSummary(
-        body: String,
-        imageUri: String?,
-        audioUri: String?
-    ): String {
-        if (body.isNotBlank()) {
-            return body.replace('\n', ' ').trim().take(120)
-        }
-
-        val parts = mutableListOf<String>()
-        if (!imageUri.isNullOrBlank()) parts += "含图片"
-        if (!audioUri.isNullOrBlank()) parts += "含语音"
-        return if (parts.isEmpty()) "暂无正文" else parts.joinToString(" · ")
-    }
-    
     fun getProjectsJson(): String {
         val projectDtos = _projects.value.map { project ->
             mapOf(
@@ -472,10 +495,10 @@ class MainViewModel @Inject constructor(
         }
         return gson.toJson(projectDtos)
     }
-    
+
     fun getVoiceItemsJson(): String {
         val voiceDtos = _voiceItems.value.map { item ->
-            val voiceMeta = item.metaData as? com.example.ai4research.domain.model.ItemMetaData.VoiceMeta
+            val voiceMeta = item.metaData as? ItemMetaData.VoiceMeta
             mapOf(
                 "Id" to item.id,
                 "id" to item.id,
@@ -489,16 +512,35 @@ class MainViewModel @Inject constructor(
                 "read_status" to item.readStatus.toServerString(),
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
-                "meta_json" to gson.toJson(mapOf(
-                    "duration" to (voiceMeta?.duration ?: 0),
-                    "transcription" to (voiceMeta?.transcription ?: item.summary),
-                    "note" to item.note
-                )),
+                "meta_json" to gson.toJson(
+                    mapOf(
+                        "duration" to (voiceMeta?.duration ?: 0),
+                        "transcription" to (voiceMeta?.transcription ?: item.summary),
+                        "note" to item.note
+                    )
+                ),
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
         }
         return gson.toJson(voiceDtos)
+    }
+
+    fun getSyncDiagnosticsJson(): String = gson.toJson(_syncDiagnostics.value)
+
+    private fun buildInsightSummary(
+        body: String,
+        imageUri: String?,
+        audioUri: String?
+    ): String {
+        if (body.isNotBlank()) {
+            return body.replace('\n', ' ').trim().take(120)
+        }
+
+        val parts = mutableListOf<String>()
+        if (!imageUri.isNullOrBlank()) parts += "鍚浘鐗?"
+        if (!audioUri.isNullOrBlank()) parts += "鍚闊?"
+        return if (parts.isEmpty()) "鏆傛棤姝ｆ枃" else parts.joinToString(" 路 ")
     }
 
     private fun serializeMetaData(item: ResearchItem): String {
@@ -507,7 +549,7 @@ class MainViewModel @Inject constructor(
         }.getOrNull() ?: mutableMapOf()
 
         val mergedMeta = when (val meta = item.metaData) {
-            is com.example.ai4research.domain.model.ItemMetaData.PaperMeta -> existingMeta.apply {
+            is ItemMetaData.PaperMeta -> existingMeta.apply {
                 this["authors"] = meta.authors
                 this["conference"] = meta.conference
                 this["year"] = meta.year?.toString()
@@ -535,7 +577,8 @@ class MainViewModel @Inject constructor(
                 }
                 this["note"] = item.note
             }
-            is com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta -> existingMeta.apply {
+
+            is ItemMetaData.CompetitionMeta -> existingMeta.apply {
                 this["organizer"] = meta.organizer
                 this["prizePool"] = meta.prizePool
                 this["deadline"] = meta.deadline ?: meta.timeline?.firstOrNull()?.date?.toString()
@@ -551,7 +594,8 @@ class MainViewModel @Inject constructor(
                     )
                 }
             }
-            is com.example.ai4research.domain.model.ItemMetaData.ArticleMeta -> existingMeta.apply {
+
+            is ItemMetaData.ArticleMeta -> existingMeta.apply {
                 this["platform"] = meta.platform
                 this["account_name"] = meta.accountName
                 this["author"] = meta.author
@@ -583,16 +627,19 @@ class MainViewModel @Inject constructor(
                 }
                 this["note"] = item.note
             }
-            is com.example.ai4research.domain.model.ItemMetaData.InsightMeta -> existingMeta.apply {
-                this["source"] = "灵感"
+
+            is ItemMetaData.InsightMeta -> existingMeta.apply {
+                this["source"] = "鐏垫劅"
                 this["tags"] = meta.tags
                 this["note"] = item.note
             }
-            is com.example.ai4research.domain.model.ItemMetaData.VoiceMeta -> existingMeta.apply {
+
+            is ItemMetaData.VoiceMeta -> existingMeta.apply {
                 this["duration"] = meta.duration
                 this["transcription"] = meta.transcription
                 this["note"] = item.note
             }
+
             else -> existingMeta.ifEmpty { null }
         }
 
@@ -600,6 +647,23 @@ class MainViewModel @Inject constructor(
             item.rawMetaJson ?: "{}"
         } else {
             gson.toJson(mergedMeta)
+        }
+    }
+
+    private fun refreshDiagnostics() {
+        viewModelScope.launch {
+            val currentUser = authRepository.getCurrentUser()
+            _syncDiagnostics.value = _syncDiagnostics.value.copy(
+                currentUserId = currentUser?.id,
+                currentUsername = currentUser?.username,
+                currentEmail = currentUser?.email,
+                localPaperCount = _papers.value.size,
+                localArticleCount = _articles.value.size,
+                localCompetitionCount = _competitions.value.size,
+                localInsightCount = _insights.value.size,
+                localVoiceCount = _voiceItems.value.size,
+                localProjectCount = _projects.value.size
+            )
         }
     }
 }

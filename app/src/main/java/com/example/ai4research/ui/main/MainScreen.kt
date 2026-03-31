@@ -600,6 +600,36 @@ class MainAppInterface(
     fun getProjects(): String {
         return viewModel.getProjectsJson()
     }
+
+    @JavascriptInterface
+    fun getPapers(): String {
+        return viewModel.getPapersJson()
+    }
+
+    @JavascriptInterface
+    fun getArticles(): String {
+        return viewModel.getArticlesJson()
+    }
+
+    @JavascriptInterface
+    fun getCompetitions(): String {
+        return viewModel.getCompetitionsJson()
+    }
+
+    @JavascriptInterface
+    fun getInsights(): String {
+        return viewModel.getInsightsJson()
+    }
+
+    @JavascriptInterface
+    fun getVoiceItems(): String {
+        return viewModel.getVoiceItemsJson()
+    }
+
+    @JavascriptInterface
+    fun getSyncDiagnostics(): String {
+        return viewModel.getSyncDiagnosticsJson()
+    }
     
     @JavascriptInterface
     fun checkFloatingWindowStatus(): String {

@@ -900,6 +900,66 @@ Rules:
     /**
      * 解析链接并返回结构化结果
      */
+    suspend fun summarizeProjectContextMarkdown(
+        projectName: String,
+        markdownContent: String
+    ): Result<ProjectContextSummaryResult> = withContext(Dispatchers.IO) {
+        try {
+            val prompt = buildString {
+                appendLine("Project name: $projectName")
+                appendLine("Summarize this research background markdown for future project-level collaboration.")
+                appendLine()
+                appendLine("Markdown content:")
+                appendLine(markdownContent.take(10000))
+            }
+
+            val systemPrompt = """
+You are a research project context summarizer.
+
+Return strict JSON only:
+{
+  "title": "string|null",
+  "summary": "string",
+  "keywords": ["string"]
+}
+
+Rules:
+- summary must be concise but information-dense Chinese.
+- summary should preserve the user's current research direction, current problems, constraints, and goals.
+- keywords should be short and useful for retrieval.
+- do not output markdown.
+- do not output explanations outside JSON.
+""".trimIndent()
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = prompt)
+                ),
+                maxTokens = 1000,
+                temperature = 0.2,
+                enableThinking = false
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return@withContext Result.failure(Exception("Project context summary returned empty content"))
+            val cleanJson = extractJsonFromResponse(content)
+            val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+
+            Result.success(
+                ProjectContextSummaryResult(
+                    title = readFlexibleString(jsonObj, "title"),
+                    summary = readFlexibleString(jsonObj, "summary") ?: markdownContent.take(300),
+                    keywords = readFlexibleStringList(jsonObj, "keywords").take(12)
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun parseLinkStructured(link: String): Result<LinkParseResult> = withContext(Dispatchers.IO) {
         parseLink(link).mapCatching { jsonStr ->
             val cleanJson = extractJsonFromResponse(jsonStr)
@@ -2193,6 +2253,12 @@ data class BilingualSummaryResult(
 data class StructuredReadingCardResult(
     val card: StructuredReadingCard,
     val rawJson: String? = null
+)
+
+data class ProjectContextSummaryResult(
+    val title: String?,
+    val summary: String,
+    val keywords: List<String>
 )
 
 data class CompetitionTimelineNode(

@@ -1,30 +1,40 @@
 package com.example.ai4research.data.repository
 
+import android.content.Context
 import com.example.ai4research.core.security.TokenManager
 import com.example.ai4research.data.local.dao.ItemDao
 import com.example.ai4research.data.local.dao.ItemRelationDao
+import com.example.ai4research.data.local.dao.ProjectContextDocumentDao
 import com.example.ai4research.data.local.dao.ProjectDao
 import com.example.ai4research.data.mapper.ItemMapper
 import com.example.ai4research.data.mapper.ItemRelationMapper
+import com.example.ai4research.data.mapper.ProjectContextDocumentMapper
 import com.example.ai4research.data.remote.api.NocoApiService
 import com.example.ai4research.data.remote.dto.NocoProjectDto
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
+import com.example.ai4research.domain.model.ProjectContextDocument
 import com.example.ai4research.domain.model.ProjectOverview
 import com.example.ai4research.domain.model.ProjectOverviewStats
 import com.example.ai4research.domain.model.RelationType
 import com.example.ai4research.domain.repository.ProjectRepository
+import com.example.ai4research.service.AIService
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class ProjectRepositoryImpl @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val api: NocoApiService,
+    private val aiService: AIService,
     private val itemDao: ItemDao,
     private val itemRelationDao: ItemRelationDao,
+    private val projectContextDocumentDao: ProjectContextDocumentDao,
     private val projectDao: ProjectDao,
     private val tokenManager: TokenManager
 ) : ProjectRepository {
@@ -80,9 +90,62 @@ class ProjectRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getProjectContextDocument(projectId: String): ProjectContextDocument? {
+        val ownerUserId = currentUserId() ?: return null
+        return projectContextDocumentDao.getByProjectId(ownerUserId, projectId)
+            ?.let(ProjectContextDocumentMapper::entityToDomain)
+    }
+
+    override suspend fun saveProjectContextDocument(
+        projectId: String,
+        fileName: String,
+        markdownContent: String
+    ): Result<ProjectContextDocument> {
+        val ownerUserId = currentUserId()
+            ?: return Result.failure(IllegalStateException("User must be logged in"))
+        val project = getProject(projectId)
+            ?: return Result.failure(IllegalArgumentException("Project not found"))
+        val trimmedContent = markdownContent.trim()
+        if (trimmedContent.isBlank()) {
+            return Result.failure(IllegalArgumentException("Markdown 内容不能为空"))
+        }
+
+        return try {
+            val summaryResult = aiService.summarizeProjectContextMarkdown(
+                projectName = project.name,
+                markdownContent = trimmedContent
+            ).getOrElse { error ->
+                throw error
+            }
+
+            val targetDir = File(context.filesDir, "project_context/$projectId").apply { mkdirs() }
+            val safeName = fileName.ifBlank { "research-context.md" }
+            val extension = if (safeName.lowercase().endsWith(".md")) "" else ".md"
+            val targetFile = File(targetDir, safeName.removeSuffix(".md") + extension)
+            targetFile.writeText(trimmedContent)
+
+            val updatedAt = System.currentTimeMillis()
+            val entity = ProjectContextDocumentMapper.createEntity(
+                ownerUserId = ownerUserId,
+                projectId = projectId,
+                title = summaryResult.title?.takeIf { it.isNotBlank() } ?: "研究背景",
+                markdownPath = targetFile.absolutePath,
+                summary = summaryResult.summary,
+                keywords = summaryResult.keywords,
+                updatedAt = updatedAt
+            )
+            projectContextDocumentDao.upsert(entity)
+            Result.success(ProjectContextDocumentMapper.entityToDomain(entity))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun getProjectOverview(projectId: String): ProjectOverview? {
         val ownerUserId = currentUserId() ?: return null
         val project = projectDao.getProjectById(ownerUserId, projectId)?.let(ItemMapper::projectEntityToDomain) ?: return null
+        val contextDocument = projectContextDocumentDao.getByProjectId(ownerUserId, projectId)
+            ?.let(ProjectContextDocumentMapper::entityToDomain)
         val projectItems = itemDao.getItemsByProject(ownerUserId, projectId).map(ItemMapper::entityToDomain)
         val projectItemIds = projectItems.map { it.id }
         val relations = if (projectItemIds.isEmpty()) {
@@ -108,6 +171,7 @@ class ProjectRepositoryImpl @Inject constructor(
 
         return ProjectOverview(
             project = project,
+            contextDocument = contextDocument,
             recentItems = projectItems.sortedByDescending { it.createdAt.time }.take(10),
             keyPapers = keyPapers,
             recentInsights = recentInsights,

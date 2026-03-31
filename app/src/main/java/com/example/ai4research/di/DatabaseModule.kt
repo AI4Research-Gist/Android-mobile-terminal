@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.room.Room
 import com.example.ai4research.data.local.dao.ItemDao
 import com.example.ai4research.data.local.dao.ItemRelationDao
+import com.example.ai4research.data.local.dao.ProjectContextDocumentDao
 import com.example.ai4research.data.local.dao.ProjectDao
 import com.example.ai4research.data.local.dao.UserDao
 import com.example.ai4research.data.local.database.AI4ResearchDatabase
+import com.example.ai4research.data.local.database.DatabaseMigrations
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -14,16 +16,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-/**
- * 数据库依赖注入模块
- */
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
-    
-    /**
-     * 提供 Room Database
-     */
+
     @Provides
     @Singleton
     fun provideDatabase(
@@ -34,41 +30,28 @@ object DatabaseModule {
             AI4ResearchDatabase::class.java,
             AI4ResearchDatabase.DATABASE_NAME
         )
-            .fallbackToDestructiveMigration()  // 开发阶段可破坏性迁移
+            .addMigrations(*DatabaseMigrations.ALL)
             .build()
     }
-    
-    /**
-     * 提供 ItemDao
-     */
-    @Provides
-    @Singleton
-    fun provideItemDao(database: AI4ResearchDatabase): ItemDao {
-        return database.itemDao()
-    }
 
     @Provides
     @Singleton
-    fun provideItemRelationDao(database: AI4ResearchDatabase): ItemRelationDao {
-        return database.itemRelationDao()
-    }
-    
-    /**
-     * 提供 ProjectDao
-     */
+    fun provideItemDao(database: AI4ResearchDatabase): ItemDao = database.itemDao()
+
     @Provides
     @Singleton
-    fun provideProjectDao(database: AI4ResearchDatabase): ProjectDao {
-        return database.projectDao()
-    }
-    
-    /**
-     * 提供 UserDao
-     */
+    fun provideItemRelationDao(database: AI4ResearchDatabase): ItemRelationDao = database.itemRelationDao()
+
     @Provides
     @Singleton
-    fun provideUserDao(database: AI4ResearchDatabase): UserDao {
-        return database.userDao()
-    }
+    fun provideProjectContextDocumentDao(database: AI4ResearchDatabase): ProjectContextDocumentDao =
+        database.projectContextDocumentDao()
+
+    @Provides
+    @Singleton
+    fun provideProjectDao(database: AI4ResearchDatabase): ProjectDao = database.projectDao()
+
+    @Provides
+    @Singleton
+    fun provideUserDao(database: AI4ResearchDatabase): UserDao = database.userDao()
 }
-

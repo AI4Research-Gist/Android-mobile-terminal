@@ -412,6 +412,7 @@
           const methodTags = Array.isArray(meta.method_tags) ? meta.method_tags : [];
           const note = item.note || meta.note || "";
           const summaryShort = meta.summary_short || "";
+          const mediumSummary = meta.medium_summary || "";
 
           // 解析来源信息
           let source = "";
@@ -481,6 +482,7 @@
             timestamp: item.UpdatedAt ? new Date(item.UpdatedAt).toLocaleDateString('zh-CN') : "刚刚"
           };
         });
+        window.__gistPapers = mapped;
         console.log("Dispatching papers-updated event with", mapped.length, "items");
         window.dispatchEvent(new CustomEvent('papers-updated', { detail: mapped }));
       } catch (e) { console.error("Error parsing papers", e); }
@@ -536,6 +538,7 @@
       try {
         const data = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
         console.log("Parsed projects data:", data.length, "items");
+        window.__gistProjects = data;
         window.dispatchEvent(new CustomEvent('projects-updated', { detail: data }));
       } catch (e) { console.error("Error parsing projects", e); }
     };
@@ -588,6 +591,7 @@
             itemType: 'article'
           };
         });
+        window.__gistArticles = mapped;
         window.dispatchEvent(new CustomEvent('articles-updated', { detail: mapped }));
       } catch (e) { console.error("Error parsing articles", e); }
     };
@@ -2260,6 +2264,12 @@
       const { isDark, toggleTheme } = useContext(ThemeContext);
       const [floatingEnabled, setFloatingEnabled] = useState(false);
       const [hasFloatingPermission, setHasFloatingPermission] = useState(false);
+      const [syncDiagnostics, setSyncDiagnostics] = useState(null);
+      const [frontendDiagnostics, setFrontendDiagnostics] = useState({
+        papersReceived: 0,
+        articlesReceived: 0,
+        projectsReceived: 0
+      });
 
       // 检查悬浮窗状态
       useEffect(() => {
@@ -2271,6 +2281,19 @@
             setHasFloatingPermission(parsed.hasPermission);
           } catch (e) { }
         }
+
+        if (window.AndroidInterface && window.AndroidInterface.getSyncDiagnostics) {
+          try {
+            const diagnostics = JSON.parse(window.AndroidInterface.getSyncDiagnostics());
+            setSyncDiagnostics(diagnostics);
+          } catch (e) { }
+        }
+
+        setFrontendDiagnostics({
+          papersReceived: Array.isArray(window.__gistPapers) ? window.__gistPapers.length : 0,
+          articlesReceived: Array.isArray(window.__gistArticles) ? window.__gistArticles.length : 0,
+          projectsReceived: Array.isArray(window.__gistProjects) ? window.__gistProjects.length : 0
+        });
       }, []);
 
       const handleFloatingToggle = () => {
@@ -2348,6 +2371,39 @@
               >
                 <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-300 ${isDark ? 'translate-x-6' : 'translate-x-0'}`} />
               </button>
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <div className="space-y-3">
+              <div>
+                <span className={`font-medium block ${isDark ? 'text-white' : 'text-slate-900'}`}>同步诊断</span>
+                <span className={`text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                  用于排查“云端有数据但手机端不显示”的问题
+                </span>
+              </div>
+
+              {syncDiagnostics ? (
+                <div className={`space-y-2 text-sm ${isDark ? 'text-white/75' : 'text-slate-700'}`}>
+                  <div>当前用户 ID：{syncDiagnostics.currentUserId || '未登录'}</div>
+                  <div>当前用户名：{syncDiagnostics.currentUsername || '未知'}</div>
+                  <div>当前邮箱：{syncDiagnostics.currentEmail || '未知'}</div>
+                  <div>本地论文数：{syncDiagnostics.localPaperCount}</div>
+                  <div>本地资料数：{syncDiagnostics.localArticleCount}</div>
+                  <div>本地比赛数：{syncDiagnostics.localCompetitionCount}</div>
+                  <div>本地灵感数：{syncDiagnostics.localInsightCount}</div>
+                  <div>本地语音数：{syncDiagnostics.localVoiceCount}</div>
+                  <div>本地项目数：{syncDiagnostics.localProjectCount}</div>
+                  <div>最近同步状态：{syncDiagnostics.lastSyncStatus || '未知'}</div>
+                  <div>最近同步错误：{syncDiagnostics.lastSyncError || '无'}</div>
+                  <div>最近同步时间：{syncDiagnostics.lastSyncAt ? new Date(syncDiagnostics.lastSyncAt).toLocaleString('zh-CN') : '暂无记录'}</div>
+                  <div>前端收到论文数：{frontendDiagnostics.papersReceived}</div>
+                  <div>前端收到资料数：{frontendDiagnostics.articlesReceived}</div>
+                  <div>前端收到项目数：{frontendDiagnostics.projectsReceived}</div>
+                </div>
+              ) : (
+                <div className={`text-sm ${isDark ? 'text-white/55' : 'text-slate-500'}`}>暂未获取到诊断信息</div>
+              )}
             </div>
           </GlassCard>
 
@@ -2619,12 +2675,55 @@
         }
 
         // 获取项目列表
+        if (window.AndroidInterface && window.AndroidInterface.getPapers) {
+          try {
+            const papersJson = window.AndroidInterface.getPapers();
+            window.receivePapers(papersJson);
+          } catch (e) {
+            console.error("Error getting papers:", e);
+          }
+        }
+
+        if (window.AndroidInterface && window.AndroidInterface.getArticles) {
+          try {
+            const articlesJson = window.AndroidInterface.getArticles();
+            window.receiveArticles(articlesJson);
+          } catch (e) {
+            console.error("Error getting articles:", e);
+          }
+        }
+
+        if (window.AndroidInterface && window.AndroidInterface.getCompetitions) {
+          try {
+            const competitionsJson = window.AndroidInterface.getCompetitions();
+            window.receiveCompetitions(competitionsJson);
+          } catch (e) {
+            console.error("Error getting competitions:", e);
+          }
+        }
+
+        if (window.AndroidInterface && window.AndroidInterface.getInsights) {
+          try {
+            const insightsJson = window.AndroidInterface.getInsights();
+            window.receiveInsights(insightsJson);
+          } catch (e) {
+            console.error("Error getting insights:", e);
+          }
+        }
+
+        if (window.AndroidInterface && window.AndroidInterface.getVoiceItems) {
+          try {
+            const voiceItemsJson = window.AndroidInterface.getVoiceItems();
+            window.receiveVoiceItems(voiceItemsJson);
+          } catch (e) {
+            console.error("Error getting voice items:", e);
+          }
+        }
+
         if (window.AndroidInterface && window.AndroidInterface.getProjects) {
           try {
             const projectsJson = window.AndroidInterface.getProjects();
-            const projectsData = JSON.parse(projectsJson);
-            console.log("React: Got projects from Android:", projectsData.length);
-            setProjects(projectsData);
+            window.receiveProjects(projectsJson);
           } catch (e) {
             console.error("Error getting projects:", e);
           }

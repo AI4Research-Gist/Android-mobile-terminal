@@ -1,6 +1,7 @@
 package com.example.ai4research.domain.repository
 
 import com.example.ai4research.domain.model.Project
+import com.example.ai4research.domain.model.ProjectContextDocument
 import com.example.ai4research.domain.model.ProjectOverview
 import kotlinx.coroutines.flow.Flow
 
@@ -21,6 +22,14 @@ interface ProjectRepository {
      * @return 创建的项目
      */
     suspend fun createProject(name: String, description: String? = null): Result<Project>
+
+    suspend fun getProjectContextDocument(projectId: String): ProjectContextDocument?
+
+    suspend fun saveProjectContextDocument(
+        projectId: String,
+        fileName: String,
+        markdownContent: String
+    ): Result<ProjectContextDocument>
 
     suspend fun getProjectOverview(projectId: String): ProjectOverview?
     
