@@ -2265,6 +2265,7 @@
       const [floatingEnabled, setFloatingEnabled] = useState(false);
       const [hasFloatingPermission, setHasFloatingPermission] = useState(false);
       const [syncDiagnostics, setSyncDiagnostics] = useState(null);
+      const [researchReview, setResearchReview] = useState(null);
       const [showProjectCreator, setShowProjectCreator] = useState(false);
       const [newProjectName, setNewProjectName] = useState("");
       const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -2290,6 +2291,13 @@
           try {
             const diagnostics = JSON.parse(window.AndroidInterface.getSyncDiagnostics());
             setSyncDiagnostics(diagnostics);
+          } catch (e) { }
+        }
+
+        if (window.AndroidInterface && window.AndroidInterface.getResearchReview) {
+          try {
+            const review = JSON.parse(window.AndroidInterface.getResearchReview());
+            setResearchReview(review);
           } catch (e) { }
         }
 
@@ -2468,6 +2476,63 @@
                 </div>
               ) : (
                 <div className={`text-sm ${isDark ? 'text-white/55' : 'text-slate-500'}`}>当前还没有项目，点击右上角“新建项目”即可添加</div>
+              )}
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <div className="space-y-3">
+              <div>
+                <span className={`font-medium block ${isDark ? 'text-white' : 'text-slate-900'}`}>研究回顾</span>
+                <span className={`text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                  本周新增、未读积压与近期截止提醒
+                </span>
+              </div>
+
+              {researchReview ? (
+                <div className={`space-y-2 text-sm ${isDark ? 'text-white/75' : 'text-slate-700'}`}>
+                  <div>本周新增条目：{researchReview.weeklyNewItemCount}</div>
+                  <div>本周新增论文：{researchReview.weeklyNewPaperCount}</div>
+                  <div>本周新增灵感：{researchReview.weeklyNewInsightCount}</div>
+                  <div>未读论文积压：{researchReview.unreadPaperCount}</div>
+                  <div>未读资料积压：{researchReview.unreadArticleCount}</div>
+                  <div>本周最活跃项目：{researchReview.mostActiveProjectName || '暂无明显集中项目'}</div>
+
+                  {Array.isArray(researchReview.recentHighlights) && researchReview.recentHighlights.length > 0 && (
+                    <div className="pt-1">
+                      <div className={`text-xs font-semibold ${isDark ? 'text-cyan-200' : 'text-cyan-700'}`}>本周新增重点</div>
+                      <div className="mt-1 space-y-1">
+                        {researchReview.recentHighlights.map((line, index) => (
+                          <div key={`recent-${index}`}>- {line}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {Array.isArray(researchReview.staleUnreadHighlights) && researchReview.staleUnreadHighlights.length > 0 && (
+                    <div className="pt-1">
+                      <div className={`text-xs font-semibold ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>建议优先清理的未读</div>
+                      <div className="mt-1 space-y-1">
+                        {researchReview.staleUnreadHighlights.map((line, index) => (
+                          <div key={`backlog-${index}`}>- {line}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {Array.isArray(researchReview.urgentCompetitionHighlights) && researchReview.urgentCompetitionHighlights.length > 0 && (
+                    <div className="pt-1">
+                      <div className={`text-xs font-semibold ${isDark ? 'text-rose-200' : 'text-rose-700'}`}>近期截止提醒</div>
+                      <div className="mt-1 space-y-1">
+                        {researchReview.urgentCompetitionHighlights.map((line, index) => (
+                          <div key={`deadline-${index}`}>- {line}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={`text-sm ${isDark ? 'text-white/55' : 'text-slate-500'}`}>暂未生成研究回顾</div>
               )}
             </div>
           </GlassCard>

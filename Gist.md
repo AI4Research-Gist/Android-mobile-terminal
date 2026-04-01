@@ -9,8 +9,6 @@
 - [`changelog/v0.5.0.md`](D:/Android-mobile-terminal/changelog/v0.5.0.md)
 - [`V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md`](D:/Android-mobile-terminal/V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md)
 - [`V0_6_RESEARCH_ASSISTANT_PRD.md`](D:/Android-mobile-terminal/V0_6_RESEARCH_ASSISTANT_PRD.md)
-- [`CURRENT_FEATURES_AND_ROADMAP.md`](D:/Android-mobile-terminal/CURRENT_FEATURES_AND_ROADMAP.md)
-- [`DATABASE_MIGRATION_POLICY.md`](D:/Android-mobile-terminal/DATABASE_MIGRATION_POLICY.md)
 
 `v0.3.0` 灵感页接口与字段补充说明见：
 - [INSPIRATION_PAGE_V0.3.0_SPEC.md](D:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
@@ -81,10 +79,13 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - **项目研究背景**：支持为项目上传 Markdown 研究背景文档，并生成摘要与关键词。
 - **AI 项目总结**：项目总览页支持生成项目主题、最近进展、关键文献、待补问题与下一步建议。
 - **灵感反查**：灵感详情页支持反查相关论文 / 资料，返回推荐理由并可一键采纳。
+- **双文献对比**：论文 / 资料详情页支持选择另一条资料并生成结构化对比结果。
+- **Markdown 导出**：项目总结与双文献对比结果支持导出为 Markdown 文件。
 - **手动创建项目**：设置页支持直接创建项目。
 - **结构化筛选**：论文与资料页面支持细粒度前端筛选。
 - **OCR 摘要修正**：支持 `medium_summary` 与更完整的 OCR 问答上下文构造。
 - **同步诊断**：设置页支持显示当前用户、本地数量、未上云条目、最近同步状态与前端接收情况。
+- **研究回顾**：设置页支持本周新增、未读积压、近期截止提醒与最活跃项目汇总。
 - **同步补传**：刷新时会自动尝试补传已完成但尚未上云的本地条目。
 - **图片 OCR 稳定性增强**：视觉上传支持更长超时与缩图重试。
 - **数据库迁移保护**：数据库升级改为正式 migration，不再依赖 destructive migration。
@@ -214,6 +215,7 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - `applyFilter(filterType, projectId)`
 - `deleteItem(itemId)`
 - `getProjects()`
+- `getResearchReview()`
 - `checkFloatingWindowStatus()`
 - `requestFloatingWindowPermission()`
 - `setFloatingWindowEnabled(enabled)`
@@ -421,7 +423,7 @@ app/src/main/
 - **编码问题**：部分注释出现乱码（编码非 UTF-8）。
 - **Proguard 规则**：保留类名中存在 `AI4ResearchApplication` 但实际为 `AI4ResearchApp`（需校正）。
 - **WebView Debug**：`WebView.setWebContentsDebuggingEnabled(true)` 建议仅开发环境。
-- **数据库演进**：后续每次 Room 版本升级都必须新增正式 migration，见 [`DATABASE_MIGRATION_POLICY.md`](D:/Android-mobile-terminal/DATABASE_MIGRATION_POLICY.md)。
+- **数据库演进**：后续每次 Room 版本升级都必须新增正式 migration，并保持升级路径可验证。
 
 ---
 如需增加更多运行时数据、埋点、测试或部署说明，可继续补充。

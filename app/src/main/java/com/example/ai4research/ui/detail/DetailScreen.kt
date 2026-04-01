@@ -1,5 +1,8 @@
 package com.example.ai4research.ui.detail
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,6 +51,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -79,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.domain.model.ItemType
+import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.model.StructuredReadingCard
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import kotlinx.coroutines.Dispatchers
@@ -95,8 +100,29 @@ fun DetailScreen(
     val viewModel: DetailViewModel = hiltViewModel()
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var pendingExportContent by remember { mutableStateOf<String?>(null) }
+    var pendingExportFileName by remember { mutableStateOf("comparison.md") }
     val summaryPrefs = remember {
         context.getSharedPreferences("paper_summary_prefs", android.content.Context.MODE_PRIVATE)
+    }
+
+    val markdownExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/markdown")
+    ) { uri ->
+        val content = pendingExportContent
+        if (uri == null || content == null) return@rememberLauncherForActivityResult
+
+        val result = writeMarkdownToUri(context, uri, content)
+        if (result.isSuccess) {
+            Toast.makeText(context, "Markdown 已导出", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(
+                context,
+                "导出失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        pendingExportContent = null
     }
 
     LaunchedEffect(itemId) {
@@ -132,6 +158,7 @@ fun DetailScreen(
     var showInsightImagePreview by remember { mutableStateOf(false) }
     var aiPrompt by rememberSaveable(itemId) { mutableStateOf("") }
     var selectedInsightLinkIds by remember(itemId) { mutableStateOf(setOf<String>()) }
+    var selectedComparisonTargetId by remember(itemId) { mutableStateOf<String?>(null) }
     
     // 竞赛特有字段编辑状态
     var editOrganizer by remember(competitionMeta) { mutableStateOf(competitionMeta?.organizer ?: "") }
@@ -196,6 +223,15 @@ fun DetailScreen(
     LaunchedEffect(uiState.isInsightLinkEditorVisible, uiState.connections) {
         if (uiState.isInsightLinkEditorVisible) {
             selectedInsightLinkIds = uiState.connections.map { it.item.id }.toSet()
+        }
+    }
+
+    LaunchedEffect(uiState.isComparisonDialogVisible, uiState.availableComparisonTargets) {
+        if (uiState.isComparisonDialogVisible) {
+            val currentSelectionStillValid = uiState.availableComparisonTargets.any { it.id == selectedComparisonTargetId }
+            if (!currentSelectionStillValid) {
+                selectedComparisonTargetId = uiState.availableComparisonTargets.firstOrNull()?.id
+            }
         }
     }
     
@@ -349,6 +385,14 @@ fun DetailScreen(
                                         viewModel.generateReadingCardDraft()
                                     },
                                     enabled = !uiState.isGeneratingReadingCard
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("对比文献") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        viewModel.openComparisonDialog()
+                                    },
+                                    enabled = uiState.availableComparisonTargets.isNotEmpty()
                                 )
                             }
                         }
@@ -920,6 +964,32 @@ fun DetailScreen(
                 onSend = {
                     viewModel.askAboutCurrentItem(aiPrompt)
                     aiPrompt = ""
+                }
+            )
+        }
+        if (uiState.isComparisonDialogVisible && (type == ItemType.PAPER || type == ItemType.ARTICLE)) {
+            LiteratureComparisonDialog(
+                sourceTitle = title,
+                candidates = uiState.availableComparisonTargets,
+                selectedTargetId = selectedComparisonTargetId,
+                onSelectTarget = { selectedComparisonTargetId = it },
+                comparisonResult = uiState.comparisonResult,
+                isGenerating = uiState.isGeneratingComparison,
+                onDismiss = { viewModel.closeComparisonDialog() },
+                onCompare = {
+                    selectedComparisonTargetId?.let(viewModel::compareWithItem)
+                },
+                onExport = {
+                    val comparisonResult = uiState.comparisonResult
+                    val sourceItem = uiState.item
+                    if (comparisonResult != null && sourceItem != null) {
+                        pendingExportContent = buildComparisonMarkdown(sourceItem, comparisonResult)
+                        pendingExportFileName = buildComparisonFileName(
+                            sourceTitle = sourceItem.title,
+                            targetTitle = comparisonResult.targetTitle
+                        )
+                        markdownExportLauncher.launch(pendingExportFileName)
+                    }
                 }
             )
         }
@@ -1587,6 +1657,205 @@ private fun AiAssistantDialog(
             }
         }
     )
+}
+
+@Composable
+private fun LiteratureComparisonDialog(
+    sourceTitle: String,
+    candidates: List<ResearchItem>,
+    selectedTargetId: String?,
+    onSelectTarget: (String) -> Unit,
+    comparisonResult: LiteratureComparisonViewData?,
+    isGenerating: Boolean,
+    onDismiss: () -> Unit,
+    onCompare: () -> Unit,
+    onExport: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("双文献对比") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "当前条目：$sourceTitle",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (candidates.isEmpty()) {
+                    Text(
+                        text = "当前没有可供对比的论文或资料。",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    Text(
+                        text = "选择另一条资料",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    candidates.take(8).forEach { candidate ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectTarget(candidate.id) }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedTargetId == candidate.id,
+                                onClick = { onSelectTarget(candidate.id) }
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = candidate.title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                candidate.projectName?.takeIf { it.isNotBlank() }?.let { projectName ->
+                                    Text(
+                                        text = "项目：$projectName",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isGenerating) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "AI 正在生成对比结果...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                comparisonResult?.let { result ->
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "对比对象：${result.targetTitle}",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    ComparisonSection(title = "相同点", items = result.commonPoints)
+                    ComparisonSection(title = "差异点", items = result.differences)
+                    ComparisonSection(title = "互补点", items = result.complementarities)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "项目适配：${result.projectFit}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "建议切入：${result.recommendation}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = onExport) {
+                        Text("导出 Markdown")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onCompare,
+                enabled = selectedTargetId != null && !isGenerating && candidates.isNotEmpty()
+            ) {
+                Text("开始对比")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ComparisonSection(
+    title: String,
+    items: List<String>
+) {
+    if (items.isEmpty()) return
+
+    Spacer(modifier = Modifier.height(12.dp))
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+    items.forEach { item ->
+        Text(
+            text = "• $item",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+    }
+}
+
+private fun writeMarkdownToUri(
+    context: android.content.Context,
+    uri: android.net.Uri,
+    content: String
+): Result<Unit> {
+    return runCatching {
+        context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use {
+            it.write(content)
+        } ?: error("无法打开导出文件")
+    }
+}
+
+private fun buildComparisonFileName(
+    sourceTitle: String,
+    targetTitle: String
+): String {
+    fun sanitize(value: String): String {
+        return value.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "item" }
+    }
+
+    return "${sanitize(sourceTitle)}_vs_${sanitize(targetTitle)}.md"
+}
+
+private fun buildComparisonMarkdown(
+    sourceItem: ResearchItem,
+    comparison: LiteratureComparisonViewData
+): String {
+    fun section(title: String, items: List<String>): String {
+        if (items.isEmpty()) return ""
+        return buildString {
+            appendLine("## $title")
+            items.forEach { appendLine("- $it") }
+            appendLine()
+        }
+    }
+
+    return buildString {
+        appendLine("# 双文献对比")
+        appendLine()
+        appendLine("- 资料 A：${sourceItem.title}")
+        appendLine("- 资料 B：${comparison.targetTitle}")
+        appendLine("- 资料 A 项目：${sourceItem.projectName ?: "未归属"}")
+        appendLine()
+        append(section("相同点", comparison.commonPoints))
+        append(section("差异点", comparison.differences))
+        append(section("互补点", comparison.complementarities))
+        appendLine("## 项目适配")
+        appendLine(comparison.projectFit)
+        appendLine()
+        appendLine("## 建议切入")
+        appendLine(comparison.recommendation)
+    }
 }
 
 @Composable

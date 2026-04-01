@@ -28,12 +28,16 @@ data class DetailUiState(
     val item: ResearchItem? = null,
     val connections: List<ItemConnection> = emptyList(),
     val availableLinkTargets: List<ResearchItem> = emptyList(),
+    val availableComparisonTargets: List<ResearchItem> = emptyList(),
     val projects: List<Project> = emptyList(),
     val isProjectSaving: Boolean = false,
     val isCreatingProject: Boolean = false,
     val isRegeneratingSummary: Boolean = false,
     val isGeneratingReadingCard: Boolean = false,
     val generatedReadingCard: StructuredReadingCard? = null,
+    val isComparisonDialogVisible: Boolean = false,
+    val isGeneratingComparison: Boolean = false,
+    val comparisonResult: LiteratureComparisonViewData? = null,
     val isInsightLinkEditorVisible: Boolean = false,
     val isSavingInsightLinks: Boolean = false,
     val isLookingUpInsightLinks: Boolean = false,
@@ -58,6 +62,16 @@ data class InsightLookupRecommendation(
     val item: ResearchItem,
     val reason: String,
     val suggestedQuestion: String? = null
+)
+
+data class LiteratureComparisonViewData(
+    val targetItemId: String,
+    val targetTitle: String,
+    val commonPoints: List<String>,
+    val differences: List<String>,
+    val complementarities: List<String>,
+    val projectFit: String,
+    val recommendation: String
 )
 
 @HiltViewModel
@@ -86,6 +100,8 @@ class DetailViewModel @Inject constructor(
                 isLoading = true,
                 errorMessage = null,
                 generatedReadingCard = null,
+                comparisonResult = null,
+                isGeneratingComparison = false,
                 insightRecommendations = emptyList(),
                 isLookingUpInsightLinks = false,
                 chatMessages = emptyList(),
@@ -108,6 +124,24 @@ class DetailViewModel @Inject constructor(
                         }.thenByDescending { candidate ->
                             candidate.createdAt.time
                         })
+                } else {
+                    emptyList()
+                },
+                availableComparisonTargets = if (item?.type == ItemType.PAPER || item?.type == ItemType.ARTICLE) {
+                    itemRepository.observeItems().first()
+                        .filter { candidate ->
+                            candidate.id != item.id &&
+                                (candidate.type == ItemType.PAPER || candidate.type == ItemType.ARTICLE)
+                        }
+                        .sortedWith(
+                            compareByDescending<ResearchItem> { candidate ->
+                                if (!item.projectId.isNullOrBlank() && item.projectId == candidate.projectId) 1 else 0
+                            }.thenByDescending { candidate ->
+                                candidate.isStarred
+                            }.thenByDescending { candidate ->
+                                candidate.createdAt.time
+                            }
+                        )
                 } else {
                     emptyList()
                 },
@@ -312,6 +346,21 @@ class DetailViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(isAiSheetVisible = false)
     }
 
+    fun openComparisonDialog() {
+        _uiState.value = _uiState.value.copy(
+            isComparisonDialogVisible = true,
+            comparisonResult = null,
+            errorMessage = null
+        )
+    }
+
+    fun closeComparisonDialog() {
+        _uiState.value = _uiState.value.copy(
+            isComparisonDialogVisible = false,
+            isGeneratingComparison = false
+        )
+    }
+
     fun openInsightLinkEditor() {
         _uiState.value = _uiState.value.copy(isInsightLinkEditorVisible = true, errorMessage = null)
     }
@@ -416,6 +465,50 @@ class DetailViewModel @Inject constructor(
 
         val mergedTargetIds = (_uiState.value.connections.map { it.item.id } + recommendedIds).distinct()
         saveInsightLinks(mergedTargetIds)
+    }
+
+    fun compareWithItem(targetItemId: String) {
+        val sourceItem = _uiState.value.item ?: return
+        if (sourceItem.type != ItemType.PAPER && sourceItem.type != ItemType.ARTICLE) return
+
+        val targetItem = _uiState.value.availableComparisonTargets.firstOrNull { it.id == targetItemId }
+            ?: return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isGeneratingComparison = true,
+                comparisonResult = null,
+                errorMessage = null
+            )
+
+            val contextDocument = sourceItem.projectId?.let { projectRepository.getProjectContextDocument(it) }
+            val result = aiService.compareResearchItems(
+                leftItem = sourceItem,
+                rightItem = targetItem,
+                projectContextSummary = contextDocument?.summary,
+                projectContextKeywords = contextDocument?.keywords.orEmpty()
+            )
+
+            result.onSuccess { comparison ->
+                _uiState.value = _uiState.value.copy(
+                    isGeneratingComparison = false,
+                    comparisonResult = LiteratureComparisonViewData(
+                        targetItemId = targetItem.id,
+                        targetTitle = targetItem.title,
+                        commonPoints = comparison.commonPoints,
+                        differences = comparison.differences,
+                        complementarities = comparison.complementarities,
+                        projectFit = comparison.projectFit,
+                        recommendation = comparison.recommendation
+                    )
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    isGeneratingComparison = false,
+                    errorMessage = "生成文献对比失败: ${error.message}"
+                )
+            }
+        }
     }
 
     fun askAboutCurrentItem(question: String) {

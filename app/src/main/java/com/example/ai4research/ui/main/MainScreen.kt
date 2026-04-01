@@ -670,6 +670,11 @@ class MainAppInterface(
     fun getSyncDiagnostics(): String {
         return viewModel.getSyncDiagnosticsJson()
     }
+
+    @JavascriptInterface
+    fun getResearchReview(): String {
+        return viewModel.getResearchReviewJson()
+    }
     
     @JavascriptInterface
     fun checkFloatingWindowStatus(): String {

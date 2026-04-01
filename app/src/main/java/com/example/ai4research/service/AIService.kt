@@ -1184,6 +1184,74 @@ Rules:
         }
     }
 
+    suspend fun compareResearchItems(
+        leftItem: ResearchItem,
+        rightItem: ResearchItem,
+        projectContextSummary: String? = null,
+        projectContextKeywords: List<String> = emptyList()
+    ): Result<LiteratureComparisonResult> = withContext(Dispatchers.IO) {
+        try {
+            val prompt = buildLiteratureComparisonPrompt(
+                leftItem = leftItem,
+                rightItem = rightItem,
+                projectContextSummary = projectContextSummary,
+                projectContextKeywords = projectContextKeywords
+            )
+
+            val systemPrompt = """
+You are a research comparison assistant for a personal research app.
+
+Return strict JSON only:
+{
+  "common_points": ["string"],
+  "differences": ["string"],
+  "complementarities": ["string"],
+  "project_fit": "string",
+  "recommendation": "string"
+}
+
+Rules:
+- respond in concise, specific Chinese
+- common_points / differences / complementarities should each contain 2-5 items when possible
+- do not invent experiments, datasets, or conclusions not present in the inputs
+- recommendation should say how the user should use these two items next
+- if evidence is weak, state that clearly
+- no markdown and no extra explanation
+""".trimIndent()
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = prompt)
+                ),
+                maxTokens = 1200,
+                temperature = 0.2,
+                enableThinking = false
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return@withContext Result.failure(Exception("Literature comparison returned empty content"))
+            val cleanJson = extractJsonFromResponse(content)
+            val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+
+            Result.success(
+                LiteratureComparisonResult(
+                    commonPoints = readFlexibleStringListByKeys(jsonObj, "common_points", "similarities", "same_points").take(5),
+                    differences = readFlexibleStringListByKeys(jsonObj, "differences", "different_points").take(5),
+                    complementarities = readFlexibleStringListByKeys(jsonObj, "complementarities", "complementary_points", "synergy").take(5),
+                    projectFit = readFlexibleStringByKeys(jsonObj, "project_fit", "fit", "project_relevance")
+                        ?: "需要结合当前项目目标进一步判断哪一篇更适合作为优先入口",
+                    recommendation = readFlexibleStringByKeys(jsonObj, "recommendation", "entry_point", "next_step")
+                        ?: "建议先从与你当前项目更贴近的一篇开始，再用另一篇补方法或背景。"
+                ).withFallbacks(leftItem, rightItem)
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun parseLinkStructured(link: String): Result<LinkParseResult> = withContext(Dispatchers.IO) {
         parseLink(link).mapCatching { jsonStr ->
             val cleanJson = extractJsonFromResponse(jsonStr)
@@ -1576,6 +1644,41 @@ Rules:
         }
     }
 
+    private fun buildLiteratureComparisonPrompt(
+        leftItem: ResearchItem,
+        rightItem: ResearchItem,
+        projectContextSummary: String?,
+        projectContextKeywords: List<String>
+    ): String {
+        fun describeItem(item: ResearchItem): String {
+            val summary = item.summary.takeIf { it.isNotBlank() }?.let { truncateForPrompt(it, 240) } ?: "无摘要"
+            val content = item.contentMarkdown.takeIf { it.isNotBlank() }?.let { truncateForPrompt(it, 500) } ?: "无正文"
+            return buildString {
+                appendLine("类型: ${typeLabel(item.type)}")
+                appendLine("标题: ${item.title}")
+                appendLine("所属项目: ${item.projectName ?: "未归属"}")
+                appendLine("摘要: $summary")
+                appendLine("正文摘要: $content")
+            }
+        }
+
+        val contextSummary = projectContextSummary?.takeIf { it.isNotBlank() } ?: "暂无项目研究背景"
+        val contextKeywordsText = projectContextKeywords.joinToString(", ").ifBlank { "无" }
+
+        return buildString {
+            appendLine("请比较下面两条资料，并判断它们如何服务当前项目。")
+            appendLine("项目研究背景摘要:")
+            appendLine(truncateForPrompt(contextSummary, 500))
+            appendLine("项目研究背景关键词: $contextKeywordsText")
+            appendLine()
+            appendLine("资料 A:")
+            appendLine(describeItem(leftItem))
+            appendLine()
+            appendLine("资料 B:")
+            appendLine(describeItem(rightItem))
+        }
+    }
+
     private fun truncateForPrompt(value: String, maxLength: Int): String {
         val normalized = value
             .replace(Regex("\\s+"), " ")
@@ -1605,6 +1708,33 @@ Rules:
             },
             nextActions = nextActions.ifEmpty {
                 listOf("优先阅读重点论文并补齐结构化阅读卡", "基于现有灵感建立 1-2 条可验证实验路线")
+            }
+        )
+    }
+
+    private fun LiteratureComparisonResult.withFallbacks(
+        leftItem: ResearchItem,
+        rightItem: ResearchItem
+    ): LiteratureComparisonResult {
+        val fallbackCommon = commonPoints.ifEmpty {
+            listOf("两条资料都与当前主题存在相关性，值得放在同一组阅读路径中比较。")
+        }
+        val fallbackDifferences = differences.ifEmpty {
+            listOf("两条资料的切入角度或侧重点并不完全相同，建议结合正文进一步确认差异。")
+        }
+        val fallbackComplementarities = complementarities.ifEmpty {
+            listOf("可以把一条作为主线，另一条作为补充背景、方法或证据来源。")
+        }
+
+        return copy(
+            commonPoints = fallbackCommon,
+            differences = fallbackDifferences,
+            complementarities = fallbackComplementarities,
+            projectFit = projectFit.ifBlank {
+                "建议先判断 `${leftItem.title}` 和 `${rightItem.title}` 哪一条更贴近你当前项目目标。"
+            },
+            recommendation = recommendation.ifBlank {
+                "优先阅读更贴近当前项目的一条，再用另一条补齐背景、方法或反例。"
             }
         )
     }
@@ -2634,6 +2764,14 @@ data class InsightRecommendation(
     val candidateIndex: Int,
     val reason: String,
     val suggestedQuestion: String? = null
+)
+
+data class LiteratureComparisonResult(
+    val commonPoints: List<String>,
+    val differences: List<String>,
+    val complementarities: List<String>,
+    val projectFit: String,
+    val recommendation: String
 )
 
 data class CompetitionTimelineNode(

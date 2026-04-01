@@ -54,12 +54,15 @@
 - **项目研究背景**：项目总览页支持上传 Markdown 研究背景文档，并生成摘要与关键词。
 - **AI 项目总结**：项目总览页支持生成项目主题、最近进展、关键文献、待补问题与下一步建议。
 - **灵感反查**：灵感详情页支持反查相关论文 / 资料，返回推荐理由并可一键采纳为关联。
+- **双文献对比**：论文 / 资料详情页支持选择另一条资料并生成相同点、差异点、互补点和建议切入。
+- **Markdown 导出**：项目总结与双文献对比结果支持导出为 Markdown 文件。
 - **项目创建入口**：设置页现已支持手动创建项目，不再只能依赖历史项目。
 - **结构化筛选**：论文页和资料页支持按项目、年份、来源/作者、关键词/标签细筛。
 - **解析状态可视化**：链接现已支持先分类入库、后台解析、前端状态字条与解析耗时展示。
 - **资料页本地优先显示**：资料条目现已支持先写本地占位、后异步同步远端，避免整栏空白。
 - **OCR 摘要修正**：长 OCR 文本引入 `medium_summary`，显示层优先使用中等摘要，避免只展示短截断内容。
 - **同步诊断**：设置页支持查看当前用户 ID、本地条目数量、未上云条目数、最近同步状态与前端接收数量。
+- **研究回顾**：设置页支持本周新增、未读积压、近期截止提醒与最活跃项目汇总。
 - **数据库升级保护**：数据库版本升级改为正式 migration，不再默认使用破坏性迁移清空本地库。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 
@@ -150,15 +153,13 @@ app/src/main/
 ## 当前版本
 
 - 当前版本：`v0.6.0`
-- 本版本重点：项目级 AI 总结、灵感反查相关资料、手动创建项目、未上云条目补传与同步诊断增强、图片 OCR 稳定性增强
+- 本版本重点：项目级 AI 总结、灵感反查、双文献对比、Markdown 导出、研究回顾、手动创建项目、未上云条目补传与图片 OCR 稳定性增强
 - 更新日志入口：[`v0.6.0`](d:/Android-mobile-terminal/changelog/v0.6.0.md)
 - 上一版本说明：[`v0.5.1`](d:/Android-mobile-terminal/changelog/v0.5.1.md)
 - 更早版本说明：[`v0.5.0`](d:/Android-mobile-terminal/changelog/v0.5.0.md)
 - 灵感模块补充说明：[`INSPIRATION_PAGE_V0.3.0_SPEC.md`](d:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
 - 知识连接参考文档：[`V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md`](d:/Android-mobile-terminal/V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md)
 - 研究助手 PRD：[`V0_6_RESEARCH_ASSISTANT_PRD.md`](d:/Android-mobile-terminal/V0_6_RESEARCH_ASSISTANT_PRD.md)
-- 功能现状与后续路线图：[`CURRENT_FEATURES_AND_ROADMAP.md`](d:/Android-mobile-terminal/CURRENT_FEATURES_AND_ROADMAP.md)
-- 数据库迁移策略：[`DATABASE_MIGRATION_POLICY.md`](d:/Android-mobile-terminal/DATABASE_MIGRATION_POLICY.md)
 - 版本明细目录：[`changelog/`](d:/Android-mobile-terminal/changelog)
 
 ## 配置说明（开发环境）
@@ -202,9 +203,12 @@ app/src/main/
 - 当前项目已支持上传项目研究背景 Markdown，并在项目总览页显示摘要与关键词。
 - 当前项目已支持在项目总览页生成 `AI 项目总结`。
 - 当前灵感详情页已支持 `反查相关资料`，并可将推荐结果一键采纳为显式关联。
+- 当前论文 / 资料详情页已支持 `双文献对比`。
+- 当前项目总结与双文献对比结果已支持 `Markdown 导出`。
 - 当前设置页已支持手动创建项目。
 - 当前 OCR 链路已补充 `medium_summary`，长图摘要与问答的上下文完整性已有明显改善。
 - 当前设置页已支持同步诊断，可直接排查“云端有数据但手机端不显示”的问题，并显示未上云条目情况。
+- 当前设置页已支持 `研究回顾`，用于查看本周新增、未读积压和近期截止提醒。
 - 当前本地未上云条目在刷新时会自动尝试补传。
 - 当前图片 OCR 链路已增强超时、重试与缩图降级策略，弱网下更稳。
 - 当前数据库升级已切换为正式 migration 策略，后续版本升级不再默认清空本地库。

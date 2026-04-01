@@ -22,6 +22,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 
 enum class FilterType {
@@ -47,6 +50,19 @@ data class SyncDiagnostics(
     val lastSyncStatus: String = "idle",
     val lastSyncError: String? = null,
     val lastSyncAt: Long? = null
+)
+
+data class ResearchReviewDigest(
+    val weeklyNewItemCount: Int = 0,
+    val weeklyNewPaperCount: Int = 0,
+    val weeklyNewInsightCount: Int = 0,
+    val recentHighlights: List<String> = emptyList(),
+    val unreadPaperCount: Int = 0,
+    val unreadArticleCount: Int = 0,
+    val staleUnreadHighlights: List<String> = emptyList(),
+    val urgentCompetitionHighlights: List<String> = emptyList(),
+    val mostActiveProjectName: String? = null,
+    val generatedAt: Long? = null
 )
 
 @HiltViewModel
@@ -90,6 +106,9 @@ class MainViewModel @Inject constructor(
 
     private val _syncDiagnostics = MutableStateFlow(SyncDiagnostics())
     val syncDiagnostics: StateFlow<SyncDiagnostics> = _syncDiagnostics.asStateFlow()
+
+    private val _researchReview = MutableStateFlow(ResearchReviewDigest())
+    val researchReview: StateFlow<ResearchReviewDigest> = _researchReview.asStateFlow()
 
     private val gson = Gson()
 
@@ -545,6 +564,8 @@ class MainViewModel @Inject constructor(
 
     fun getSyncDiagnosticsJson(): String = gson.toJson(_syncDiagnostics.value)
 
+    fun getResearchReviewJson(): String = gson.toJson(_researchReview.value)
+
     private fun buildInsightSummary(
         body: String,
         imageUri: String?,
@@ -692,6 +713,77 @@ class MainViewModel @Inject constructor(
                 localRetryableUnsyncedCount = retryableUnsynced,
                 localProcessingUnsyncedCount = processingUnsynced
             )
+
+            _researchReview.value = buildResearchReviewDigest(allItems)
         }
+    }
+
+    private fun buildResearchReviewDigest(allItems: List<ResearchItem>): ResearchReviewDigest {
+        val now = Instant.now()
+        val weekAgo = now.minus(7, ChronoUnit.DAYS)
+        val zoneId = ZoneId.systemDefault()
+
+        val weeklyItems = allItems.filter { item ->
+            item.createdAt.toInstant().isAfter(weekAgo)
+        }
+        val recentHighlights = weeklyItems
+            .sortedByDescending { it.createdAt.time }
+            .take(5)
+            .map { "${itemTypeLabel(it.type)}：${it.title}" }
+
+        val unreadPapers = allItems.filter { it.type == ItemType.PAPER && it.readStatus != ReadStatus.READ }
+        val unreadArticles = allItems.filter { it.type == ItemType.ARTICLE && it.readStatus != ReadStatus.READ }
+
+        val staleUnreadHighlights = (unreadPapers + unreadArticles)
+            .filter { item ->
+                item.createdAt.toInstant().isBefore(weekAgo)
+            }
+            .sortedBy { it.createdAt.time }
+            .take(4)
+            .map { "${itemTypeLabel(it.type)}：${it.title}" }
+
+        val urgentCompetitionHighlights = allItems
+            .filter { it.type == ItemType.COMPETITION }
+            .mapNotNull { item ->
+                val meta = item.metaData as? ItemMetaData.CompetitionMeta ?: return@mapNotNull null
+                val summary = CompetitionTimelineFormatter.summarize(
+                    meta = meta,
+                    now = now,
+                    zoneId = zoneId
+                )
+                if (summary.displayText.isBlank() || summary.isOverdue || summary.daysDelta > 14) {
+                    return@mapNotNull null
+                }
+                "${item.title} · ${summary.displayText}"
+            }
+            .take(4)
+
+        val mostActiveProjectName = weeklyItems
+            .mapNotNull { it.projectName?.takeIf(String::isNotBlank) }
+            .groupingBy { it }
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key
+
+        return ResearchReviewDigest(
+            weeklyNewItemCount = weeklyItems.size,
+            weeklyNewPaperCount = weeklyItems.count { it.type == ItemType.PAPER },
+            weeklyNewInsightCount = weeklyItems.count { it.type == ItemType.INSIGHT },
+            recentHighlights = recentHighlights,
+            unreadPaperCount = unreadPapers.size,
+            unreadArticleCount = unreadArticles.size,
+            staleUnreadHighlights = staleUnreadHighlights,
+            urgentCompetitionHighlights = urgentCompetitionHighlights,
+            mostActiveProjectName = mostActiveProjectName,
+            generatedAt = System.currentTimeMillis()
+        )
+    }
+
+    private fun itemTypeLabel(type: ItemType): String = when (type) {
+        ItemType.PAPER -> "论文"
+        ItemType.ARTICLE -> "资料"
+        ItemType.COMPETITION -> "比赛"
+        ItemType.INSIGHT -> "灵感"
+        ItemType.VOICE -> "语音"
     }
 }

@@ -3,6 +3,7 @@ package com.example.ai4research.ui.project
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -40,6 +41,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,6 +69,8 @@ fun ProjectOverviewScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var pendingExportContent by remember { mutableStateOf<String?>(null) }
+    var pendingExportFileName by remember { mutableStateOf("project-summary.md") }
 
     LaunchedEffect(projectId) {
         viewModel.load(projectId)
@@ -87,6 +93,25 @@ fun ProjectOverviewScreen(
                 markdownContent = content
             )
         } ?: viewModel.clearError()
+    }
+
+    val markdownExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/markdown")
+    ) { uri ->
+        val content = pendingExportContent
+        if (uri == null || content == null) return@rememberLauncherForActivityResult
+
+        val result = writeTextToUri(context, uri, content)
+        if (result.isSuccess) {
+            Toast.makeText(context, "Markdown 已导出", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(
+                context,
+                "导出失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        pendingExportContent = null
     }
 
     Scaffold(
@@ -161,6 +186,15 @@ fun ProjectOverviewScreen(
                     onGenerateSummary = {
                         viewModel.generateProjectSummary(projectId)
                     },
+                    onExportSummary = {
+                        val summary = uiState.generatedSummary
+                        val overview = uiState.overview
+                        if (summary != null && overview != null) {
+                            pendingExportContent = buildProjectSummaryMarkdown(overview, summary)
+                            pendingExportFileName = buildProjectSummaryFileName(overview.project.name)
+                            markdownExportLauncher.launch(pendingExportFileName)
+                        }
+                    },
                     onOpenItem = onNavigateToDetail
                 )
             }
@@ -178,6 +212,7 @@ private fun ProjectOverviewContent(
     errorMessage: String?,
     onUploadContext: () -> Unit,
     onGenerateSummary: () -> Unit,
+    onExportSummary: () -> Unit,
     onOpenItem: (String) -> Unit
 ) {
     LazyColumn(
@@ -197,7 +232,8 @@ private fun ProjectOverviewContent(
             ProjectAiSummaryCard(
                 summary = generatedSummary,
                 isGenerating = isGeneratingSummary,
-                onGenerateSummary = onGenerateSummary
+                onGenerateSummary = onGenerateSummary,
+                onExportSummary = onExportSummary
             )
         }
 
@@ -318,7 +354,8 @@ private fun ProjectContextCard(
 private fun ProjectAiSummaryCard(
     summary: ProjectAiSummary?,
     isGenerating: Boolean,
-    onGenerateSummary: () -> Unit
+    onGenerateSummary: () -> Unit,
+    onExportSummary: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(
@@ -374,6 +411,12 @@ private fun ProjectAiSummaryCard(
             SummarySection(title = "下一步建议", items = summary.nextActions)
 
             Spacer(modifier = Modifier.height(8.dp))
+            TextButton(
+                onClick = onExportSummary,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("导出 Markdown")
+            }
             val formatter = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
             Text(
                 text = "更新于 ${formatter.format(summary.generatedAt)}",
@@ -565,4 +608,57 @@ private fun readMarkdownFile(context: Context, uri: Uri): Pair<String, String>? 
 
         fileName to content
     }.getOrNull()
+}
+
+private fun writeTextToUri(context: Context, uri: Uri, content: String): Result<Unit> {
+    return runCatching {
+        context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use {
+            it.write(content)
+        } ?: error("无法打开导出文件")
+    }
+}
+
+private fun buildProjectSummaryFileName(projectName: String): String {
+    val safeName = projectName.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "project" }
+    return "${safeName}_summary.md"
+}
+
+private fun buildProjectSummaryMarkdown(
+    overview: ProjectOverview,
+    summary: ProjectAiSummary
+): String {
+    val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+
+    fun section(title: String, items: List<String>): String {
+        if (items.isEmpty()) return ""
+        return buildString {
+            appendLine("## $title")
+            items.forEach { appendLine("- $it") }
+            appendLine()
+        }
+    }
+
+    return buildString {
+        appendLine("# ${overview.project.name} 项目总结")
+        appendLine()
+        appendLine("- 导出时间：${formatter.format(summary.generatedAt)}")
+        appendLine("- 条目总数：${overview.stats.totalItems}")
+        appendLine("- 论文数：${overview.stats.paperCount}")
+        appendLine("- 资料数：${overview.stats.articleCount}")
+        appendLine("- 灵感数：${overview.stats.insightCount}")
+        appendLine()
+        appendLine("## 当前主题")
+        appendLine(summary.currentTheme)
+        appendLine()
+        overview.contextDocument?.let { contextDocument ->
+            appendLine("## 研究背景摘要")
+            appendLine(contextDocument.summary)
+            appendLine()
+        }
+        append(section("最近进展", summary.recentProgress))
+        append(section("关键文献", summary.keyLiterature))
+        append(section("灵感焦点", summary.insightFocus))
+        append(section("待补问题", summary.pendingQuestions))
+        append(section("下一步建议", summary.nextActions))
+    }
 }
