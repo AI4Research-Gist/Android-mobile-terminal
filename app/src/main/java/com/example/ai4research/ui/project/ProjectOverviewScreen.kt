@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,9 +48,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.ai4research.domain.model.ItemType
+import com.example.ai4research.domain.model.ProjectAiSummary
 import com.example.ai4research.domain.model.ProjectContextDocument
 import com.example.ai4research.domain.model.ProjectOverview
 import com.example.ai4research.domain.model.ResearchItem
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,8 +152,14 @@ fun ProjectOverviewScreen(
                         .fillMaxSize()
                         .padding(innerPadding),
                     isSavingContext = uiState.isSavingContext,
+                    isGeneratingSummary = uiState.isGeneratingSummary,
+                    generatedSummary = uiState.generatedSummary,
+                    errorMessage = uiState.errorMessage,
                     onUploadContext = {
                         markdownPickerLauncher.launch(arrayOf("text/markdown", "text/plain", "text/*"))
+                    },
+                    onGenerateSummary = {
+                        viewModel.generateProjectSummary(projectId)
                     },
                     onOpenItem = onNavigateToDetail
                 )
@@ -163,7 +173,11 @@ private fun ProjectOverviewContent(
     overview: ProjectOverview,
     modifier: Modifier = Modifier,
     isSavingContext: Boolean,
+    isGeneratingSummary: Boolean,
+    generatedSummary: ProjectAiSummary?,
+    errorMessage: String?,
     onUploadContext: () -> Unit,
+    onGenerateSummary: () -> Unit,
     onOpenItem: (String) -> Unit
 ) {
     LazyColumn(
@@ -177,6 +191,20 @@ private fun ProjectOverviewContent(
                 isSaving = isSavingContext,
                 onUploadContext = onUploadContext
             )
+        }
+
+        item {
+            ProjectAiSummaryCard(
+                summary = generatedSummary,
+                isGenerating = isGeneratingSummary,
+                onGenerateSummary = onGenerateSummary
+            )
+        }
+
+        if (!errorMessage.isNullOrBlank()) {
+            item {
+                ErrorHintCard(errorMessage)
+            }
         }
 
         item {
@@ -207,6 +235,23 @@ private fun ProjectOverviewContent(
         item {
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+@Composable
+private fun ErrorHintCard(message: String) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFEF4444).copy(alpha = 0.10f)
+        )
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFFB91C1C),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+        )
     }
 }
 
@@ -265,6 +310,101 @@ private fun ProjectContextCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProjectAiSummaryCard(
+    summary: ProjectAiSummary?,
+    isGenerating: Boolean,
+    onGenerateSummary: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        ),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color(0xFF8B5CF6),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "AI 项目总结",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                TextButton(onClick = onGenerateSummary, enabled = !isGenerating) {
+                    Text(
+                        when {
+                            isGenerating -> "生成中..."
+                            summary == null -> "生成总结"
+                            else -> "刷新总结"
+                        }
+                    )
+                }
+            }
+
+            if (summary == null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "基于项目背景、最近条目、重点论文和灵感汇总，生成当前研究主题、待补问题与下一步建议。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                )
+                return@Column
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            SummarySection(title = "当前主题", items = listOf(summary.currentTheme))
+            SummarySection(title = "最近进展", items = summary.recentProgress)
+            SummarySection(title = "关键文献", items = summary.keyLiterature)
+            SummarySection(title = "灵感焦点", items = summary.insightFocus)
+            SummarySection(title = "待补问题", items = summary.pendingQuestions)
+            SummarySection(title = "下一步建议", items = summary.nextActions)
+
+            Spacer(modifier = Modifier.height(8.dp))
+            val formatter = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+            Text(
+                text = "更新于 ${formatter.format(summary.generatedAt)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SummarySection(
+    title: String,
+    items: List<String>
+) {
+    if (items.isEmpty()) return
+
+    Spacer(modifier = Modifier.height(10.dp))
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
+    )
+    Spacer(modifier = Modifier.height(6.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items.take(5).forEach { item ->
+            Text(
+                text = "• $item",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f)
+            )
         }
     }
 }

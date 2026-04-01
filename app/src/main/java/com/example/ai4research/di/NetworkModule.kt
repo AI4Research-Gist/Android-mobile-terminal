@@ -76,9 +76,11 @@ object NetworkModule {
         
         return OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
+            .retryOnConnectionFailure(true)
             .connectTimeout(60, TimeUnit.SECONDS)  // AI调用需要更长超时
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .callTimeout(240, TimeUnit.SECONDS)
             .build()
     }
     

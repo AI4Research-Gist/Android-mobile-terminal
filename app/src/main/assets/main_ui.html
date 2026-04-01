@@ -2260,11 +2260,15 @@
       );
     };
 
-    const SettingsView = () => {
+    const SettingsView = ({ projects = [] }) => {
       const { isDark, toggleTheme } = useContext(ThemeContext);
       const [floatingEnabled, setFloatingEnabled] = useState(false);
       const [hasFloatingPermission, setHasFloatingPermission] = useState(false);
       const [syncDiagnostics, setSyncDiagnostics] = useState(null);
+      const [showProjectCreator, setShowProjectCreator] = useState(false);
+      const [newProjectName, setNewProjectName] = useState("");
+      const [isCreatingProject, setIsCreatingProject] = useState(false);
+      const [projectFeedback, setProjectFeedback] = useState({ type: "", message: "" });
       const [frontendDiagnostics, setFrontendDiagnostics] = useState({
         papersReceived: 0,
         articlesReceived: 0,
@@ -2292,9 +2296,39 @@
         setFrontendDiagnostics({
           papersReceived: Array.isArray(window.__gistPapers) ? window.__gistPapers.length : 0,
           articlesReceived: Array.isArray(window.__gistArticles) ? window.__gistArticles.length : 0,
-          projectsReceived: Array.isArray(window.__gistProjects) ? window.__gistProjects.length : 0
+          projectsReceived: projects.length
         });
-      }, []);
+      }, [projects.length]);
+
+      const handleCreateProject = () => {
+        const projectName = newProjectName.trim();
+        if (!projectName) {
+          setProjectFeedback({ type: "error", message: "项目名称不能为空" });
+          return;
+        }
+
+        if (!window.AndroidInterface || !window.AndroidInterface.createProject) {
+          setProjectFeedback({ type: "error", message: "当前版本不支持创建项目" });
+          return;
+        }
+
+        setIsCreatingProject(true);
+        try {
+          const raw = window.AndroidInterface.createProject(projectName, "");
+          const result = raw ? JSON.parse(raw) : null;
+          if (result?.success) {
+            setProjectFeedback({ type: "success", message: `项目已创建：${result.projectName || projectName}` });
+            setNewProjectName("");
+            setShowProjectCreator(false);
+            return;
+          }
+          setProjectFeedback({ type: "error", message: result?.message || "创建项目失败" });
+        } catch (error) {
+          setProjectFeedback({ type: "error", message: `创建项目失败：${error?.message || "未知错误"}` });
+        } finally {
+          setIsCreatingProject(false);
+        }
+      };
 
       const handleFloatingToggle = () => {
         if (!hasFloatingPermission) {
@@ -2376,6 +2410,70 @@
 
           <GlassCard>
             <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className={`font-medium block ${isDark ? 'text-white' : 'text-slate-900'}`}>项目管理</span>
+                  <span className={`text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                    可手动创建项目，并在论文筛选中立刻使用
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowProjectCreator(prev => !prev);
+                    setProjectFeedback({ type: "", message: "" });
+                  }}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-300 ${isDark ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/35' : 'bg-cyan-50 text-cyan-700 border border-cyan-200'}`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {showProjectCreator ? "取消" : "新建项目"}
+                </button>
+              </div>
+
+              {showProjectCreator && (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={newProjectName}
+                    onChange={e => setNewProjectName(e.target.value)}
+                    placeholder="输入项目名称"
+                    className={`w-full rounded-xl px-3 py-2 text-sm outline-none transition-all duration-300 ${isDark ? 'bg-white/10 text-white border border-white/15 placeholder-white/40' : 'bg-white text-slate-900 border border-slate-200 placeholder-slate-400'}`}
+                  />
+                  <button
+                    onClick={handleCreateProject}
+                    disabled={isCreatingProject}
+                    className={`w-full rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-300 ${isDark ? 'bg-cyan-500/25 text-cyan-100 border border-cyan-400/30 disabled:opacity-60' : 'bg-cyan-600 text-white disabled:opacity-70'}`}
+                  >
+                    {isCreatingProject ? "创建中..." : "确认创建"}
+                  </button>
+                </div>
+              )}
+
+              {projectFeedback.message && (
+                <div className={`text-xs ${projectFeedback.type === "success" ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-rose-300' : 'text-rose-700')}`}>
+                  {projectFeedback.message}
+                </div>
+              )}
+
+              {projects.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {projects.slice(0, 8).map(project => (
+                    <button
+                      key={project.id}
+                      onClick={() => window.AndroidInterface?.openProjectOverview?.(String(project.id))}
+                      className={`text-[11px] px-3 py-1.5 rounded-full transition-all duration-300 ${isDark ? 'bg-white/8 text-white/80 border border-white/15' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}
+                    >
+                      {project.name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className={`text-sm ${isDark ? 'text-white/55' : 'text-slate-500'}`}>当前还没有项目，点击右上角“新建项目”即可添加</div>
+              )}
+            </div>
+          </GlassCard>
+
+          <GlassCard>
+            <div className="space-y-3">
               <div>
                 <span className={`font-medium block ${isDark ? 'text-white' : 'text-slate-900'}`}>同步诊断</span>
                 <span className={`text-xs ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
@@ -2394,6 +2492,9 @@
                   <div>本地灵感数：{syncDiagnostics.localInsightCount}</div>
                   <div>本地语音数：{syncDiagnostics.localVoiceCount}</div>
                   <div>本地项目数：{syncDiagnostics.localProjectCount}</div>
+                  <div>未上云条目数：{syncDiagnostics.localUnsyncedItemCount}</div>
+                  <div>可补传条目数：{syncDiagnostics.localRetryableUnsyncedCount}</div>
+                  <div>本地处理中条目数：{syncDiagnostics.localProcessingUnsyncedCount}</div>
                   <div>最近同步状态：{syncDiagnostics.lastSyncStatus || '未知'}</div>
                   <div>最近同步错误：{syncDiagnostics.lastSyncError || '无'}</div>
                   <div>最近同步时间：{syncDiagnostics.lastSyncAt ? new Date(syncDiagnostics.lastSyncAt).toLocaleString('zh-CN') : '暂无记录'}</div>
@@ -2862,7 +2963,7 @@
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <SettingsView />
+                      <SettingsView projects={projects} />
                     </motion.div>
                   )}
                   {activeTab === 'competitions' && (

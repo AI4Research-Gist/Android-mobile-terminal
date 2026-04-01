@@ -4,10 +4,12 @@
 本文档以当前代码库为唯一依据，完整说明 **Gist**（原名 AI4Research）的产品定位、架构设计、核心流程、数据模型、服务能力与技术细节，便于后续维护、迭代与交接。
 
 当前版本核心说明文档：
+- [`changelog/v0.6.0.md`](D:/Android-mobile-terminal/changelog/v0.6.0.md)
 - [`changelog/v0.5.1.md`](D:/Android-mobile-terminal/changelog/v0.5.1.md)
 - [`changelog/v0.5.0.md`](D:/Android-mobile-terminal/changelog/v0.5.0.md)
 - [`V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md`](D:/Android-mobile-terminal/V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md)
 - [`V0_6_RESEARCH_ASSISTANT_PRD.md`](D:/Android-mobile-terminal/V0_6_RESEARCH_ASSISTANT_PRD.md)
+- [`CURRENT_FEATURES_AND_ROADMAP.md`](D:/Android-mobile-terminal/CURRENT_FEATURES_AND_ROADMAP.md)
 - [`DATABASE_MIGRATION_POLICY.md`](D:/Android-mobile-terminal/DATABASE_MIGRATION_POLICY.md)
 
 `v0.3.0` 灵感页接口与字段补充说明见：
@@ -77,9 +79,14 @@ FloatingWindowService -> AIService -> Repository -> Room/NocoDB
 - **知识连接**：支持 `paper` 去重分组、`article -> paper` 自动关联、`insight` 手动关联已有条目。
 - **项目总览**：支持查看项目概况、最近新增、重点论文、灵感汇总、关系统计。
 - **项目研究背景**：支持为项目上传 Markdown 研究背景文档，并生成摘要与关键词。
+- **AI 项目总结**：项目总览页支持生成项目主题、最近进展、关键文献、待补问题与下一步建议。
+- **灵感反查**：灵感详情页支持反查相关论文 / 资料，返回推荐理由并可一键采纳。
+- **手动创建项目**：设置页支持直接创建项目。
 - **结构化筛选**：论文与资料页面支持细粒度前端筛选。
 - **OCR 摘要修正**：支持 `medium_summary` 与更完整的 OCR 问答上下文构造。
-- **同步诊断**：设置页支持显示当前用户、本地数量、最近同步状态与前端接收情况。
+- **同步诊断**：设置页支持显示当前用户、本地数量、未上云条目、最近同步状态与前端接收情况。
+- **同步补传**：刷新时会自动尝试补传已完成但尚未上云的本地条目。
+- **图片 OCR 稳定性增强**：视觉上传支持更长超时与缩图重试。
 - **数据库迁移保护**：数据库升级改为正式 migration，不再依赖 destructive migration。
 - **启动优化**：WebView 预热与页面缓存，Splash 动画等待初始化完成。
 

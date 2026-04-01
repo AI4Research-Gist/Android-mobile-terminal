@@ -5,6 +5,9 @@ import android.util.Base64
 import android.util.Log
 import com.example.ai4research.BuildConfig
 import com.example.ai4research.domain.model.ArticlePaperCandidate
+import com.example.ai4research.domain.model.ItemType
+import com.example.ai4research.domain.model.ProjectOverview
+import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.model.StructuredReadingCard
 import com.example.ai4research.data.remote.api.SiliconFlowApiService
 import com.example.ai4research.data.remote.dto.SimpleChatRequest
@@ -25,6 +28,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.SocketException
+import java.net.SocketTimeoutException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -353,37 +359,73 @@ Rules:
                 return@withContext Result.failure(IllegalArgumentException("图片数据无效"))
             }
 
-            val base64Image = bitmapToBase64(bitmap)
-            val imageUrl = "data:image/jpeg;base64,$base64Image"
-            
-            val request = VLChatRequest(
-                model = SiliconFlowApiService.MODEL_VISION,
-                messages = listOf(
-                    VLMessage(
-                        role = "user",
-                        content = listOf(
-                            VLContent(type = "text", text = SYSTEM_PROMPT_OCR_V2),
-                            VLContent(
-                                type = "image_url",
-                                imageUrl = VLImageUrl(url = imageUrl)
-                            )
-                        )
-                    )
-                ),
-                maxTokens = 1024
+            val uploadProfiles = listOf(
+                OcrUploadProfile(maxEdge = OCR_MAX_IMAGE_EDGE, jpegQuality = 85),
+                OcrUploadProfile(maxEdge = 1280, jpegQuality = 72),
+                OcrUploadProfile(maxEdge = 1024, jpegQuality = 60)
             )
-            
-            val response = siliconFlowApi.visionChatCompletion(AUTH_HEADER, request)
-            val content = response.choices.firstOrNull()?.message?.content
-            
-            if (content != null) {
-                Result.success(content)
-            } else {
-                Result.failure(Exception("图片识别失败"))
+
+            var lastError: Exception? = null
+            uploadProfiles.forEachIndexed { index, profile ->
+                try {
+                    val base64Image = bitmapToBase64(
+                        bitmap = bitmap,
+                        maxEdge = profile.maxEdge,
+                        jpegQuality = profile.jpegQuality
+                    )
+                    val imageUrl = "data:image/jpeg;base64,$base64Image"
+
+                    val request = VLChatRequest(
+                        model = SiliconFlowApiService.MODEL_VISION,
+                        messages = listOf(
+                            VLMessage(
+                                role = "user",
+                                content = listOf(
+                                    VLContent(type = "text", text = SYSTEM_PROMPT_OCR_V2),
+                                    VLContent(
+                                        type = "image_url",
+                                        imageUrl = VLImageUrl(url = imageUrl)
+                                    )
+                                )
+                            )
+                        ),
+                        maxTokens = 1024
+                    )
+
+                    val response = siliconFlowApi.visionChatCompletion(AUTH_HEADER, request)
+                    val content = response.choices.firstOrNull()?.message?.content
+
+                    if (content != null) {
+                        return@withContext Result.success(content)
+                    }
+                    lastError = Exception("图片识别失败")
+                } catch (e: Exception) {
+                    lastError = e
+                    val shouldRetry = isRetriableVisionError(e) && index != uploadProfiles.lastIndex
+                    Log.w(
+                        TAG,
+                        "recognizeImage attempt ${index + 1} failed, maxEdge=${profile.maxEdge}, quality=${profile.jpegQuality}, retry=$shouldRetry",
+                        e
+                    )
+                    if (!shouldRetry) {
+                        throw e
+                    }
+                }
             }
+
+            Result.failure(lastError ?: Exception("图片识别失败"))
         } catch (oom: OutOfMemoryError) {
             Log.e(TAG, "OCR bitmap processing ran out of memory", oom)
             Result.failure(Exception("图片过大，OCR 处理内存不足", oom))
+        } catch (e: SocketTimeoutException) {
+            Log.e(TAG, "recognizeImage timed out", e)
+            Result.failure(Exception("图片上传超时，请重试或换一张更清晰但尺寸更小的图片", e))
+        } catch (e: SocketException) {
+            Log.e(TAG, "recognizeImage socket failed", e)
+            Result.failure(Exception("图片上传时连接中断，请稍后重试", e))
+        } catch (e: IOException) {
+            Log.e(TAG, "recognizeImage io failed", e)
+            Result.failure(Exception("网络波动导致图片解析失败，请稍后重试", e))
         } catch (e: Exception) {
             Log.e(TAG, "recognizeImage failed", e)
             Result.failure(e)
@@ -407,11 +449,15 @@ Rules:
     /**
      * Bitmap 转 Base64
      */
-    private fun bitmapToBase64(bitmap: Bitmap): String {
+    private fun bitmapToBase64(
+        bitmap: Bitmap,
+        maxEdge: Int = OCR_MAX_IMAGE_EDGE,
+        jpegQuality: Int = 85
+    ): String {
         val outputStream = ByteArrayOutputStream()
         // 压缩图片以减少传输大小
-        val scaledBitmap = if (bitmap.width > OCR_MAX_IMAGE_EDGE || bitmap.height > OCR_MAX_IMAGE_EDGE) {
-            val scale = minOf(OCR_MAX_IMAGE_EDGE.toFloat() / bitmap.width, OCR_MAX_IMAGE_EDGE.toFloat() / bitmap.height)
+        val scaledBitmap = if (bitmap.width > maxEdge || bitmap.height > maxEdge) {
+            val scale = minOf(maxEdge.toFloat() / bitmap.width, maxEdge.toFloat() / bitmap.height)
             Bitmap.createScaledBitmap(
                 bitmap,
                 (bitmap.width * scale).toInt(),
@@ -421,9 +467,17 @@ Rules:
         } else {
             bitmap
         }
-        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, outputStream)
         val byteArray = outputStream.toByteArray()
         return Base64.encodeToString(byteArray, Base64.NO_WRAP)
+    }
+
+    private fun isRetriableVisionError(error: Throwable): Boolean {
+        return error is SocketTimeoutException ||
+            error is SocketException ||
+            error is IOException ||
+            error.message?.contains("connection abort", ignoreCase = true) == true ||
+            error.message?.contains("timeout", ignoreCase = true) == true
     }
 
     /**
@@ -960,6 +1014,176 @@ Rules:
         }
     }
 
+    suspend fun summarizeProjectOverview(
+        overview: ProjectOverview
+    ): Result<ProjectOverviewSummaryResult> = withContext(Dispatchers.IO) {
+        try {
+            val prompt = buildProjectOverviewPrompt(overview)
+
+            val systemPrompt = """
+You are a project-level research assistant for a personal research app.
+
+Return strict JSON only:
+{
+  "current_theme": "string",
+  "recent_progress": ["string"],
+  "key_literature": ["string"],
+  "insight_focus": ["string"],
+  "pending_questions": ["string"],
+  "next_actions": ["string"]
+}
+
+Rules:
+- respond in concise, concrete Chinese
+- each list item should be actionable and non-generic
+- do not invent papers or experiments not in input
+- if evidence is weak, explicitly frame as hypothesis or suggestion
+- lists should have 2-5 items when possible
+- no markdown and no extra explanation outside JSON
+""".trimIndent()
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = prompt)
+                ),
+                maxTokens = 1200,
+                temperature = 0.2,
+                enableThinking = false
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return@withContext Result.failure(Exception("Project summary returned empty content"))
+            val cleanJson = extractJsonFromResponse(content)
+            val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+
+            val currentTheme = readFlexibleStringByKeys(
+                jsonObj,
+                "current_theme",
+                "project_theme",
+                "theme"
+            ) ?: "${overview.project.name}：研究主题待进一步聚焦"
+
+            Result.success(
+                ProjectOverviewSummaryResult(
+                    currentTheme = currentTheme,
+                    recentProgress = readFlexibleStringListByKeys(
+                        jsonObj,
+                        "recent_progress",
+                        "progress",
+                        "latest_progress"
+                    ).take(5),
+                    keyLiterature = readFlexibleStringListByKeys(
+                        jsonObj,
+                        "key_literature",
+                        "important_literature",
+                        "literature"
+                    ).take(5),
+                    insightFocus = readFlexibleStringListByKeys(
+                        jsonObj,
+                        "insight_focus",
+                        "insight_points",
+                        "insights"
+                    ).take(5),
+                    pendingQuestions = readFlexibleStringListByKeys(
+                        jsonObj,
+                        "pending_questions",
+                        "open_questions",
+                        "gaps"
+                    ).take(5),
+                    nextActions = readFlexibleStringListByKeys(
+                        jsonObj,
+                        "next_actions",
+                        "actions",
+                        "next_steps"
+                    ).take(5)
+                ).withFallbacks(overview)
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun recommendItemsForInsight(
+        insight: ResearchItem,
+        candidates: List<ResearchItem>,
+        projectContextSummary: String? = null,
+        projectContextKeywords: List<String> = emptyList()
+    ): Result<InsightRecommendationResult> = withContext(Dispatchers.IO) {
+        try {
+            if (candidates.isEmpty()) {
+                return@withContext Result.success(InsightRecommendationResult(emptyList()))
+            }
+
+            val prompt = buildInsightRecommendationPrompt(
+                insight = insight,
+                candidates = candidates,
+                projectContextSummary = projectContextSummary,
+                projectContextKeywords = projectContextKeywords
+            )
+
+            val systemPrompt = """
+You are a research assistant that helps connect a new insight note to the most relevant local papers and articles.
+
+Return strict JSON only:
+{
+  "recommendations": [
+    {
+      "candidate_index": 0,
+      "reason": "string",
+      "suggested_question": "string|null"
+    }
+  ]
+}
+
+Rules:
+- choose only from the provided candidate list
+- prefer 2-5 recommendations when evidence exists
+- reasons must be specific, concise, and grounded in the provided text
+- if the match is weak, say it is a tentative lead
+- do not invent facts, papers, experiments, or metadata
+- do not output markdown or any extra explanation
+""".trimIndent()
+
+            val request = SimpleChatRequest(
+                model = SiliconFlowApiService.MODEL_TEXT,
+                messages = listOf(
+                    SimpleMessage(role = "system", content = systemPrompt),
+                    SimpleMessage(role = "user", content = prompt)
+                ),
+                maxTokens = 1200,
+                temperature = 0.2,
+                enableThinking = false
+            )
+
+            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+            val content = response.choices.firstOrNull()?.message?.content
+                ?: return@withContext Result.failure(Exception("Insight recommendation returned empty content"))
+            val cleanJson = extractJsonFromResponse(content)
+            val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
+            val recommendationArray = jsonObj["recommendations"] as? JsonArray ?: JsonArray(emptyList())
+
+            val recommendations = recommendationArray.mapNotNull { element ->
+                val obj = element as? JsonObject ?: return@mapNotNull null
+                val index = readFlexibleStringByKeys(obj, "candidate_index", "index")
+                    ?.toIntOrNull()
+                    ?: obj["candidate_index"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                    ?: return@mapNotNull null
+                InsightRecommendation(
+                    candidateIndex = index,
+                    reason = readFlexibleString(obj, "reason") ?: return@mapNotNull null,
+                    suggestedQuestion = readFlexibleStringByKeys(obj, "suggested_question", "question")
+                )
+            }.distinctBy { it.candidateIndex }
+
+            Result.success(InsightRecommendationResult(recommendations))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun parseLinkStructured(link: String): Result<LinkParseResult> = withContext(Dispatchers.IO) {
         parseLink(link).mapCatching { jsonStr ->
             val cleanJson = extractJsonFromResponse(jsonStr)
@@ -1256,6 +1480,133 @@ Rules:
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private fun readFlexibleStringByKeys(jsonObj: JsonObject?, vararg keys: String): String? {
+        return keys.firstNotNullOfOrNull { key ->
+            readFlexibleString(jsonObj, key)
+        }
+    }
+
+    private fun readFlexibleStringListByKeys(jsonObj: JsonObject?, vararg keys: String): List<String> {
+        val merged = keys.flatMap { key -> readFlexibleStringList(jsonObj, key) }
+        return merged
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
+    private fun buildProjectOverviewPrompt(overview: ProjectOverview): String {
+        val contextSummary = overview.contextDocument?.summary?.takeIf { it.isNotBlank() } ?: "暂无研究背景文档"
+        val contextKeywords = overview.contextDocument?.keywords.orEmpty().joinToString(", ").ifBlank { "无" }
+        val description = overview.project.description?.takeIf { it.isNotBlank() } ?: "无"
+        val stats = overview.stats
+
+        fun buildItemLines(items: List<ResearchItem>, limit: Int): String {
+            return items.take(limit).joinToString("\n") { item ->
+                val summary = item.summary.takeIf { it.isNotBlank() }?.let { truncateForPrompt(it, 120) } ?: "无摘要"
+                "- [${typeLabel(item.type)}] ${item.title.take(120)} | $summary"
+            }.ifBlank { "- 无" }
+        }
+
+        return buildString {
+            appendLine("请基于以下项目信息，生成项目级研究总结。")
+            appendLine("项目名称: ${overview.project.name}")
+            appendLine("项目描述: $description")
+            appendLine()
+            appendLine("研究背景摘要:")
+            appendLine(truncateForPrompt(contextSummary, 700))
+            appendLine("研究背景关键词: $contextKeywords")
+            appendLine()
+            appendLine("项目统计:")
+            appendLine("- 总条目: ${stats.totalItems}")
+            appendLine("- 论文: ${stats.paperCount}")
+            appendLine("- 资料: ${stats.articleCount}")
+            appendLine("- 灵感: ${stats.insightCount}")
+            appendLine("- 重复关系: ${stats.duplicateRelationCount}")
+            appendLine("- 资料关联论文: ${stats.articlePaperRelationCount}")
+            appendLine()
+            appendLine("最近新增条目:")
+            appendLine(buildItemLines(overview.recentItems, 10))
+            appendLine()
+            appendLine("重点论文:")
+            appendLine(buildItemLines(overview.keyPapers, 6))
+            appendLine()
+            appendLine("最近灵感:")
+            appendLine(buildItemLines(overview.recentInsights, 8))
+        }
+    }
+
+    private fun typeLabel(type: ItemType): String = when (type) {
+        ItemType.PAPER -> "论文"
+        ItemType.ARTICLE -> "资料"
+        ItemType.COMPETITION -> "比赛"
+        ItemType.INSIGHT -> "灵感"
+        ItemType.VOICE -> "语音"
+    }
+
+    private fun buildInsightRecommendationPrompt(
+        insight: ResearchItem,
+        candidates: List<ResearchItem>,
+        projectContextSummary: String?,
+        projectContextKeywords: List<String>
+    ): String {
+        val insightBody = insight.contentMarkdown.takeIf { it.isNotBlank() } ?: insight.summary
+        val contextSummary = projectContextSummary?.takeIf { it.isNotBlank() } ?: "暂无项目研究背景"
+        val contextKeywordsText = projectContextKeywords.joinToString(", ").ifBlank { "无" }
+        val candidateText = candidates.mapIndexed { index, candidate ->
+            val summary = candidate.summary.takeIf { it.isNotBlank() }?.let { truncateForPrompt(it, 140) } ?: "无摘要"
+            val projectName = candidate.projectName?.takeIf { it.isNotBlank() } ?: "未归属"
+            "$index. [${typeLabel(candidate.type)}] ${candidate.title.take(120)} | 项目=$projectName | 摘要=$summary"
+        }.joinToString("\n")
+
+        return buildString {
+            appendLine("请为下面这条灵感，从候选资料中挑出最值得反查的条目。")
+            appendLine("灵感标题: ${insight.title}")
+            appendLine("灵感项目: ${insight.projectName ?: "未归属"}")
+            appendLine("灵感内容:")
+            appendLine(truncateForPrompt(insightBody, 900))
+            appendLine()
+            appendLine("项目研究背景摘要:")
+            appendLine(truncateForPrompt(contextSummary, 500))
+            appendLine("项目研究背景关键词: $contextKeywordsText")
+            appendLine()
+            appendLine("候选条目列表:")
+            appendLine(candidateText)
+        }
+    }
+
+    private fun truncateForPrompt(value: String, maxLength: Int): String {
+        val normalized = value
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return if (normalized.length <= maxLength) normalized else "${normalized.take(maxLength)}..."
+    }
+
+    private fun ProjectOverviewSummaryResult.withFallbacks(
+        overview: ProjectOverview
+    ): ProjectOverviewSummaryResult {
+        val fallbackLiterature = overview.keyPapers.take(3).map { it.title }.ifEmpty {
+            overview.recentItems.filter { it.type == ItemType.PAPER || it.type == ItemType.ARTICLE }
+                .take(3)
+                .map { it.title }
+        }
+        val fallbackInsights = overview.recentInsights.take(3).map { it.title }
+        val fallbackProgress = overview.recentItems.take(3).map { "${typeLabel(it.type)}：${it.title}" }
+
+        return copy(
+            recentProgress = recentProgress.ifEmpty { fallbackProgress },
+            keyLiterature = keyLiterature.ifEmpty { fallbackLiterature },
+            insightFocus = insightFocus.ifEmpty {
+                if (fallbackInsights.isNotEmpty()) fallbackInsights else listOf("当前灵感样本较少，建议补充本周研究想法记录")
+            },
+            pendingQuestions = pendingQuestions.ifEmpty {
+                listOf("当前证据链仍需补充，建议围绕核心问题建立可验证假设")
+            },
+            nextActions = nextActions.ifEmpty {
+                listOf("优先阅读重点论文并补齐结构化阅读卡", "基于现有灵感建立 1-2 条可验证实验路线")
+            }
+        )
     }
 
     private fun buildDedupKey(identifier: String?, title: String, year: String?): String? {
@@ -2255,10 +2606,34 @@ data class StructuredReadingCardResult(
     val rawJson: String? = null
 )
 
+private data class OcrUploadProfile(
+    val maxEdge: Int,
+    val jpegQuality: Int
+)
+
 data class ProjectContextSummaryResult(
     val title: String?,
     val summary: String,
     val keywords: List<String>
+)
+
+data class ProjectOverviewSummaryResult(
+    val currentTheme: String,
+    val recentProgress: List<String>,
+    val keyLiterature: List<String>,
+    val insightFocus: List<String>,
+    val pendingQuestions: List<String>,
+    val nextActions: List<String>
+)
+
+data class InsightRecommendationResult(
+    val recommendations: List<InsightRecommendation>
+)
+
+data class InsightRecommendation(
+    val candidateIndex: Int,
+    val reason: String,
+    val suggestedQuestion: String? = null
 )
 
 data class CompetitionTimelineNode(

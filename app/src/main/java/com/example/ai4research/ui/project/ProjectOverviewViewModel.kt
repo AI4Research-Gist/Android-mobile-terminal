@@ -2,6 +2,7 @@ package com.example.ai4research.ui.project
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai4research.domain.model.ProjectAiSummary
 import com.example.ai4research.domain.model.ProjectOverview
 import com.example.ai4research.domain.repository.ProjectRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,6 +16,8 @@ data class ProjectOverviewUiState(
     val isLoading: Boolean = true,
     val overview: ProjectOverview? = null,
     val isSavingContext: Boolean = false,
+    val isGeneratingSummary: Boolean = false,
+    val generatedSummary: ProjectAiSummary? = null,
     val errorMessage: String? = null
 )
 
@@ -25,20 +28,30 @@ class ProjectOverviewViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ProjectOverviewUiState())
     val uiState: StateFlow<ProjectOverviewUiState> = _uiState.asStateFlow()
+    private var currentProjectId: String? = null
 
     fun load(projectId: String) {
         viewModelScope.launch {
-            _uiState.value = ProjectOverviewUiState(isLoading = true)
+            val previousState = _uiState.value
+            val keepSummary = currentProjectId == projectId
+            _uiState.value = previousState.copy(
+                isLoading = true,
+                errorMessage = null,
+                generatedSummary = if (keepSummary) previousState.generatedSummary else null
+            )
             val overview = projectRepository.getProjectOverview(projectId)
+            currentProjectId = projectId
             _uiState.value = if (overview != null) {
                 ProjectOverviewUiState(
                     isLoading = false,
-                    overview = overview
+                    overview = overview,
+                    generatedSummary = if (keepSummary) previousState.generatedSummary else null
                 )
             } else {
                 ProjectOverviewUiState(
                     isLoading = false,
                     overview = null,
+                    generatedSummary = null,
                     errorMessage = "暂时无法加载项目总览"
                 )
             }
@@ -47,7 +60,11 @@ class ProjectOverviewViewModel @Inject constructor(
 
     fun saveProjectContext(projectId: String, fileName: String, markdownContent: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSavingContext = true, errorMessage = null)
+            _uiState.value = _uiState.value.copy(
+                isSavingContext = true,
+                generatedSummary = null,
+                errorMessage = null
+            )
             val result = projectRepository.saveProjectContextDocument(
                 projectId = projectId,
                 fileName = fileName,
@@ -60,6 +77,24 @@ class ProjectOverviewViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isSavingContext = false,
                     errorMessage = "保存研究背景失败: ${result.exceptionOrNull()?.message}"
+                )
+            }
+        }
+    }
+
+    fun generateProjectSummary(projectId: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isGeneratingSummary = true, errorMessage = null)
+            val result = projectRepository.generateProjectSummary(projectId)
+            result.onSuccess { summary ->
+                _uiState.value = _uiState.value.copy(
+                    isGeneratingSummary = false,
+                    generatedSummary = summary
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    isGeneratingSummary = false,
+                    errorMessage = "生成项目总结失败: ${error.message}"
                 )
             }
         }

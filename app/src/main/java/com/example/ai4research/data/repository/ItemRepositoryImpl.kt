@@ -76,6 +76,17 @@ class ItemRepositoryImpl @Inject constructor(
         return "(ownerId,eq,$ownerUserId)"
     }
 
+    private fun isLocalOnlyItem(item: com.example.ai4research.data.local.entity.ItemEntity): Boolean {
+        return item.id.toIntOrNull() == null
+    }
+
+    private fun canRetryRemoteSync(item: com.example.ai4research.data.local.entity.ItemEntity): Boolean {
+        val normalizedStatus = item.status.trim().lowercase()
+        return isLocalOnlyItem(item) && (
+            normalizedStatus.startsWith("done") || normalizedStatus.startsWith("failed")
+        )
+    }
+
     private fun Throwable.readableMessage(): String {
         return when (this) {
             is HttpException -> {
@@ -212,8 +223,22 @@ class ItemRepositoryImpl @Inject constructor(
         val ownerUserId = requireCurrentUserId().getOrElse { return Result.failure(it) }
 
         return try {
-            val localPendingItems = itemDao.getItemsByOwner(ownerUserId)
-                .filter { it.id.toIntOrNull() == null }
+            val localItemsBeforeRefresh = itemDao.getItemsByOwner(ownerUserId)
+            val retryablePendingIds = localItemsBeforeRefresh
+                .filter(::canRetryRemoteSync)
+                .map { it.id }
+
+            retryablePendingIds.forEach { pendingId ->
+                syncLocalItemToRemote(pendingId).onFailure { error ->
+                    android.util.Log.w(
+                        "ItemRepository",
+                        "Retry sync for local pending item failed: id=$pendingId, error=${error.readableMessage()}"
+                    )
+                }
+            }
+
+            val remainingLocalPendingItems = itemDao.getItemsByOwner(ownerUserId)
+                .filter(::isLocalOnlyItem)
 
             val projectWhere = buildOwnerWhereClause(ownerUserId)
             val projects = api.getProjects(where = projectWhere).list
@@ -242,10 +267,10 @@ class ItemRepositoryImpl @Inject constructor(
             }
             itemDao.deleteAllItemsByOwner(ownerUserId)
             itemDao.insertItems(itemEntities)
-            if (localPendingItems.isNotEmpty()) {
-                itemDao.insertItems(localPendingItems)
+            if (remainingLocalPendingItems.isNotEmpty()) {
+                itemDao.insertItems(remainingLocalPendingItems)
             }
-            (itemEntities + localPendingItems)
+            (itemEntities + remainingLocalPendingItems)
                 .filter { entity ->
                     val itemType = ItemType.fromString(entity.type)
                     itemType == ItemType.PAPER || itemType == ItemType.ARTICLE

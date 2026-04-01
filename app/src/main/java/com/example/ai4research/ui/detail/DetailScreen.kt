@@ -594,9 +594,13 @@ fun DetailScreen(
             if (!isEditing && type == ItemType.INSIGHT) {
                 InsightLinksCard(
                     connections = uiState.connections,
+                    recommendations = uiState.insightRecommendations,
+                    isLookingUp = uiState.isLookingUpInsightLinks,
                     isDark = isDarkTheme,
                     onOpenItem = onNavigateToDetail,
-                    onManageLinks = { viewModel.openInsightLinkEditor() }
+                    onManageLinks = { viewModel.openInsightLinkEditor() },
+                    onLookup = { viewModel.lookupInsightReferences() },
+                    onAcceptRecommendations = { viewModel.acceptInsightRecommendations() }
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -1134,9 +1138,13 @@ private fun buildReadingCardMetaJson(
 @Composable
 private fun InsightLinksCard(
     connections: List<com.example.ai4research.domain.model.ItemConnection>,
+    recommendations: List<InsightLookupRecommendation>,
+    isLookingUp: Boolean,
     isDark: Boolean,
     onOpenItem: (String) -> Unit,
-    onManageLinks: () -> Unit
+    onManageLinks: () -> Unit,
+    onLookup: () -> Unit,
+    onAcceptRecommendations: () -> Unit
 ) {
     val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF14B8A6)
@@ -1166,6 +1174,27 @@ private fun InsightLinksCard(
             )
         }
 
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = if (isLookingUp) "反查中..." else "反查相关资料",
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = accentColor,
+                modifier = Modifier.clickable(enabled = !isLookingUp, onClick = onLookup)
+            )
+            if (recommendations.isNotEmpty()) {
+                Text(
+                    text = "采纳推荐",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFF8B5CF6),
+                    modifier = Modifier.clickable(onClick = onAcceptRecommendations)
+                )
+            }
+        }
+
         if (connections.isEmpty()) {
             Spacer(modifier = Modifier.height(10.dp))
             Text(
@@ -1187,6 +1216,63 @@ private fun InsightLinksCard(
                     Spacer(modifier = Modifier.height(10.dp))
                 }
             }
+        }
+
+        if (recommendations.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = "AI 反查推荐",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color(0xFF8B5CF6)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            recommendations.forEachIndexed { index, recommendation ->
+                InsightRecommendationRow(
+                    recommendation = recommendation,
+                    isDark = isDark,
+                    onOpenItem = onOpenItem
+                )
+                if (index != recommendations.lastIndex) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightRecommendationRow(
+    recommendation: InsightLookupRecommendation,
+    isDark: Boolean,
+    onOpenItem: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenItem(recommendation.item.id) }
+    ) {
+        Text(
+            text = recommendation.item.title,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+            color = if (isDark) Color.White else Color.Black
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = recommendation.reason,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isDark) Color.White.copy(alpha = 0.72f) else Color.Black.copy(alpha = 0.68f)
+        )
+        recommendation.suggestedQuestion?.takeIf { it.isNotBlank() }?.let { question ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "可追问：$question",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isDark) Color(0xFFC4B5FD) else Color(0xFF7C3AED)
+            )
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.example.ai4research.domain.repository
 
 import com.example.ai4research.domain.model.Project
+import com.example.ai4research.domain.model.ProjectAiSummary
 import com.example.ai4research.domain.model.ProjectContextDocument
 import com.example.ai4research.domain.model.ProjectOverview
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +33,8 @@ interface ProjectRepository {
     ): Result<ProjectContextDocument>
 
     suspend fun getProjectOverview(projectId: String): ProjectOverview?
+
+    suspend fun generateProjectSummary(projectId: String): Result<ProjectAiSummary>
     
     /**
      * 删除项目

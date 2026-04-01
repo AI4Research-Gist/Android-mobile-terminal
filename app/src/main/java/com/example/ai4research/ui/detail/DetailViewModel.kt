@@ -36,6 +36,8 @@ data class DetailUiState(
     val generatedReadingCard: StructuredReadingCard? = null,
     val isInsightLinkEditorVisible: Boolean = false,
     val isSavingInsightLinks: Boolean = false,
+    val isLookingUpInsightLinks: Boolean = false,
+    val insightRecommendations: List<InsightLookupRecommendation> = emptyList(),
     val isAiSheetVisible: Boolean = false,
     val chatMessages: List<AiChatMessage> = emptyList(),
     val isAiResponding: Boolean = false,
@@ -51,6 +53,12 @@ enum class AiChatRole {
     USER,
     ASSISTANT
 }
+
+data class InsightLookupRecommendation(
+    val item: ResearchItem,
+    val reason: String,
+    val suggestedQuestion: String? = null
+)
 
 @HiltViewModel
 class DetailViewModel @Inject constructor(
@@ -78,6 +86,8 @@ class DetailViewModel @Inject constructor(
                 isLoading = true,
                 errorMessage = null,
                 generatedReadingCard = null,
+                insightRecommendations = emptyList(),
+                isLookingUpInsightLinks = false,
                 chatMessages = emptyList(),
                 isAiResponding = false
             )
@@ -332,6 +342,82 @@ class DetailViewModel @Inject constructor(
         }
     }
 
+    fun lookupInsightReferences() {
+        val item = _uiState.value.item ?: return
+        if (item.type != ItemType.INSIGHT) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isLookingUpInsightLinks = true,
+                insightRecommendations = emptyList(),
+                errorMessage = null
+            )
+
+            val rankedCandidates = itemRepository.observeItems().first()
+                .filter { candidate ->
+                    candidate.id != item.id &&
+                        (candidate.type == ItemType.PAPER || candidate.type == ItemType.ARTICLE)
+                }
+                .sortedWith(
+                    compareByDescending<ResearchItem> { candidate ->
+                        calculateInsightLinkScore(item, candidate)
+                    }.thenByDescending { candidate ->
+                        candidate.createdAt.time
+                    }
+                )
+
+            if (rankedCandidates.isEmpty()) {
+                _uiState.value = _uiState.value.copy(
+                    isLookingUpInsightLinks = false,
+                    errorMessage = "当前没有可供反查的论文或资料"
+                )
+                return@launch
+            }
+
+            val candidateWindow = rankedCandidates.take(12)
+            val contextDocument = item.projectId?.let { projectRepository.getProjectContextDocument(it) }
+            val aiResult = aiService.recommendItemsForInsight(
+                insight = item,
+                candidates = candidateWindow,
+                projectContextSummary = contextDocument?.summary,
+                projectContextKeywords = contextDocument?.keywords.orEmpty()
+            )
+
+            val recommendations = aiResult.getOrNull()
+                ?.recommendations
+                ?.mapNotNull { recommendation ->
+                    candidateWindow.getOrNull(recommendation.candidateIndex)?.let { candidate ->
+                        InsightLookupRecommendation(
+                            item = candidate,
+                            reason = recommendation.reason,
+                            suggestedQuestion = recommendation.suggestedQuestion
+                        )
+                    }
+                }
+                ?.distinctBy { it.item.id }
+                ?.take(5)
+                ?.takeIf { it.isNotEmpty() }
+                ?: buildFallbackInsightRecommendations(item, candidateWindow)
+
+            _uiState.value = _uiState.value.copy(
+                isLookingUpInsightLinks = false,
+                insightRecommendations = recommendations,
+                errorMessage = if (recommendations.isEmpty()) "暂时没有找到合适的反查结果" else null
+            )
+        }
+    }
+
+    fun acceptInsightRecommendations() {
+        val item = _uiState.value.item ?: return
+        if (item.type != ItemType.INSIGHT) return
+
+        val recommendedIds = _uiState.value.insightRecommendations.map { it.item.id }
+        if (recommendedIds.isEmpty()) return
+
+        val mergedTargetIds = (_uiState.value.connections.map { it.item.id } + recommendedIds).distinct()
+        saveInsightLinks(mergedTargetIds)
+    }
+
     fun askAboutCurrentItem(question: String) {
         val item = _uiState.value.item ?: return
         val trimmedQuestion = question.trim()
@@ -455,6 +541,31 @@ class DetailViewModel @Inject constructor(
         score += overlapCount.coerceAtMost(6)
 
         return score
+    }
+
+    private fun buildFallbackInsightRecommendations(
+        insight: ResearchItem,
+        candidates: List<ResearchItem>
+    ): List<InsightLookupRecommendation> {
+        return candidates
+            .take(3)
+            .map { candidate ->
+                val reason = when {
+                    !insight.projectId.isNullOrBlank() && insight.projectId == candidate.projectId ->
+                        "和这条灵感属于同一项目，适合优先确认是否能直接支撑当前思路"
+
+                    candidate.type == ItemType.PAPER ->
+                        "关键词与摘要存在重合，适合先从论文视角验证这条灵感"
+
+                    else ->
+                        "内容主题与这条灵感较接近，适合补充背景和已有观点"
+                }
+                InsightLookupRecommendation(
+                    item = candidate,
+                    reason = reason,
+                    suggestedQuestion = "这条资料里有没有能直接支持当前灵感的证据、方法或反例？"
+                )
+            }
     }
 
     private fun buildSearchTokens(item: ResearchItem): Set<String> {

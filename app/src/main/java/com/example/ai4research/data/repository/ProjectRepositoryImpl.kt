@@ -13,6 +13,7 @@ import com.example.ai4research.data.remote.api.NocoApiService
 import com.example.ai4research.data.remote.dto.NocoProjectDto
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
+import com.example.ai4research.domain.model.ProjectAiSummary
 import com.example.ai4research.domain.model.ProjectContextDocument
 import com.example.ai4research.domain.model.ProjectOverview
 import com.example.ai4research.domain.model.ProjectOverviewStats
@@ -184,6 +185,23 @@ class ProjectRepositoryImpl @Inject constructor(
                 articlePaperRelationCount = relations.count { it.relationType == RelationType.ARTICLE_MENTIONS_PAPER || it.relationType == RelationType.ARTICLE_RELATED_PAPER }
             )
         )
+    }
+
+    override suspend fun generateProjectSummary(projectId: String): Result<ProjectAiSummary> {
+        val overview = getProjectOverview(projectId)
+            ?: return Result.failure(IllegalArgumentException("Project not found"))
+
+        return aiService.summarizeProjectOverview(overview).map { summary ->
+            ProjectAiSummary(
+                currentTheme = summary.currentTheme,
+                recentProgress = summary.recentProgress,
+                keyLiterature = summary.keyLiterature,
+                insightFocus = summary.insightFocus,
+                pendingQuestions = summary.pendingQuestions,
+                nextActions = summary.nextActions,
+                generatedAt = java.util.Date()
+            )
+        }
     }
 
     override suspend fun deleteProject(projectId: String): Result<Unit> {

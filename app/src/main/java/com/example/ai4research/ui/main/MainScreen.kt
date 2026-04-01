@@ -48,6 +48,7 @@ import com.example.ai4research.service.FloatingWindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import androidx.compose.ui.unit.dp
 
 /**
@@ -563,6 +564,45 @@ class MainAppInterface(
     fun requestData() {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
              viewModel.fetchData()
+        }
+    }
+
+    @JavascriptInterface
+    fun createProject(name: String, description: String): String {
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) {
+            return gson.toJson(
+                mapOf(
+                    "success" to false,
+                    "message" to "项目名称不能为空"
+                )
+            )
+        }
+
+        return runBlocking {
+            val result = viewModel.createProject(
+                name = cleanName,
+                description = description
+            )
+            result.fold(
+                onSuccess = { project ->
+                    gson.toJson(
+                        mapOf(
+                            "success" to true,
+                            "projectId" to project.id,
+                            "projectName" to project.name
+                        )
+                    )
+                },
+                onFailure = { error ->
+                    gson.toJson(
+                        mapOf(
+                            "success" to false,
+                            "message" to (error.message ?: "创建项目失败")
+                        )
+                    )
+                }
+            )
         }
     }
     

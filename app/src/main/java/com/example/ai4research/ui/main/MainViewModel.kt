@@ -20,6 +20,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -40,6 +41,9 @@ data class SyncDiagnostics(
     val localInsightCount: Int = 0,
     val localVoiceCount: Int = 0,
     val localProjectCount: Int = 0,
+    val localUnsyncedItemCount: Int = 0,
+    val localRetryableUnsyncedCount: Int = 0,
+    val localProcessingUnsyncedCount: Int = 0,
     val lastSyncStatus: String = "idle",
     val lastSyncError: String? = null,
     val lastSyncAt: Long? = null
@@ -262,6 +266,19 @@ class MainViewModel @Inject constructor(
                 refreshDiagnostics()
             }
         }
+    }
+
+    suspend fun createProject(name: String, description: String? = null): Result<Project> {
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) {
+            return Result.failure(IllegalArgumentException("项目名称不能为空"))
+        }
+        val cleanDescription = description?.trim()?.takeIf { it.isNotBlank() }
+        val result = projectRepository.createProject(cleanName, cleanDescription)
+        if (result.isSuccess) {
+            refreshDiagnostics()
+        }
+        return result
     }
 
     suspend fun saveInsight(
@@ -653,6 +670,14 @@ class MainViewModel @Inject constructor(
     private fun refreshDiagnostics() {
         viewModelScope.launch {
             val currentUser = authRepository.getCurrentUser()
+            val allItems = runCatching { itemRepository.observeItems().first() }.getOrDefault(emptyList())
+            val unsyncedItems = allItems.filter { it.id.toIntOrNull() == null }
+            val retryableUnsynced = unsyncedItems.count { item ->
+                item.status == ItemStatus.DONE || item.status == ItemStatus.FAILED
+            }
+            val processingUnsynced = unsyncedItems.count { item ->
+                item.status == ItemStatus.PROCESSING
+            }
             _syncDiagnostics.value = _syncDiagnostics.value.copy(
                 currentUserId = currentUser?.id,
                 currentUsername = currentUser?.username,
@@ -662,7 +687,10 @@ class MainViewModel @Inject constructor(
                 localCompetitionCount = _competitions.value.size,
                 localInsightCount = _insights.value.size,
                 localVoiceCount = _voiceItems.value.size,
-                localProjectCount = _projects.value.size
+                localProjectCount = _projects.value.size,
+                localUnsyncedItemCount = unsyncedItems.size,
+                localRetryableUnsyncedCount = retryableUnsynced,
+                localProcessingUnsyncedCount = processingUnsynced
             )
         }
     }
