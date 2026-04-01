@@ -2266,10 +2266,12 @@
       const [hasFloatingPermission, setHasFloatingPermission] = useState(false);
       const [syncDiagnostics, setSyncDiagnostics] = useState(null);
       const [researchReview, setResearchReview] = useState(null);
+      const [isRetryingUnsynced, setIsRetryingUnsynced] = useState(false);
       const [showProjectCreator, setShowProjectCreator] = useState(false);
       const [newProjectName, setNewProjectName] = useState("");
       const [isCreatingProject, setIsCreatingProject] = useState(false);
       const [projectFeedback, setProjectFeedback] = useState({ type: "", message: "" });
+      const [syncFeedback, setSyncFeedback] = useState({ type: "", message: "" });
       const [frontendDiagnostics, setFrontendDiagnostics] = useState({
         papersReceived: 0,
         articlesReceived: 0,
@@ -2308,6 +2310,22 @@
         });
       }, [projects.length]);
 
+      const reloadDiagnostics = () => {
+        if (window.AndroidInterface && window.AndroidInterface.getSyncDiagnostics) {
+          try {
+            const diagnostics = JSON.parse(window.AndroidInterface.getSyncDiagnostics());
+            setSyncDiagnostics(diagnostics);
+          } catch (e) { }
+        }
+
+        if (window.AndroidInterface && window.AndroidInterface.getResearchReview) {
+          try {
+            const review = JSON.parse(window.AndroidInterface.getResearchReview());
+            setResearchReview(review);
+          } catch (e) { }
+        }
+      };
+
       const handleCreateProject = () => {
         const projectName = newProjectName.trim();
         if (!projectName) {
@@ -2335,6 +2353,41 @@
           setProjectFeedback({ type: "error", message: `创建项目失败：${error?.message || "未知错误"}` });
         } finally {
           setIsCreatingProject(false);
+        }
+      };
+
+      const handleRetryUnsynced = () => {
+        if (!window.AndroidInterface || !window.AndroidInterface.retryUnsyncedItems) {
+          setSyncFeedback({ type: "error", message: "当前版本不支持手动补传" });
+          return;
+        }
+
+        setIsRetryingUnsynced(true);
+        try {
+          const raw = window.AndroidInterface.retryUnsyncedItems();
+          const result = raw ? JSON.parse(raw) : null;
+          if (result?.success) {
+            const attempted = Number(result.attemptedCount || 0);
+            const successCount = Number(result.successCount || 0);
+            const failureCount = Number(result.failureCount || 0);
+            if (attempted === 0) {
+              setSyncFeedback({ type: "success", message: "当前没有可补传的条目" });
+            } else if (failureCount === 0) {
+              setSyncFeedback({ type: "success", message: `已补传 ${successCount} 条条目` });
+            } else {
+              setSyncFeedback({
+                type: "error",
+                message: `补传完成：成功 ${successCount} 条，失败 ${failureCount} 条${result.firstFailureMessage ? `；首个失败原因：${result.firstFailureMessage}` : ''}`
+              });
+            }
+            reloadDiagnostics();
+            return;
+          }
+          setSyncFeedback({ type: "error", message: result?.message || "补传失败" });
+        } catch (error) {
+          setSyncFeedback({ type: "error", message: `补传失败：${error?.message || "未知错误"}` });
+        } finally {
+          setIsRetryingUnsynced(false);
         }
       };
 
@@ -2545,6 +2598,20 @@
                   用于排查“云端有数据但手机端不显示”的问题
                 </span>
               </div>
+
+              <button
+                onClick={handleRetryUnsynced}
+                disabled={isRetryingUnsynced}
+                className={`inline-flex items-center justify-center px-3 py-2 rounded-xl text-sm font-semibold transition-all duration-300 ${isDark ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 disabled:opacity-60' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 disabled:opacity-70'}`}
+              >
+                {isRetryingUnsynced ? '补传中...' : '立即补传'}
+              </button>
+
+              {syncFeedback.message && (
+                <div className={`text-xs ${syncFeedback.type === "success" ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-rose-300' : 'text-rose-700')}`}>
+                  {syncFeedback.message}
+                </div>
+              )}
 
               {syncDiagnostics ? (
                 <div className={`space-y-2 text-sm ${isDark ? 'text-white/75' : 'text-slate-700'}`}>

@@ -675,6 +675,34 @@ class MainAppInterface(
     fun getResearchReview(): String {
         return viewModel.getResearchReviewJson()
     }
+
+    @JavascriptInterface
+    fun retryUnsyncedItems(): String {
+        return runBlocking {
+            val result = viewModel.retryUnsyncedItems()
+            result.fold(
+                onSuccess = { retryResult ->
+                    Gson().toJson(
+                        mapOf(
+                            "success" to true,
+                            "attemptedCount" to retryResult.attemptedCount,
+                            "successCount" to retryResult.successCount,
+                            "failureCount" to retryResult.failureCount,
+                            "firstFailureMessage" to retryResult.firstFailureMessage
+                        )
+                    )
+                },
+                onFailure = { error ->
+                    Gson().toJson(
+                        mapOf(
+                            "success" to false,
+                            "message" to (error.message ?: "补传失败")
+                        )
+                    )
+                }
+            )
+        }
+    }
     
     @JavascriptInterface
     fun checkFloatingWindowStatus(): String {

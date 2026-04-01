@@ -511,18 +511,56 @@ class ItemRepositoryImpl @Inject constructor(
                 return Result.success(ItemMapper.entityToDomain(local))
             }
 
-            val requestDto = buildItemDto(local).copy(id = null)
-            val created = mergeServerItem(api.createItem(requestDto), requestDto)
-            val remoteEntity = ItemMapper.dtoToEntity(
-                created,
-                projectId = local.projectId,
-                projectName = local.projectName,
-                ownerUserId = ownerUserId
-            )
-            itemDao.deleteItemById(ownerUserId, local.id)
-            itemDao.insertItem(remoteEntity)
-            knowledgeConnectionRepository.rebuildAutoConnectionsForItem(remoteEntity.id)
-            Result.success(ItemMapper.entityToDomain(remoteEntity))
+            val primaryRequest = buildItemDto(local).copy(id = null)
+
+            runCatching {
+                val created = mergeServerItem(api.createItem(primaryRequest), primaryRequest)
+                val remoteEntity = ItemMapper.dtoToEntity(
+                    created,
+                    projectId = local.projectId,
+                    projectName = local.projectName,
+                    ownerUserId = ownerUserId
+                )
+                itemDao.deleteItemById(ownerUserId, local.id)
+                itemDao.insertItem(remoteEntity)
+                knowledgeConnectionRepository.rebuildAutoConnectionsForItem(remoteEntity.id)
+                Result.success(ItemMapper.entityToDomain(remoteEntity))
+            }.getOrElse { primaryError ->
+                android.util.Log.w(
+                    "ItemRepository",
+                    "Primary syncLocalItemToRemote failed, retrying with simplified payload. id=$id, error=${primaryError.readableMessage()}"
+                )
+
+                val fallbackRequest = primaryRequest.copy(
+                    metaJson = null,
+                    projectId = local.projectId?.toIntOrNull()
+                )
+
+                runCatching {
+                    val created = mergeServerItem(api.createItem(fallbackRequest), fallbackRequest)
+                    val remoteEntity = ItemMapper.dtoToEntity(
+                        created,
+                        projectId = local.projectId,
+                        projectName = local.projectName,
+                        ownerUserId = ownerUserId
+                    )
+                    itemDao.deleteItemById(ownerUserId, local.id)
+                    itemDao.insertItem(remoteEntity)
+                    knowledgeConnectionRepository.rebuildAutoConnectionsForItem(remoteEntity.id)
+                    android.util.Log.w(
+                        "ItemRepository",
+                        "Fallback syncLocalItemToRemote succeeded without metaJson. id=$id"
+                    )
+                    Result.success(ItemMapper.entityToDomain(remoteEntity))
+                }.getOrElse { fallbackError ->
+                    Result.failure(
+                        Exception(
+                            "补传失败；首次错误: ${primaryError.readableMessage()}；重试错误: ${fallbackError.readableMessage()}",
+                            fallbackError
+                        )
+                    )
+                }
+            }
         } catch (e: Exception) {
             android.util.Log.e("ItemRepository", "Failed to sync local item to remote: ${e.message}", e)
             Result.failure(e)

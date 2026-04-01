@@ -65,6 +65,13 @@ data class ResearchReviewDigest(
     val generatedAt: Long? = null
 )
 
+data class RetryUnsyncedResult(
+    val attemptedCount: Int,
+    val successCount: Int,
+    val failureCount: Int,
+    val firstFailureMessage: String? = null
+)
+
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val authRepository: AuthRepository,
@@ -565,6 +572,39 @@ class MainViewModel @Inject constructor(
     fun getSyncDiagnosticsJson(): String = gson.toJson(_syncDiagnostics.value)
 
     fun getResearchReviewJson(): String = gson.toJson(_researchReview.value)
+
+    suspend fun retryUnsyncedItems(): Result<RetryUnsyncedResult> {
+        val allItems = itemRepository.observeItems().first()
+        val retryTargets = allItems.filter { item ->
+            item.id.toIntOrNull() == null && (item.status == ItemStatus.DONE || item.status == ItemStatus.FAILED)
+        }
+
+        var successCount = 0
+        var failureCount = 0
+        var firstFailureMessage: String? = null
+
+        retryTargets.forEach { item ->
+            val result = itemRepository.syncLocalItemToRemote(item.id)
+            if (result.isSuccess) {
+                successCount += 1
+            } else {
+                failureCount += 1
+                if (firstFailureMessage == null) {
+                    firstFailureMessage = result.exceptionOrNull()?.message
+                }
+            }
+        }
+
+        refreshDiagnostics()
+        return Result.success(
+            RetryUnsyncedResult(
+                attemptedCount = retryTargets.size,
+                successCount = successCount,
+                failureCount = failureCount,
+                firstFailureMessage = firstFailureMessage
+            )
+        )
+    }
 
     private fun buildInsightSummary(
         body: String,
