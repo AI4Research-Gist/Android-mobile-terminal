@@ -13,6 +13,7 @@ import com.example.ai4research.domain.repository.ItemRepository
 import com.example.ai4research.domain.repository.KnowledgeConnectionRepository
 import com.example.ai4research.domain.repository.ProjectRepository
 import com.example.ai4research.service.AIService
+import com.example.ai4research.service.ImageScanImportService
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,6 +35,7 @@ data class DetailUiState(
     val isCreatingProject: Boolean = false,
     val isRegeneratingSummary: Boolean = false,
     val isGeneratingReadingCard: Boolean = false,
+    val isRetryingOcr: Boolean = false,
     val generatedReadingCard: StructuredReadingCard? = null,
     val isComparisonDialogVisible: Boolean = false,
     val isGeneratingComparison: Boolean = false,
@@ -79,7 +81,8 @@ class DetailViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
     private val knowledgeConnectionRepository: KnowledgeConnectionRepository,
     private val projectRepository: ProjectRepository,
-    private val aiService: AIService
+    private val aiService: AIService,
+    private val imageScanImportService: ImageScanImportService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DetailUiState())
@@ -148,6 +151,7 @@ class DetailViewModel @Inject constructor(
                 isProjectSaving = false,
                 isRegeneratingSummary = false,
                 isGeneratingReadingCard = false,
+                isRetryingOcr = false,
                 errorMessage = if (item == null) "未找到该条目" else null
             )
 
@@ -329,6 +333,23 @@ class DetailViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isGeneratingReadingCard = false,
                     errorMessage = "生成阅读卡失败: ${error.message}"
+                )
+            }
+        }
+    }
+
+    fun retryOcr() {
+        val item = _uiState.value.item ?: return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRetryingOcr = true, errorMessage = null)
+            val result = imageScanImportService.retryImportForItem(item)
+            if (result.isSuccess) {
+                load(item.id)
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isRetryingOcr = false,
+                    errorMessage = "重新解析 OCR 失败: ${result.exceptionOrNull()?.message}"
                 )
             }
         }

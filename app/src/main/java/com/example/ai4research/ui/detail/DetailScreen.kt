@@ -141,6 +141,7 @@ fun DetailScreen(
     val articleMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.ArticleMeta
     val currentReadingCard = remember(item) { item?.let(::extractStructuredReadingCard) }
     val insightMeta = remember(item) { item?.let(::parseInsightDetail) }
+    val canRetryOcr = remember(item) { item?.let(::canRetryOcrForItem) == true }
     
     // 解析竞赛元数据
     val competitionMeta = item?.metaData as? com.example.ai4research.domain.model.ItemMetaData.CompetitionMeta
@@ -393,6 +394,24 @@ fun DetailScreen(
                                         viewModel.openComparisonDialog()
                                     },
                                     enabled = uiState.availableComparisonTargets.isNotEmpty()
+                                )
+                            }
+                            if (canRetryOcr) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (uiState.isRetryingOcr) {
+                                                "重新解析 OCR 中..."
+                                            } else {
+                                                "重新解析 OCR"
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        viewModel.retryOcr()
+                                    },
+                                    enabled = !uiState.isRetryingOcr
                                 )
                             }
                         }
@@ -2308,6 +2327,22 @@ private fun parseInsightDetail(item: com.example.ai4research.domain.model.Resear
         audioDurationSeconds = metaObject?.optInt("audio_duration") ?: 0,
         createdAtLabel = createdAtLabel
     )
+}
+
+private fun canRetryOcrForItem(item: com.example.ai4research.domain.model.ResearchItem): Boolean {
+    val metaJson = item.rawMetaJson ?: return false
+    val metaObject = runCatching { org.json.JSONObject(metaJson) }.getOrNull() ?: return false
+
+    if (!metaObject.has("local_image_paths")) return false
+
+    val source = metaObject.optString("source")
+    val captureMode = metaObject.optString("capture_mode")
+    val signalStrength = metaObject.optString("ocr_signal_strength")
+
+    return source == "ocr" ||
+        captureMode.isNotBlank() ||
+        signalStrength == "weak" ||
+        item.status == com.example.ai4research.domain.model.ItemStatus.FAILED
 }
 
 @Composable

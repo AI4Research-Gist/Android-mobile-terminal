@@ -193,7 +193,10 @@ class FloatingWindowService : Service() {
         try {
             windowManager.addView(floatingBall, ballLayoutParams)
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("FloatingWindow", "Failed to add floating ball", e)
+            Toast.makeText(this, "悬浮窗显示失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            floatingBall = null
+            ballLayoutParams = null
         }
     }
 
@@ -1678,10 +1681,20 @@ class FloatingWindowService : Service() {
 
     private fun captureScreen(region: Rect?) {
         if (isCapturing) return
-        startProjectionForeground()
         val projection = MediaProjectionStore.getOrCreateProjection(mediaProjectionManager)
         if (projection == null) {
-            stopProjectionForeground()
+            requestScreenCapturePermission(if (region == null) "full" else "region")
+            return
+        }
+        try {
+            startProjectionForeground()
+        } catch (e: SecurityException) {
+            android.util.Log.w(
+                "FloatingWindow",
+                "Failed to enter mediaProjection foreground state, requesting consent again",
+                e
+            )
+            MediaProjectionStore.clear()
             requestScreenCapturePermission(if (region == null) "full" else "region")
             return
         }
@@ -2053,6 +2066,7 @@ class FloatingWindowService : Service() {
         hideCategoryDialog()
         pendingParseResult = null
         unregisterReceiver(captureReceiver)
+        isProjectionForegroundActive = false
     }
 
     override fun onBind(intent: Intent?): IBinder? {

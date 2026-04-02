@@ -90,10 +90,11 @@ class ImageScanImportService @Inject constructor(
     suspend fun processQueuedImport(queuedImport: QueuedScanImport): Result<ResearchItem> = withContext(Dispatchers.IO) {
         val itemId = queuedImport.item.id
         val pageCount = queuedImport.imageUris.size
+        var localPaths: List<String> = emptyList()
 
         try {
             val copyFailures = mutableListOf<String>()
-            val localPaths = queuedImport.imageUris.mapIndexedNotNull { index, uri ->
+            localPaths = queuedImport.imageUris.mapIndexedNotNull { index, uri ->
                 copyUriToLocalFile(uri, queuedImport.captureMode).onFailure { error ->
                     val detail = "第${index + 1}张图片导入失败: ${error.readableMessage()}"
                     copyFailures += detail
@@ -151,7 +152,8 @@ class ImageScanImportService @Inject constructor(
                 pageCount = pageCount,
                 parseStartedAt = queuedImport.parseStartedAt,
                 parseFinishedAt = System.currentTimeMillis(),
-                feedback = e.message ?: "扫描解析失败"
+                feedback = e.message ?: "扫描解析失败",
+                localImagePaths = localPaths
             )
 
             itemRepository.updateItem(
@@ -211,6 +213,98 @@ class ImageScanImportService @Inject constructor(
         )
     }
 
+    suspend fun retryImportForItem(item: ResearchItem): Result<ResearchItem> = withContext(Dispatchers.IO) {
+        val localImagePaths = extractStoredImagePaths(item.rawMetaJson)
+        if (localImagePaths.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("未找到可重试的本地图片"))
+        }
+
+        val captureMode = extractCaptureMode(item.rawMetaJson)
+        val parseStartedAt = System.currentTimeMillis()
+        val pageCount = localImagePaths.size
+
+        itemRepository.updateItem(
+            id = item.id,
+            summary = "图片已加入${getTypeDisplayName(item.type)}，正在重新 OCR 识别与 AI 整理",
+            metaJson = mergeTrackingMeta(
+                baseMetaJson = item.rawMetaJson,
+                captureMode = captureMode,
+                pageCount = pageCount,
+                parseStartedAt = parseStartedAt,
+                feedback = "正在重新解析 OCR",
+                localImagePaths = localImagePaths
+            ),
+            status = ItemStatus.PROCESSING
+        ).getOrElse { error ->
+            return@withContext Result.failure(error)
+        }
+
+        return@withContext try {
+            val payload = buildPayloadFromLocalPaths(localImagePaths, captureMode)
+            val mergedMetaJson = mergeTrackingMeta(
+                baseMetaJson = payload.metaJson,
+                captureMode = captureMode,
+                pageCount = localImagePaths.size,
+                parseStartedAt = parseStartedAt,
+                parseFinishedAt = System.currentTimeMillis(),
+                feedback = "重新解析完成",
+                localImagePaths = localImagePaths
+            )
+
+            val updateResult = itemRepository.updateItem(
+                id = item.id,
+                title = payload.title,
+                summary = payload.summary,
+                content = payload.markdown,
+                originUrl = payload.originUrl,
+                tags = payload.tags,
+                metaJson = mergedMetaJson,
+                status = ItemStatus.DONE
+            )
+            if (updateResult.isFailure) {
+                return@withContext Result.failure(updateResult.exceptionOrNull() ?: IllegalStateException("更新重试条目失败"))
+            }
+
+            val syncResult = itemRepository.syncLocalItemToRemote(item.id)
+            if (syncResult.isSuccess) {
+                return@withContext syncResult
+            }
+
+            val refreshedItem = itemRepository.getItem(item.id)
+            if (refreshedItem != null) {
+                Result.success(refreshedItem)
+            } else {
+                Result.failure(syncResult.exceptionOrNull() ?: IllegalStateException("重试后同步失败"))
+            }
+        } catch (e: Exception) {
+            val failedMetaJson = mergeTrackingMeta(
+                baseMetaJson = item.rawMetaJson,
+                captureMode = captureMode,
+                pageCount = pageCount,
+                parseStartedAt = parseStartedAt,
+                parseFinishedAt = System.currentTimeMillis(),
+                feedback = e.message ?: "重新解析失败",
+                localImagePaths = localImagePaths
+            )
+
+            itemRepository.updateItem(
+                id = item.id,
+                title = item.title,
+                summary = "图片已加入${getTypeDisplayName(item.type)}，但重新解析失败，可稍后再试",
+                content = buildFailedMarkdown(
+                    title = item.title,
+                    pageCount = pageCount,
+                    errorMessage = e.message
+                ),
+                metaJson = failedMetaJson,
+                status = ItemStatus.FAILED
+            )
+            runCatching { itemRepository.syncLocalItemToRemote(item.id) }
+
+            Result.failure(e)
+        }
+    }
+
     private suspend fun buildPayloadFromLocalPaths(
         imagePaths: List<String>,
         captureMode: String
@@ -228,14 +322,16 @@ class ImageScanImportService @Inject constructor(
         val pageResults = normalizedPaths.mapIndexed { index, path ->
             processSingleImage(path = path, pageIndex = index + 1)
         }
-        if (pageResults.none { it.hasRecognizedSignal() }) {
-            val details = pageResults.joinToString("；") { it.describeFailure() }
-            throw IllegalStateException(
-                details.ifBlank { "OCR 未识别到正文，请尝试更清晰的截图或多张连续长图" }
+
+        val hasRecognizedSignal = pageResults.any { it.hasRecognizedSignal() }
+        if (!hasRecognizedSignal) {
+            Log.w(
+                TAG,
+                "No strong OCR signal detected across ${pageResults.size} pages, continuing with best-effort fallback"
             )
         }
 
-        val combinedRawText = buildCombinedRawText(pageResults)
+        val combinedRawText = buildCombinedRawText(pageResults, includeFailureSummary = true)
         val organizedResult = aiService.organizeOcrBatch(
             rawText = combinedRawText.ifBlank { buildFallbackRawText(normalizedPaths.size) },
             pageHints = pageResults.mapNotNull { it.ocrResult }
@@ -251,9 +347,14 @@ class ImageScanImportService @Inject constructor(
             ?: organizedResult.originalUrl.takeIf { it.startsWith("http") }
 
         val title = organizedResult.title.ifBlank { "图片扫描" }
-        val summary = organizedResult.mediumSummary?.takeIf { it.isNotBlank() }
+        val summaryBase = organizedResult.mediumSummary?.takeIf { it.isNotBlank() }
             ?: organizedResult.summaryZh?.takeIf { it.isNotBlank() }
             ?: organizedResult.summary
+        val summary = if (hasRecognizedSignal) {
+            summaryBase
+        } else {
+            "OCR 信号较弱，已按弱结果整理：$summaryBase"
+        }
 
         ScanPayload(
             title = title,
@@ -267,7 +368,9 @@ class ImageScanImportService @Inject constructor(
             metaJson = buildResultMetaJson(
                 result = organizedResult,
                 pageCount = pageResults.size,
-                captureMode = captureMode
+                captureMode = captureMode,
+                localImagePaths = normalizedPaths,
+                weakSignal = !hasRecognizedSignal
             ),
             tags = organizedResult.tags,
             originUrl = originUrl
@@ -342,7 +445,10 @@ class ImageScanImportService @Inject constructor(
         }
     }
 
-    private fun buildCombinedRawText(pageResults: List<ImportedPage>): String {
+    private fun buildCombinedRawText(
+        pageResults: List<ImportedPage>,
+        includeFailureSummary: Boolean = false
+    ): String {
         return pageResults.joinToString("\n\n") { page ->
             val text = page.ocrResult?.content?.trim().orEmpty()
             val title = page.ocrResult?.title?.trim().orEmpty()
@@ -362,6 +468,9 @@ class ImageScanImportService @Inject constructor(
                 }
                 if (links.isNotEmpty()) {
                     appendLine("链接线索: ${links.joinToString(", ")}")
+                }
+                if (includeFailureSummary && page.errorMessage != null) {
+                    appendLine("识别状态: ${page.errorMessage}")
                 }
                 appendLine(text.ifBlank { "（未识别到正文）" })
             }.trim()
@@ -430,7 +539,8 @@ class ImageScanImportService @Inject constructor(
         pageCount: Int,
         parseStartedAt: Long,
         parseFinishedAt: Long? = null,
-        feedback: String? = null
+        feedback: String? = null,
+        localImagePaths: List<String> = emptyList()
     ): String {
         val merged = mutableMapOf<String, Any?>()
 
@@ -450,6 +560,9 @@ class ImageScanImportService @Inject constructor(
         merged["parse_started_at"] = parseStartedAt
         parseFinishedAt?.let { merged["parse_finished_at"] = it }
         feedback?.let { merged["parse_feedback"] = it }
+        if (localImagePaths.isNotEmpty()) {
+            merged["local_image_paths"] = localImagePaths
+        }
 
         return gson.toJson(merged)
     }
@@ -528,7 +641,9 @@ class ImageScanImportService @Inject constructor(
     private fun buildResultMetaJson(
         result: FullLinkParseResult,
         pageCount: Int,
-        captureMode: String
+        captureMode: String,
+        localImagePaths: List<String> = emptyList(),
+        weakSignal: Boolean = false
     ): String? {
         val base = runCatching {
             @Suppress("UNCHECKED_CAST")
@@ -537,6 +652,13 @@ class ImageScanImportService @Inject constructor(
 
         base["capture_mode"] = captureMode
         base["ocr_page_count"] = pageCount
+        if (localImagePaths.isNotEmpty()) {
+            base["local_image_paths"] = localImagePaths
+        }
+        if (weakSignal) {
+            base["ocr_signal_strength"] = "weak"
+            base["parse_feedback"] = "OCR 信号较弱，已按弱结果整理"
+        }
         if (base["source"] == null) {
             base["source"] = result.source
         }
@@ -563,6 +685,35 @@ class ImageScanImportService @Inject constructor(
         return MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
             ?.takeIf { it.isNotBlank() }
             ?: "jpg"
+    }
+
+    private fun extractStoredImagePaths(metaJson: String?): List<String> {
+        if (metaJson.isNullOrBlank()) return emptyList()
+        val parsed = runCatching {
+            @Suppress("UNCHECKED_CAST")
+            gson.fromJson(metaJson, Map::class.java) as? Map<String, Any?>
+        }.getOrNull() ?: return emptyList()
+
+        val rawPaths = parsed["local_image_paths"]
+        return when (rawPaths) {
+            is List<*> -> rawPaths.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotBlank) }
+            is String -> listOf(rawPaths.trim()).filter { it.isNotBlank() }
+            else -> emptyList()
+        }.distinct().filter { File(it).exists() }
+    }
+
+    private fun extractCaptureMode(metaJson: String?): String {
+        if (metaJson.isNullOrBlank()) return "gallery"
+        val parsed = runCatching {
+            @Suppress("UNCHECKED_CAST")
+            gson.fromJson(metaJson, Map::class.java) as? Map<String, Any?>
+        }.getOrNull()
+
+        return parsed?.get("capture_mode")
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: "gallery"
     }
 
     private fun getTypeDisplayName(type: ItemType): String {

@@ -1321,30 +1321,52 @@ Rules:
             val detectedReferences = extractCanonicalReferencesFromText(trimmedText)
             val hintLinks = (pageHints.flatMap { it.referencedLinks } + detectedReferences).distinct()
 
-            val prompt = buildString {
-                appendLine("OCR pages: ${pageHints.size.coerceAtLeast(1)}")
-                appendLine("Detected title hint: ${hintTitle ?: "null"}")
-                appendLine("Detected authors hint: ${hintAuthors ?: "null"}")
-                appendLine("Detected identifier hint: ${hintIdentifier ?: "null"}")
-                appendLine("Detected links: ${if (hintLinks.isEmpty()) "[]" else hintLinks.joinToString(", ")}")
-                appendLine()
-                appendLine("OCR text:")
-                appendLine(buildOcrPromptText(trimmedText))
+            val promptSizes = listOf(12000, 8000, 5000)
+            var aiContent: String? = null
+            var lastError: Exception? = null
+
+            promptSizes.forEachIndexed { index, maxPromptChars ->
+                try {
+                    val prompt = buildString {
+                        appendLine("OCR pages: ${pageHints.size.coerceAtLeast(1)}")
+                        appendLine("Detected title hint: ${hintTitle ?: "null"}")
+                        appendLine("Detected authors hint: ${hintAuthors ?: "null"}")
+                        appendLine("Detected identifier hint: ${hintIdentifier ?: "null"}")
+                        appendLine("Detected links: ${if (hintLinks.isEmpty()) "[]" else hintLinks.joinToString(", ")}")
+                        appendLine()
+                        appendLine("OCR text:")
+                        appendLine(buildOcrPromptText(trimmedText, maxPromptChars))
+                    }
+
+                    val request = SimpleChatRequest(
+                        model = SiliconFlowApiService.MODEL_TEXT,
+                        messages = listOf(
+                            SimpleMessage(role = "system", content = OCR_BATCH_ORGANIZE_SYSTEM_PROMPT),
+                            SimpleMessage(role = "user", content = prompt)
+                        ),
+                        maxTokens = 1800,
+                        temperature = 0.2
+                    )
+
+                    val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+                    aiContent = response.choices.firstOrNull()?.message?.content
+                    if (!aiContent.isNullOrBlank()) {
+                        return@forEachIndexed
+                    }
+                    lastError = Exception("OCR organize returned empty content")
+                } catch (e: Exception) {
+                    lastError = e
+                    Log.w(
+                        TAG,
+                        "organizeOcrBatch attempt ${index + 1} failed, maxPromptChars=$maxPromptChars",
+                        e
+                    )
+                }
             }
 
-            val request = SimpleChatRequest(
-                model = SiliconFlowApiService.MODEL_TEXT,
-                messages = listOf(
-                    SimpleMessage(role = "system", content = OCR_BATCH_ORGANIZE_SYSTEM_PROMPT),
-                    SimpleMessage(role = "user", content = prompt)
-                ),
-                maxTokens = 1800,
-                temperature = 0.2
-            )
-
-            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
-            val aiContent = response.choices.firstOrNull()?.message?.content
-                ?: return@withContext Result.success(
+            if (aiContent.isNullOrBlank()) {
+                Log.w(TAG, "organizeOcrBatch fallback activated: ${lastError?.message}")
+                return@withContext Result.success(
                     createOcrFallbackResult(
                         rawText = trimmedText,
                         hintTitle = hintTitle,
@@ -1353,6 +1375,7 @@ Rules:
                         detectedReferences = hintLinks
                     )
                 )
+            }
 
             val cleanJson = extractJsonFromResponse(aiContent)
             val jsonObj = json.decodeFromString<JsonObject>(cleanJson)
@@ -1913,14 +1936,15 @@ Rules:
         }
     }
 
-    private fun buildOcrPromptText(rawText: String): String {
+    private fun buildOcrPromptText(rawText: String, maxLength: Int = 12000): String {
         val normalized = rawText.trim()
-        if (normalized.length <= 12000) return normalized
+        if (normalized.length <= maxLength) return normalized
 
-        val head = normalized.take(5000)
-        val middleStart = (normalized.length / 2 - 2500).coerceAtLeast(0)
-        val middle = normalized.substring(middleStart, (middleStart + 5000).coerceAtMost(normalized.length))
-        val tail = normalized.takeLast(5000)
+        val windowSize = (maxLength / 3).coerceAtLeast(1200)
+        val head = normalized.take(windowSize)
+        val middleStart = (normalized.length / 2 - windowSize / 2).coerceAtLeast(0)
+        val middle = normalized.substring(middleStart, (middleStart + windowSize).coerceAtMost(normalized.length))
+        val tail = normalized.takeLast(windowSize)
 
         return buildString {
             appendLine("[OCR total length: ${normalized.length}]")
