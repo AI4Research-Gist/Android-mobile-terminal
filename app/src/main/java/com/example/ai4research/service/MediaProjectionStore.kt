@@ -22,7 +22,7 @@ object MediaProjectionStore {
     }
 
     fun hasPermission(): Boolean {
-        return mediaProjection != null || (canReuseConsentIntent() && resultCode != null && resultData != null)
+        return mediaProjection != null || (resultCode != null && resultData != null)
     }
 
     fun setPermission(resultCode: Int, data: Intent) {
@@ -57,6 +57,7 @@ object MediaProjectionStore {
         mediaProjection = null
         resultCode = null
         resultData = null
+        lastProjectionError = null
     }
 
     fun releaseProjection() {
@@ -66,6 +67,7 @@ object MediaProjectionStore {
             resultCode = null
             resultData = null
         }
+        lastProjectionError = null
     }
 
     fun prepareProjection(manager: MediaProjectionManager): Boolean {

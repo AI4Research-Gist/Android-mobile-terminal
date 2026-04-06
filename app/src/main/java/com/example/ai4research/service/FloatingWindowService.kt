@@ -69,7 +69,9 @@ class FloatingWindowService : Service() {
         const val ACTION_HIDE = "com.example.ai4research.action.HIDE_FLOATING"
         const val ACTION_SCREENSHOT = "com.example.ai4research.action.SCREENSHOT"
         const val ACTION_REGION_SELECT = "com.example.ai4research.action.REGION_SELECT"
+        const val ACTION_CAPTURE_AFTER_PERMISSION = "com.example.ai4research.action.CAPTURE_AFTER_PERMISSION"
         const val ACTION_SHOW_LINK_INPUT = "com.example.ai4research.action.SHOW_LINK_INPUT"
+        const val EXTRA_CAPTURE_MODE = "mode"
         private const val PROJECTION_NOTIFICATION_CHANNEL_ID = "media_projection_capture"
         private const val PROJECTION_NOTIFICATION_ID = 1002
         
@@ -153,6 +155,9 @@ class FloatingWindowService : Service() {
             ACTION_HIDE -> hideFloatingBall()
             ACTION_SCREENSHOT -> triggerScreenshot()
             ACTION_REGION_SELECT -> triggerRegionSelect()
+            ACTION_CAPTURE_AFTER_PERMISSION -> resumePendingCapture(
+                intent.getStringExtra(EXTRA_CAPTURE_MODE) ?: "full"
+            )
             ACTION_SHOW_LINK_INPUT -> showLinkInputWindow()
         }
         return START_STICKY
@@ -666,6 +671,71 @@ class FloatingWindowService : Service() {
                 withContext(Dispatchers.Main) {
                     floatingBall?.isProcessing = false
                     itemRepository.createImageItem(path, "已采集图片，OCR 暂未识别出正文")
+                    Toast.makeText(this@FloatingWindowService, "识别失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun handleQueuedScreenshot(path: String) {
+        mainHandler.post {
+            floatingBall?.isProcessing = true
+            Toast.makeText(this, "正在保存截图并创建条目...", Toast.LENGTH_SHORT).show()
+        }
+
+        serviceScope.launch {
+            try {
+                val queueResult = imageScanImportService.queueLocalPathImport(
+                    imagePaths = listOf(path),
+                    selectedType = ItemType.ARTICLE,
+                    projectId = null,
+                    projectName = null,
+                    captureMode = "screenshot"
+                )
+
+                queueResult.fold(
+                    onSuccess = { queuedImport ->
+                        withContext(Dispatchers.Main) {
+                            floatingBall?.isProcessing = false
+                            val broadcastIntent = Intent(ACTION_ITEM_ADDED).apply {
+                                putExtra(EXTRA_ITEM_ID, queuedImport.item.id)
+                                putExtra(EXTRA_ITEM_TYPE, ItemType.ARTICLE.name)
+                                setPackage(packageName)
+                            }
+                            sendBroadcast(broadcastIntent)
+                            showResultOverlay("已加入资料", "后台解析中")
+                        }
+
+                        val processResult = imageScanImportService.processQueuedLocalPathImport(queuedImport)
+                        withContext(Dispatchers.Main) {
+                            processResult.fold(
+                                onSuccess = { item ->
+                                    showResultOverlay("识别完成", item.title)
+                                },
+                                onFailure = { error ->
+                                    Toast.makeText(
+                                        this@FloatingWindowService,
+                                        "截图已加入资料，但解析失败: ${error.message}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
+                        }
+                    },
+                    onFailure = { error ->
+                        withContext(Dispatchers.Main) {
+                            floatingBall?.isProcessing = false
+                            Toast.makeText(
+                                this@FloatingWindowService,
+                                "截图保存失败: ${error.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    floatingBall?.isProcessing = false
                     Toast.makeText(this@FloatingWindowService, "识别失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -1610,7 +1680,7 @@ class FloatingWindowService : Service() {
 
     private fun triggerScreenshot() {
         if (MediaProjectionStore.hasPermission()) {
-            captureScreen(null)
+            captureScreenSafely(null)
         } else {
             requestScreenCapturePermission("full")
         }
@@ -1626,10 +1696,28 @@ class FloatingWindowService : Service() {
 
     private fun requestScreenCapturePermission(mode: String) {
         val intent = Intent(this, ScreenCaptureActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_HISTORY)
-            putExtra("mode", mode)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_NO_HISTORY or
+                    Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+            )
+            putExtra(EXTRA_CAPTURE_MODE, mode)
         }
         startActivity(intent)
+    }
+
+    private fun resumePendingCapture(mode: String) {
+        mainHandler.postDelayed(
+            {
+                if (mode == "region") {
+                    showRegionSelectionOverlay()
+                } else {
+                    captureScreenSafely(null)
+                }
+            },
+            250L
+        )
     }
 
     private fun showRegionSelectionOverlay() {
@@ -1638,10 +1726,11 @@ class FloatingWindowService : Service() {
             context = this,
             onConfirm = { rect ->
                 hideRegionSelectionOverlay()
-                captureScreen(rect)
+                captureScreenSafely(rect)
             },
             onCancel = {
                 hideRegionSelectionOverlay()
+                MediaProjectionStore.releaseProjection()
             }
         )
         val params = WindowManager.LayoutParams(
@@ -1664,6 +1753,7 @@ class FloatingWindowService : Service() {
             windowManager.addView(overlay, params)
         } catch (e: Exception) {
             regionOverlay = null
+            MediaProjectionStore.releaseProjection()
             e.printStackTrace()
         }
     }
@@ -1681,11 +1771,8 @@ class FloatingWindowService : Service() {
 
     private fun captureScreen(region: Rect?) {
         if (isCapturing) return
+        val captureMode = if (region == null) "full" else "region"
         val projection = MediaProjectionStore.getOrCreateProjection(mediaProjectionManager)
-        if (projection == null) {
-            requestScreenCapturePermission(if (region == null) "full" else "region")
-            return
-        }
         try {
             startProjectionForeground()
         } catch (e: SecurityException) {
@@ -1741,9 +1828,9 @@ class FloatingWindowService : Service() {
                     density = metrics.densityDpi
                 }
 
-                projection.registerCallback(projectionCallback, mainHandler)
+                projection?.registerCallback(projectionCallback, mainHandler)
                 imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-                virtualDisplay = projection.createVirtualDisplay(
+                virtualDisplay = projection?.createVirtualDisplay(
                     "ScreenCapture",
                     width, height, density,
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
@@ -1791,7 +1878,7 @@ class FloatingWindowService : Service() {
                 withContext(Dispatchers.Main) {
                     isCapturing = false
                     if (imagePath != null) {
-                        handleScreenshotV2(imagePath)
+                        handleQueuedScreenshot(imagePath)
                     } else {
                         Toast.makeText(this@FloatingWindowService, "保存截图失败", Toast.LENGTH_SHORT).show()
                     }
@@ -1802,11 +1889,169 @@ class FloatingWindowService : Service() {
                     Toast.makeText(this@FloatingWindowService, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } finally {
-                projection.unregisterCallback(projectionCallback)
+                projection?.unregisterCallback(projectionCallback)
                 virtualDisplay?.release()
                 imageReader?.close()
                 MediaProjectionStore.releaseProjection()
                 stopProjectionForeground()
+            }
+        }
+    }
+
+    private fun captureScreenSafely(region: Rect?) {
+        if (isCapturing) return
+        isCapturing = true
+        val captureMode = if (region == null) "full" else "region"
+
+        serviceScope.launch {
+            var projection: MediaProjection? = null
+            var imageReader: ImageReader? = null
+            var virtualDisplay: android.hardware.display.VirtualDisplay? = null
+            var projectionCallbackRegistered = false
+            var overlayState: CaptureOverlayState? = null
+            val projectionCallback = object : MediaProjection.Callback() {
+                override fun onStop() {
+                    mainHandler.post {
+                        if (isCapturing) {
+                            Toast.makeText(
+                                this@FloatingWindowService,
+                                "截图会话已结束，请重新发起截图",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
+
+            try {
+                overlayState = withContext(Dispatchers.Main) {
+                    val state = prepareCaptureUi()
+                    Toast.makeText(this@FloatingWindowService, "正在截图...", Toast.LENGTH_SHORT).show()
+                    state
+                }
+
+                try {
+                    startProjectionForeground()
+                } catch (e: SecurityException) {
+                    android.util.Log.w(
+                        "FloatingWindow",
+                        "Failed to enter mediaProjection foreground state, requesting consent again",
+                        e
+                    )
+                    MediaProjectionStore.clear()
+                    withContext(Dispatchers.Main) {
+                        requestScreenCapturePermission(captureMode)
+                    }
+                    return@launch
+                }
+
+                projection = MediaProjectionStore.getOrCreateProjection(mediaProjectionManager)
+                if (projection == null) {
+                    withContext(Dispatchers.Main) {
+                        requestScreenCapturePermission(captureMode)
+                    }
+                    return@launch
+                }
+
+                val width: Int
+                val height: Int
+                val density: Int
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val windowMetrics = windowManager.maximumWindowMetrics
+                    val bounds = windowMetrics.bounds
+                    width = bounds.width()
+                    height = bounds.height()
+                    density = resources.configuration.densityDpi
+                } else {
+                    val metrics = DisplayMetrics()
+                    @Suppress("DEPRECATION")
+                    windowManager.defaultDisplay.getRealMetrics(metrics)
+                    width = metrics.widthPixels
+                    height = metrics.heightPixels
+                    density = metrics.densityDpi
+                }
+
+                projection.registerCallback(projectionCallback, mainHandler)
+                projectionCallbackRegistered = true
+                imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+                virtualDisplay = projection.createVirtualDisplay(
+                    "ScreenCapture",
+                    width, height, density,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    imageReader.surface,
+                    null, null
+                )
+
+                kotlinx.coroutines.delay(350)
+
+                val image = imageReader.acquireLatestImage()
+                if (image == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@FloatingWindowService, "截图失败", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                val imagePath = try {
+                    val planes = image.planes
+                    val buffer = planes[0].buffer
+                    val pixelStride = planes[0].pixelStride
+                    val rowStride = planes[0].rowStride
+                    val rowPadding = rowStride - pixelStride * width
+
+                    val bitmap = Bitmap.createBitmap(
+                        width + rowPadding / pixelStride,
+                        height,
+                        Bitmap.Config.ARGB_8888
+                    )
+                    bitmap.copyPixelsFromBuffer(buffer)
+
+                    val finalBitmap = if (region != null) {
+                        val safeLeft = region.left.coerceIn(0, bitmap.width - 1)
+                        val safeTop = region.top.coerceIn(0, bitmap.height - 1)
+                        val safeWidth = region.width().coerceIn(1, bitmap.width - safeLeft)
+                        val safeHeight = region.height().coerceIn(1, bitmap.height - safeTop)
+                        Bitmap.createBitmap(bitmap, safeLeft, safeTop, safeWidth, safeHeight)
+                    } else {
+                        Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                    }
+
+                    try {
+                        saveBitmap(finalBitmap)
+                    } finally {
+                        if (finalBitmap !== bitmap) {
+                            finalBitmap.recycle()
+                        }
+                        bitmap.recycle()
+                    }
+                } finally {
+                    image.close()
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (imagePath != null) {
+                        handleScreenshotV2(imagePath)
+                    } else {
+                        Toast.makeText(this@FloatingWindowService, "保存截图失败", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@FloatingWindowService, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            } finally {
+                if (projectionCallbackRegistered) {
+                    runCatching { projection?.unregisterCallback(projectionCallback) }
+                }
+                virtualDisplay?.release()
+                imageReader?.close()
+                MediaProjectionStore.releaseProjection()
+                stopProjectionForeground()
+                withContext(Dispatchers.Main) {
+                    restoreCaptureUi(overlayState)
+                    isCapturing = false
+                }
             }
         }
     }
@@ -2044,7 +2289,7 @@ class FloatingWindowService : Service() {
 
     private fun saveBitmap(bitmap: Bitmap): String? {
         return try {
-            val screenshotDir = java.io.File(cacheDir, "screenshots")
+            val screenshotDir = java.io.File(filesDir, "imports/screenshot")
             if (!screenshotDir.exists()) {
                 screenshotDir.mkdirs()
             }
@@ -2059,6 +2304,46 @@ class FloatingWindowService : Service() {
         }
     }
 
+    private fun prepareCaptureUi(): CaptureOverlayState {
+        return CaptureOverlayState(
+            floatingBallVisibility = floatingBall.hideForCapture(),
+            inputViewVisibility = inputView.hideForCapture(),
+            resultViewVisibility = resultView.hideForCapture(),
+            competitionInputViewVisibility = competitionInputView.hideForCapture(),
+            categoryDialogVisibility = categoryDialogView.hideForCapture()
+        )
+    }
+
+    private fun restoreCaptureUi(state: CaptureOverlayState?) {
+        if (state == null) return
+        floatingBall.restoreVisibility(state.floatingBallVisibility)
+        inputView.restoreVisibility(state.inputViewVisibility)
+        resultView.restoreVisibility(state.resultViewVisibility)
+        competitionInputView.restoreVisibility(state.competitionInputViewVisibility)
+        categoryDialogView.restoreVisibility(state.categoryDialogVisibility)
+    }
+
+    private fun View?.hideForCapture(): Int? {
+        val target = this ?: return null
+        val previousVisibility = target.visibility
+        target.visibility = View.INVISIBLE
+        return previousVisibility
+    }
+
+    private fun View?.restoreVisibility(visibility: Int?) {
+        val target = this ?: return
+        val previousVisibility = visibility ?: return
+        target.visibility = previousVisibility
+    }
+
+    private data class CaptureOverlayState(
+        val floatingBallVisibility: Int?,
+        val inputViewVisibility: Int?,
+        val resultViewVisibility: Int?,
+        val competitionInputViewVisibility: Int?,
+        val categoryDialogVisibility: Int?
+    )
+
     override fun onDestroy() {
         super.onDestroy()
         hideFloatingBall()
@@ -2066,7 +2351,7 @@ class FloatingWindowService : Service() {
         hideCategoryDialog()
         pendingParseResult = null
         unregisterReceiver(captureReceiver)
-        isProjectionForegroundActive = false
+        stopProjectionForeground()
     }
 
     override fun onBind(intent: Intent?): IBinder? {

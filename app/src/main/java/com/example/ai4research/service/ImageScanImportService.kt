@@ -36,6 +36,13 @@ class ImageScanImportService @Inject constructor(
         val parseStartedAt: Long
     )
 
+    data class QueuedLocalPathImport(
+        val item: ResearchItem,
+        val imagePaths: List<String>,
+        val captureMode: String,
+        val parseStartedAt: Long
+    )
+
     suspend fun queueImport(
         imageUris: List<Uri>,
         selectedType: ItemType,
@@ -160,6 +167,134 @@ class ImageScanImportService @Inject constructor(
                 id = itemId,
                 title = queuedImport.item.title,
                 summary = failedSummary,
+                content = buildFailedMarkdown(
+                    title = queuedImport.item.title,
+                    pageCount = pageCount,
+                    errorMessage = e.message
+                ),
+                metaJson = failedMetaJson,
+                status = ItemStatus.FAILED
+            )
+            runCatching { itemRepository.syncLocalItemToRemote(itemId) }
+
+            Result.failure(e)
+        }
+    }
+
+    suspend fun queueLocalPathImport(
+        imagePaths: List<String>,
+        selectedType: ItemType,
+        projectId: String?,
+        projectName: String?,
+        captureMode: String = "gallery"
+    ): Result<QueuedLocalPathImport> = withContext(Dispatchers.IO) {
+        val normalizedPaths = normalizeLocalPaths(imagePaths)
+        if (normalizedPaths.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("未找到可用的图片"))
+        }
+
+        val parseStartedAt = System.currentTimeMillis()
+        val pageCount = normalizedPaths.size
+        val placeholderTitle = buildPlaceholderTitle(captureMode, pageCount)
+        val placeholderSummary = "已加入${getTypeDisplayName(selectedType)}，正在 OCR 识别与 AI 整理"
+        val placeholderContent = buildPendingMarkdown(
+            title = placeholderTitle,
+            pageCount = pageCount,
+            selectedType = selectedType,
+            projectName = projectName
+        )
+        val placeholderMetaJson = buildPendingMetaJson(
+            captureMode = captureMode,
+            pageCount = pageCount,
+            parseStartedAt = parseStartedAt,
+            feedback = "已加入${getTypeDisplayName(selectedType)}，正在后台解析"
+        )
+
+        itemRepository.createLocalPendingItem(
+            title = placeholderTitle,
+            summary = placeholderSummary,
+            contentMd = placeholderContent,
+            originUrl = null,
+            type = selectedType,
+            status = ItemStatus.PROCESSING,
+            metaJson = placeholderMetaJson,
+            note = null,
+            tags = null,
+            projectId = projectId,
+            projectName = projectName
+        ).map { item ->
+            QueuedLocalPathImport(
+                item = item,
+                imagePaths = normalizedPaths,
+                captureMode = captureMode,
+                parseStartedAt = parseStartedAt
+            )
+        }
+    }
+
+    suspend fun processQueuedLocalPathImport(queuedImport: QueuedLocalPathImport): Result<ResearchItem> = withContext(Dispatchers.IO) {
+        val itemId = queuedImport.item.id
+        val localPaths = normalizeLocalPaths(queuedImport.imagePaths)
+        val pageCount = if (localPaths.isNotEmpty()) localPaths.size else queuedImport.imagePaths.size
+
+        return@withContext try {
+            if (localPaths.isEmpty()) {
+                throw IllegalArgumentException("未找到可用的图片")
+            }
+
+            val payload = buildPayloadFromLocalPaths(localPaths, queuedImport.captureMode)
+            val mergedMetaJson = mergeTrackingMeta(
+                baseMetaJson = payload.metaJson,
+                captureMode = queuedImport.captureMode,
+                pageCount = localPaths.size,
+                parseStartedAt = queuedImport.parseStartedAt,
+                parseFinishedAt = System.currentTimeMillis(),
+                feedback = "扫描解析完成",
+                localImagePaths = localPaths
+            )
+
+            val updateResult = itemRepository.updateItem(
+                id = itemId,
+                title = payload.title,
+                summary = payload.summary,
+                content = payload.markdown,
+                originUrl = payload.originUrl,
+                tags = payload.tags,
+                metaJson = mergedMetaJson,
+                status = ItemStatus.DONE
+            )
+            if (updateResult.isFailure) {
+                return@withContext Result.failure(
+                    updateResult.exceptionOrNull() ?: IllegalStateException("更新截图条目失败")
+                )
+            }
+
+            val syncResult = itemRepository.syncLocalItemToRemote(itemId)
+            if (syncResult.isSuccess) {
+                return@withContext syncResult
+            }
+
+            val localItem = itemRepository.getItem(itemId)
+            if (localItem != null) {
+                Result.success(localItem)
+            } else {
+                Result.failure(syncResult.exceptionOrNull() ?: IllegalStateException("同步截图条目失败"))
+            }
+        } catch (e: Exception) {
+            val failedMetaJson = mergeTrackingMeta(
+                baseMetaJson = queuedImport.item.rawMetaJson,
+                captureMode = queuedImport.captureMode,
+                pageCount = pageCount,
+                parseStartedAt = queuedImport.parseStartedAt,
+                parseFinishedAt = System.currentTimeMillis(),
+                feedback = e.message ?: "截图解析失败",
+                localImagePaths = localPaths
+            )
+
+            itemRepository.updateItem(
+                id = itemId,
+                title = queuedImport.item.title,
+                summary = "图片已加入${getTypeDisplayName(queuedImport.item.type)}，但解析失败，可稍后重试",
                 content = buildFailedMarkdown(
                     title = queuedImport.item.title,
                     pageCount = pageCount,
@@ -309,11 +444,7 @@ class ImageScanImportService @Inject constructor(
         imagePaths: List<String>,
         captureMode: String
     ): ScanPayload = withContext(Dispatchers.IO) {
-        val normalizedPaths = imagePaths
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .filter { File(it).exists() }
+        val normalizedPaths = normalizeLocalPaths(imagePaths)
 
         if (normalizedPaths.isEmpty()) {
             throw IllegalArgumentException("没有找到可处理的图片")
@@ -664,6 +795,23 @@ class ImageScanImportService @Inject constructor(
         }
 
         return if (base.isEmpty()) null else gson.toJson(base)
+    }
+
+    private fun normalizeLocalPaths(imagePaths: List<String>): List<String> {
+        return imagePaths
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .filter { File(it).exists() }
+    }
+
+    private fun buildPlaceholderTitle(captureMode: String, pageCount: Int): String {
+        val baseTitle = if (captureMode == "screenshot") "截图采集" else "图片扫描"
+        return if (pageCount > 1) {
+            "$baseTitle（$pageCount 张）"
+        } else {
+            baseTitle
+        }
     }
 
     private fun copyUriToLocalFile(uri: Uri, captureMode: String): Result<String> = runCatching {

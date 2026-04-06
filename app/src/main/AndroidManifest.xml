@@ -49,7 +49,9 @@
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"
             android:excludeFromRecents="true"
-            android:launchMode="singleTop" />
+            android:launchMode="singleTop"
+            android:noHistory="true"
+            android:taskAffinity="" />
         
         
     </application>

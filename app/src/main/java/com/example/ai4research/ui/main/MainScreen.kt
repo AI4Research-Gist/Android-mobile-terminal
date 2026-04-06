@@ -38,8 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.ai4research.core.util.WebViewCache
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.Project
@@ -89,6 +92,7 @@ fun MainScreen(
     var showScanImportDialog by remember { mutableStateOf(false) }
     var selectedScanType by remember { mutableStateOf(ItemType.ARTICLE) }
     var selectedScanProjectId by remember { mutableStateOf<String?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     fun emitWebEvent(eventName: String, payload: Map<String, Any?>) {
         if (!isPageReady) return
@@ -98,6 +102,25 @@ fun MainScreen(
                 "window.dispatchEvent(new CustomEvent('$eventName', { detail: $payloadJson }));",
                 null
             )
+        }
+    }
+
+    fun pushCurrentDataToWebView() {
+        if (!isPageReady) return
+        val target = webViewRef ?: return
+        val papersJson = viewModel.getPapersJson()
+        val articlesJson = viewModel.getArticlesJson()
+        val competitionsJson = viewModel.getCompetitionsJson()
+        val insightsJson = viewModel.getInsightsJson()
+        val projectsJson = viewModel.getProjectsJson()
+        val voiceItemsJson = viewModel.getVoiceItemsJson()
+        target.post {
+            target.evaluateJavascript("if(window.receivePapers) window.receivePapers($papersJson)", null)
+            target.evaluateJavascript("if(window.receiveArticles) window.receiveArticles($articlesJson)", null)
+            target.evaluateJavascript("if(window.receiveCompetitions) window.receiveCompetitions($competitionsJson)", null)
+            target.evaluateJavascript("if(window.receiveInsights) window.receiveInsights($insightsJson)", null)
+            target.evaluateJavascript("if(window.receiveProjects) window.receiveProjects($projectsJson)", null)
+            target.evaluateJavascript("if(window.receiveVoiceItems) window.receiveVoiceItems($voiceItemsJson)", null)
         }
     }
 
@@ -273,6 +296,23 @@ fun MainScreen(
     DisposableEffect(Unit) {
         onDispose {
             webViewCache.releaseMain(webView)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, isPageReady, webViewRef) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                coroutineScope.launch {
+                    viewModel.applyFilter(viewModel.currentFilter.value, viewModel.currentProjectId.value)
+                    viewModel.fetchData()
+                    kotlinx.coroutines.delay(500)
+                    pushCurrentDataToWebView()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
