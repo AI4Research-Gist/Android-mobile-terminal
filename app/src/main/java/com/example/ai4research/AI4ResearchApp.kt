@@ -6,6 +6,8 @@ import android.os.Bundle
 import android.provider.Settings
 import com.example.ai4research.ai.local.OnDeviceModelBootstrapper
 import com.example.ai4research.service.FloatingWindowManager
+import com.example.ai4research.service.QuickInsightAssistActivity
+import com.example.ai4research.service.ScreenCaptureActivity
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +61,7 @@ class AI4ResearchApp : Application() {
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
         
         override fun onActivityStarted(activity: Activity) {
+            if (!shouldAffectFloatingLifecycle(activity)) return
             activityCount++
             if (!isInForeground) {
                 isInForeground = true
@@ -71,6 +74,7 @@ class AI4ResearchApp : Application() {
         override fun onActivityPaused(activity: Activity) {}
         
         override fun onActivityStopped(activity: Activity) {
+            if (!shouldAffectFloatingLifecycle(activity)) return
             activityCount--
             if (activityCount == 0) {
                 isInForeground = false
@@ -81,6 +85,11 @@ class AI4ResearchApp : Application() {
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
         
         override fun onActivityDestroyed(activity: Activity) {}
+    }
+
+    private fun shouldAffectFloatingLifecycle(activity: Activity): Boolean {
+        return activity !is ScreenCaptureActivity &&
+            activity !is QuickInsightAssistActivity
     }
     
     /**

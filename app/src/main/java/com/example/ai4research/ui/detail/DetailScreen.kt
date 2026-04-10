@@ -86,6 +86,7 @@ import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.ResearchItem
 import com.example.ai4research.domain.model.StructuredReadingCard
 import dev.jeziellago.compose.markdowntext.MarkdownText
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -936,9 +937,9 @@ fun DetailScreen(
     }
     
         // 项目选择底部弹出面板 (在 Scaffold 之后，确保 z-index 最高)
-        if (showInsightImagePreview && !item?.originUrl.isNullOrBlank()) {
+        if (showInsightImagePreview && !insightMeta?.imageUri.isNullOrBlank()) {
             FullscreenInsightImage(
-                imageUri = item?.originUrl.orEmpty(),
+                imageUri = insightMeta?.imageUri.orEmpty(),
                 onDismiss = { showInsightImagePreview = false }
             )
         }
@@ -2427,7 +2428,7 @@ private fun InsightImagePreviewCard(
     LaunchedEffect(imageUri) {
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { input ->
+                context.contentResolver.openInputStream(resolveInsightMediaUri(imageUri)).use { input ->
                     android.graphics.BitmapFactory.decodeStream(input)?.asImageBitmap()
                 }
             }.getOrNull()
@@ -2483,7 +2484,7 @@ private fun InsightAudioPlayerCard(
     DisposableEffect(audioUri) {
         val player = runCatching {
             android.media.MediaPlayer().apply {
-                setDataSource(context, android.net.Uri.parse(audioUri))
+                setDataSource(context, resolveInsightMediaUri(audioUri))
                 prepare()
             }
         }.getOrNull()
@@ -2586,7 +2587,7 @@ private fun FullscreenInsightImage(
     LaunchedEffect(imageUri) {
         bitmap = withContext(Dispatchers.IO) {
             runCatching {
-                context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use { input ->
+                context.contentResolver.openInputStream(resolveInsightMediaUri(imageUri)).use { input ->
                     android.graphics.BitmapFactory.decodeStream(input)?.asImageBitmap()
                 }
             }.getOrNull()
@@ -2616,6 +2617,15 @@ private fun FullscreenInsightImage(
         ) {
             Icon(Icons.Default.Close, contentDescription = "关闭预览", tint = Color.White)
         }
+    }
+}
+
+private fun resolveInsightMediaUri(raw: String): android.net.Uri {
+    val parsed = android.net.Uri.parse(raw)
+    return if (parsed.scheme.isNullOrBlank()) {
+        android.net.Uri.fromFile(File(raw))
+    } else {
+        parsed
     }
 }
 

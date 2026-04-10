@@ -369,8 +369,12 @@ class MainViewModel @Inject constructor(
 
         val finalResult = saveResult.fold(
             onSuccess = { saved ->
-                itemRepository.updateReadStatus(saved.id, readStatus)
-                    .mapCatching { itemRepository.getItem(saved.id) ?: saved.copy(readStatus = readStatus) }
+                if (saved.readStatus == readStatus) {
+                    Result.success(saved)
+                } else {
+                    itemRepository.updateReadStatus(saved.id, readStatus)
+                        .mapCatching { itemRepository.getItem(saved.id) ?: saved.copy(readStatus = readStatus) }
+                }
             },
             onFailure = { Result.failure(it) }
         )

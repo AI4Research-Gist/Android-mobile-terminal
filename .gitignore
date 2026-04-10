@@ -37,3 +37,7 @@
 .cxx
 local.properties
 .env.local
+__pycache__/
+*.pyc
+*.rar
+*.zip

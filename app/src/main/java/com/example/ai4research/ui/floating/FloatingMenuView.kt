@@ -26,6 +26,7 @@ class FloatingMenuView @JvmOverloads constructor(
     interface OnMenuActionListener {
         fun onScreenshot()
         fun onRegionSelect()
+        fun onQuickInsight()
         fun onAddLink()
         fun onClose()
     }
@@ -70,7 +71,7 @@ class FloatingMenuView @JvmOverloads constructor(
         menuContainer.addView(title)
 
         val subtitle = TextView(context).apply {
-            text = "截图、区域选择与链接采集"
+            text = "截图、灵感速记与链接采集"
             textSize = 12f
             setTextColor(Color.parseColor("#B5C6D1"))
             setPadding(0, 0, 0, dp(14))
@@ -83,6 +84,9 @@ class FloatingMenuView @JvmOverloads constructor(
             },
             MenuItemData("区域选择", "聚焦局部内容", Color.parseColor("#38BDF8"), android.R.drawable.ic_menu_crop) {
                 actionListener?.onRegionSelect()
+            },
+            MenuItemData("快速灵感", "不跳转直接存入", Color.parseColor("#10B981"), android.R.drawable.ic_input_add) {
+                actionListener?.onQuickInsight()
             },
             MenuItemData("添加链接", "抓取当前网页", Color.parseColor("#F59E0B"), android.R.drawable.ic_menu_share) {
                 actionListener?.onAddLink()

@@ -2,9 +2,13 @@ package com.example.ai4research.ui.main
 
 import android.app.AlertDialog
 import android.widget.Toast
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,6 +56,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.unit.dp
 
 /**
@@ -433,8 +438,26 @@ fun MainScreen(
                     
                     // Allow debugging in development
                     WebView.setWebContentsDebuggingEnabled(true)
+
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                            android.util.Log.d(
+                                "MainScreen",
+                                "console ${consoleMessage.messageLevel()} @${consoleMessage.sourceId()}:${consoleMessage.lineNumber()} ${consoleMessage.message()}"
+                            )
+                            return true
+                        }
+
+                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                            android.util.Log.d("MainScreen", "progress=$newProgress url=${view?.url}")
+                        }
+                    }
                     
                     webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                            android.util.Log.d("MainScreen", "onPageStarted url=$url")
+                        }
+
                         override fun onPageCommitVisible(view: WebView?, url: String?) {
                             android.util.Log.d("MainScreen", "onPageCommitVisible called")
                             if (isLoading) {
@@ -492,6 +515,28 @@ fun MainScreen(
                                     view.evaluateJavascript("if(window.receiveVoiceItems) window.receiveVoiceItems($latestVoiceItemsJson)", null)
                                 }, 1000)
                             }, 500)
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?
+                        ) {
+                            android.util.Log.e(
+                                "MainScreen",
+                                "onReceivedError url=${request?.url} code=${error?.errorCode} desc=${error?.description}"
+                            )
+                        }
+
+                        override fun onReceivedHttpError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            errorResponse: android.webkit.WebResourceResponse?
+                        ) {
+                            android.util.Log.e(
+                                "MainScreen",
+                                "onReceivedHttpError url=${request?.url} status=${errorResponse?.statusCode}"
+                            )
                         }
                     }
                     
@@ -821,17 +866,19 @@ class MainAppInterface(
                     "read" -> com.example.ai4research.domain.model.ReadStatus.READ
                     else -> com.example.ai4research.domain.model.ReadStatus.UNREAD
                 }
-                viewModel.saveInsight(
-                    id = payload.id,
-                    title = payload.title.orEmpty(),
-                    body = payload.body.orEmpty(),
-                    imageUri = payload.imageUri,
-                    audioUri = payload.audioUri,
-                    categoryId = payload.categoryId,
-                    categoryName = payload.categoryName,
-                    readStatus = readStatus,
-                    audioDurationSeconds = payload.audioDurationSeconds ?: 0
-                ).getOrThrow()
+                withTimeout(20000) {
+                    viewModel.saveInsight(
+                        id = payload.id,
+                        title = payload.title.orEmpty(),
+                        body = payload.body.orEmpty(),
+                        imageUri = payload.imageUri,
+                        audioUri = payload.audioUri,
+                        categoryId = payload.categoryId,
+                        categoryName = payload.categoryName,
+                        readStatus = readStatus,
+                        audioDurationSeconds = payload.audioDurationSeconds ?: 0
+                    ).getOrThrow()
+                }
             }
 
             val eventPayload = result.fold(

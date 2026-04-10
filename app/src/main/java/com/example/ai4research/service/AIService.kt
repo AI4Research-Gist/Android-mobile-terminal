@@ -1393,46 +1393,65 @@ Rules:
             val detectedReferences = extractCanonicalReferencesFromText(trimmedText)
             val hintLinks = (pageHints.flatMap { it.referencedLinks } + detectedReferences).distinct()
 
-            val promptSizes = listOf(12000, 8000, 5000)
+            data class OcrOrganizeAttempt(
+                val model: String,
+                val promptSizes: List<Int>
+            )
+
+            val attemptPlans = listOf(
+                OcrOrganizeAttempt(
+                    model = SiliconFlowApiService.MODEL_FAST_TEXT,
+                    promptSizes = listOf(12000, 8000, 5000)
+                ),
+                // 大模型只做兜底，且避免再次走最长 prompt，降低整条链路超时概率。
+                OcrOrganizeAttempt(
+                    model = SiliconFlowApiService.MODEL_TEXT,
+                    promptSizes = listOf(8000, 5000)
+                )
+            )
             var aiContent: String? = null
             var lastError: Exception? = null
 
-            promptSizes.forEachIndexed { index, maxPromptChars ->
-                try {
-                    val prompt = buildString {
-                        appendLine("OCR pages: ${pageHints.size.coerceAtLeast(1)}")
-                        appendLine("Detected title hint: ${hintTitle ?: "null"}")
-                        appendLine("Detected authors hint: ${hintAuthors ?: "null"}")
-                        appendLine("Detected identifier hint: ${hintIdentifier ?: "null"}")
-                        appendLine("Detected links: ${if (hintLinks.isEmpty()) "[]" else hintLinks.joinToString(", ")}")
-                        appendLine()
-                        appendLine("OCR text:")
-                        appendLine(buildOcrPromptText(trimmedText, maxPromptChars))
-                    }
+            run breaking@{
+                attemptPlans.forEach { plan ->
+                    plan.promptSizes.forEachIndexed { index, maxPromptChars ->
+                        try {
+                            val prompt = buildString {
+                                appendLine("OCR pages: ${pageHints.size.coerceAtLeast(1)}")
+                                appendLine("Detected title hint: ${hintTitle ?: "null"}")
+                                appendLine("Detected authors hint: ${hintAuthors ?: "null"}")
+                                appendLine("Detected identifier hint: ${hintIdentifier ?: "null"}")
+                                appendLine("Detected links: ${if (hintLinks.isEmpty()) "[]" else hintLinks.joinToString(", ")}")
+                                appendLine()
+                                appendLine("OCR text:")
+                                appendLine(buildOcrPromptText(trimmedText, maxPromptChars))
+                            }
 
-                    val request = SimpleChatRequest(
-                        model = SiliconFlowApiService.MODEL_TEXT,
-                        messages = listOf(
-                            SimpleMessage(role = "system", content = OCR_BATCH_ORGANIZE_SYSTEM_PROMPT),
-                            SimpleMessage(role = "user", content = prompt)
-                        ),
-                        maxTokens = 1800,
-                        temperature = 0.2
-                    )
+                            val request = SimpleChatRequest(
+                                model = plan.model,
+                                messages = listOf(
+                                    SimpleMessage(role = "system", content = OCR_BATCH_ORGANIZE_SYSTEM_PROMPT),
+                                    SimpleMessage(role = "user", content = prompt)
+                                ),
+                                maxTokens = 1800,
+                                temperature = 0.2
+                            )
 
-                    val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
-                    aiContent = response.choices.firstOrNull()?.message?.content
-                    if (!aiContent.isNullOrBlank()) {
-                        return@forEachIndexed
+                            val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
+                            aiContent = response.choices.firstOrNull()?.message?.content
+                            if (!aiContent.isNullOrBlank()) {
+                                return@breaking
+                            }
+                            lastError = Exception("OCR organize returned empty content")
+                        } catch (e: Exception) {
+                            lastError = e
+                            Log.w(
+                                TAG,
+                                "organizeOcrBatch model=${plan.model} attempt ${index + 1} failed, maxPromptChars=$maxPromptChars",
+                                e
+                            )
+                        }
                     }
-                    lastError = Exception("OCR organize returned empty content")
-                } catch (e: Exception) {
-                    lastError = e
-                    Log.w(
-                        TAG,
-                        "organizeOcrBatch attempt ${index + 1} failed, maxPromptChars=$maxPromptChars",
-                        e
-                    )
                 }
             }
 

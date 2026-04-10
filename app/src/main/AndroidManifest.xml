@@ -52,6 +52,15 @@
             android:launchMode="singleTop"
             android:noHistory="true"
             android:taskAffinity="" />
+
+        <activity
+            android:name=".service.QuickInsightAssistActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:noHistory="true"
+            android:taskAffinity="" />
         
         
     </application>

@@ -1,8 +1,10 @@
 package com.example.ai4research.service
 
+import android.Manifest
 import android.app.Service
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.content.BroadcastReceiver
 import android.content.ClipboardManager
@@ -18,6 +20,7 @@ import android.hardware.display.DisplayManager
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -29,6 +32,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.webkit.MimeTypeMap
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -38,6 +42,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.repository.ItemRepository
@@ -71,6 +76,11 @@ class FloatingWindowService : Service() {
         const val ACTION_REGION_SELECT = "com.example.ai4research.action.REGION_SELECT"
         const val ACTION_CAPTURE_AFTER_PERMISSION = "com.example.ai4research.action.CAPTURE_AFTER_PERMISSION"
         const val ACTION_SHOW_LINK_INPUT = "com.example.ai4research.action.SHOW_LINK_INPUT"
+        const val ACTION_ATTACH_QUICK_INSIGHT_IMAGE = "com.example.ai4research.action.ATTACH_QUICK_INSIGHT_IMAGE"
+        const val ACTION_START_QUICK_INSIGHT_RECORDING = "com.example.ai4research.action.START_QUICK_INSIGHT_RECORDING"
+        const val ACTION_SHOW_QUICK_INSIGHT = "com.example.ai4research.action.SHOW_QUICK_INSIGHT"
+        const val ACTION_RESTORE_QUICK_INSIGHT = "com.example.ai4research.action.RESTORE_QUICK_INSIGHT"
+        const val EXTRA_IMAGE_URI = "image_uri"
         const val EXTRA_CAPTURE_MODE = "mode"
         private const val PROJECTION_NOTIFICATION_CHANNEL_ID = "media_projection_capture"
         private const val PROJECTION_NOTIFICATION_ID = 1002
@@ -98,6 +108,13 @@ class FloatingWindowService : Service() {
     private var inputView: View? = null
     private var resultView: View? = null
     private var competitionInputView: View? = null
+    private var quickInsightView: View? = null
+    private var quickInsightTitleInput: EditText? = null
+    private var quickInsightBodyInput: EditText? = null
+    private var quickInsightAttachmentStatusView: TextView? = null
+    private var quickInsightScreenshotButton: Button? = null
+    private var quickInsightVoiceButton: Button? = null
+    private var quickInsightSaveButton: Button? = null
     
     private var ballLayoutParams: WindowManager.LayoutParams? = null
     private var menuLayoutParams: WindowManager.LayoutParams? = null
@@ -114,6 +131,22 @@ class FloatingWindowService : Service() {
     }
     private var isCapturing = false
     private var regionOverlay: View? = null
+    private val quickInsightRecorder by lazy { AudioRecorderHelper(this) }
+    private var quickInsightScreenshotPath: String? = null
+    private var quickInsightAudioPath: String? = null
+    private var quickInsightAudioDurationSeconds: Int = 0
+    private var isQuickInsightRecording = false
+    private var isSavingQuickInsight = false
+    private var quickInsightDraftTitle: String = ""
+    private var quickInsightDraftBody: String = ""
+    private var hasQuickInsightDraft: Boolean = false
+
+    private enum class CaptureResultTarget {
+        OCR_IMPORT,
+        QUICK_INSIGHT_ATTACHMENT
+    }
+
+    private var captureResultTarget = CaptureResultTarget.OCR_IMPORT
 
     @Inject
     lateinit var floatingWindowManager: FloatingWindowManager
@@ -133,7 +166,7 @@ class FloatingWindowService : Service() {
             if (intent?.action == ACTION_CAPTURE_COMPLETED) {
                 val path = intent.getStringExtra(EXTRA_IMAGE_PATH)
                 if (path != null) {
-                    handleScreenshotV2(path)
+                    handleCapturedImagePath(path)
                 }
             }
         }
@@ -159,6 +192,18 @@ class FloatingWindowService : Service() {
                 intent.getStringExtra(EXTRA_CAPTURE_MODE) ?: "full"
             )
             ACTION_SHOW_LINK_INPUT -> showLinkInputWindow()
+            ACTION_SHOW_QUICK_INSIGHT -> showOrRestoreQuickInsightWindow()
+            ACTION_RESTORE_QUICK_INSIGHT -> showOrRestoreQuickInsightWindow()
+            ACTION_ATTACH_QUICK_INSIGHT_IMAGE -> {
+                showOrRestoreQuickInsightWindow()
+                intent.getStringExtra(EXTRA_IMAGE_URI)?.let { uriString ->
+                    attachImageUriToQuickInsight(uriString)
+                }
+            }
+            ACTION_START_QUICK_INSIGHT_RECORDING -> {
+                showOrRestoreQuickInsightWindow()
+                startQuickInsightRecordingInternal()
+            }
         }
         return START_STICKY
     }
@@ -209,6 +254,7 @@ class FloatingWindowService : Service() {
         // 关闭菜单和输入框
         if (isMenuExpanded) hideMenu()
         hideInputWindow()
+        hideQuickInsightWindow()
         hideResultOverlay()
         
         // 移除悬浮球
@@ -326,6 +372,11 @@ class FloatingWindowService : Service() {
                     mainHandler.postDelayed({
                         triggerRegionSelect()
                     }, 300)
+                }
+
+                override fun onQuickInsight() {
+                    hideMenu()
+                    showQuickInsightWindow(resetDraft = true)
                 }
 
                 override fun onAddLink() {
@@ -512,6 +563,649 @@ class FloatingWindowService : Service() {
         inputView = null
     }
 
+    // ==================== 快速灵感 ====================
+
+    private fun showOrRestoreQuickInsightWindow() {
+        if (quickInsightView != null) {
+            restoreQuickInsightOverlay()
+            return
+        }
+        showQuickInsightWindow(resetDraft = !hasQuickInsightDraft)
+    }
+
+    private fun showQuickInsightWindow(resetDraft: Boolean) {
+        if (quickInsightView != null) {
+            hideQuickInsightWindow()
+        }
+        if (resetDraft) {
+            resetQuickInsightDraft(deleteFiles = true)
+        }
+
+        val scrollView = ScrollView(this).apply {
+            isFillViewport = true
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 40, 48, 40)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#E61F1F24"))
+                cornerRadius = 48f
+                setStroke(2, Color.parseColor("#33FFFFFF"))
+            }
+            layoutParams = FrameLayout.LayoutParams(
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 340f, resources.displayMetrics).toInt(),
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        scrollView.addView(container)
+
+        val title = TextView(this).apply {
+            text = "快速灵感"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, 0, 0, 12)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        container.addView(title)
+
+        val subtitle = TextView(this).apply {
+            text = "不跳转，直接记录正文、图片和语音"
+            textSize = 12f
+            setTextColor(Color.parseColor("#B5C6D1"))
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, 0, 0, 28)
+        }
+        container.addView(subtitle)
+
+        val titleInput = EditText(this).apply {
+            hint = "标题可留空，会自动生成"
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33FFFFFF"))
+                cornerRadius = 24f
+            }
+            setPadding(28, 24, 28, 24)
+            imeOptions = EditorInfo.IME_ACTION_NEXT
+            isSingleLine = true
+            setText(quickInsightDraftTitle)
+        }
+        container.addView(
+            titleInput,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 20
+            }
+        )
+
+        val bodyInput = EditText(this).apply {
+            hint = "想到什么就先写下来"
+            setHintTextColor(Color.GRAY)
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            gravity = Gravity.TOP
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#33FFFFFF"))
+                cornerRadius = 24f
+            }
+            setPadding(28, 24, 28, 24)
+            minLines = 5
+            setText(quickInsightDraftBody)
+        }
+        container.addView(
+            bodyInput,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 20
+            }
+        )
+
+        val attachmentStatus = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.parseColor("#B5C6D1"))
+            setPadding(4, 0, 4, 16)
+        }
+        container.addView(attachmentStatus)
+
+        val attachmentActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val screenshotButton = Button(this).apply {
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#0EA5E9"))
+                cornerRadius = 24f
+            }
+            setOnClickListener { startQuickInsightImagePicker() }
+        }
+        attachmentActions.addView(
+            screenshotButton,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+
+        val buttonSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(24, 1)
+        }
+        attachmentActions.addView(buttonSpacer)
+
+        val voiceButton = Button(this).apply {
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#8B5CF6"))
+                cornerRadius = 24f
+            }
+            setOnClickListener {
+                if (isQuickInsightRecording) {
+                    finalizeQuickInsightRecording()
+                } else {
+                    startQuickInsightRecording()
+                }
+            }
+        }
+        attachmentActions.addView(
+            voiceButton,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        container.addView(
+            attachmentActions,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 28
+            }
+        )
+
+        val buttonContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val cancelButton = Button(this).apply {
+            text = "取消"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                cornerRadius = 24f
+            }
+            setOnClickListener { hideQuickInsightWindow() }
+        }
+        buttonContainer.addView(
+            cancelButton,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+
+        val actionSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(32, 1)
+        }
+        buttonContainer.addView(actionSpacer)
+
+        val saveButton = Button(this).apply {
+            text = "保存灵感"
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#10B981"))
+                cornerRadius = 24f
+            }
+            setOnClickListener { saveQuickInsightFromOverlay() }
+        }
+        buttonContainer.addView(
+            saveButton,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        container.addView(buttonContainer)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+            dimAmount = 0.5f
+            @Suppress("DEPRECATION")
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        }
+
+        quickInsightView = scrollView
+        quickInsightTitleInput = titleInput
+        quickInsightBodyInput = bodyInput
+        quickInsightAttachmentStatusView = attachmentStatus
+        quickInsightScreenshotButton = screenshotButton
+        quickInsightVoiceButton = voiceButton
+        quickInsightSaveButton = saveButton
+        updateQuickInsightUi()
+
+        try {
+            windowManager.addView(quickInsightView, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            hideQuickInsightWindow()
+        }
+    }
+
+    private fun setQuickInsightOverlayVisible(visible: Boolean) {
+        quickInsightView?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+    }
+
+    private fun restoreQuickInsightOverlay() {
+        captureQuickInsightDraftFromInputs()
+        setQuickInsightOverlayVisible(true)
+        quickInsightTitleInput?.setText(quickInsightDraftTitle)
+        quickInsightBodyInput?.setText(quickInsightDraftBody)
+    }
+
+    private fun hideQuickInsightWindow(deleteDraft: Boolean = true) {
+        captureQuickInsightDraftFromInputs()
+        quickInsightView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        quickInsightView = null
+        quickInsightTitleInput = null
+        quickInsightBodyInput = null
+        quickInsightAttachmentStatusView = null
+        quickInsightScreenshotButton = null
+        quickInsightVoiceButton = null
+        quickInsightSaveButton = null
+        if (deleteDraft) {
+            resetQuickInsightDraft(deleteFiles = true)
+        } else {
+            hasQuickInsightDraft = true
+        }
+    }
+
+    private fun resetQuickInsightDraft(deleteFiles: Boolean) {
+        if (isQuickInsightRecording) {
+            if (deleteFiles) {
+                quickInsightRecorder.cancelRecording()
+            } else {
+                finalizeQuickInsightRecording(showToast = false)
+            }
+        }
+        if (deleteFiles) {
+            deleteFileIfExists(quickInsightScreenshotPath)
+            deleteFileIfExists(quickInsightAudioPath)
+        }
+        quickInsightScreenshotPath = null
+        quickInsightAudioPath = null
+        quickInsightAudioDurationSeconds = 0
+        isQuickInsightRecording = false
+        quickInsightDraftTitle = ""
+        quickInsightDraftBody = ""
+        hasQuickInsightDraft = false
+    }
+
+    private fun clearQuickInsightDraftStatePreservingFiles() {
+        quickInsightScreenshotPath = null
+        quickInsightAudioPath = null
+        quickInsightAudioDurationSeconds = 0
+        isQuickInsightRecording = false
+        quickInsightDraftTitle = ""
+        quickInsightDraftBody = ""
+        hasQuickInsightDraft = false
+    }
+
+    private fun captureQuickInsightDraftFromInputs() {
+        quickInsightDraftTitle = quickInsightTitleInput?.text?.toString().orEmpty()
+        quickInsightDraftBody = quickInsightBodyInput?.text?.toString().orEmpty()
+        hasQuickInsightDraft = quickInsightDraftTitle.isNotBlank() ||
+            quickInsightDraftBody.isNotBlank() ||
+            !quickInsightScreenshotPath.isNullOrBlank() ||
+            !quickInsightAudioPath.isNullOrBlank()
+    }
+
+    private fun updateQuickInsightUi() {
+        quickInsightAttachmentStatusView?.text = buildQuickInsightAttachmentText()
+        quickInsightScreenshotButton?.text = if (quickInsightScreenshotPath != null) "重选图片" else "选图片"
+        quickInsightVoiceButton?.text = when {
+            isQuickInsightRecording -> "停止录音"
+            quickInsightAudioPath != null -> "重录语音"
+            else -> "附语音"
+        }
+        quickInsightSaveButton?.apply {
+            text = if (isSavingQuickInsight) "保存中..." else "保存灵感"
+            isEnabled = !isSavingQuickInsight
+        }
+        quickInsightScreenshotButton?.isEnabled = !isSavingQuickInsight
+        quickInsightVoiceButton?.isEnabled = !isSavingQuickInsight
+        quickInsightTitleInput?.isEnabled = !isSavingQuickInsight
+        quickInsightBodyInput?.isEnabled = !isSavingQuickInsight
+    }
+
+    private fun buildQuickInsightAttachmentText(): String {
+        val pieces = mutableListOf<String>()
+        if (quickInsightScreenshotPath != null) {
+            pieces += "已附图片"
+        }
+        if (isQuickInsightRecording) {
+            pieces += "语音录制中"
+        } else if (quickInsightAudioPath != null) {
+            pieces += "已附语音 ${formatDuration(quickInsightAudioDurationSeconds)}"
+        }
+        return if (pieces.isEmpty()) {
+            "可选附加图片或语音，保存后直接进入灵感页"
+        } else {
+            pieces.joinToString(" · ")
+        }
+    }
+
+    private fun startQuickInsightImagePicker() {
+        if (isSavingQuickInsight) {
+            Toast.makeText(this, "正在保存灵感，请稍后", Toast.LENGTH_SHORT).show()
+            return
+        }
+        setQuickInsightOverlayVisible(false)
+        launchQuickInsightAssistActivity(QuickInsightAssistActivity.MODE_PICK_IMAGE)
+    }
+
+    private fun attachScreenshotToQuickInsight(path: String) {
+        deleteFileIfExists(quickInsightScreenshotPath)
+        quickInsightScreenshotPath = path
+        updateQuickInsightUi()
+        Toast.makeText(this, "已附加图片", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun startQuickInsightRecording() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            setQuickInsightOverlayVisible(false)
+            launchQuickInsightAssistActivity(QuickInsightAssistActivity.MODE_REQUEST_AUDIO_PERMISSION)
+            return
+        }
+        startQuickInsightRecordingInternal()
+    }
+
+    private fun startQuickInsightRecordingInternal() {
+        if (isSavingQuickInsight) {
+            Toast.makeText(this, "正在保存灵感，请稍后", Toast.LENGTH_SHORT).show()
+            return
+        }
+        deleteFileIfExists(quickInsightAudioPath)
+        quickInsightAudioPath = null
+        quickInsightAudioDurationSeconds = 0
+        val filePath = quickInsightRecorder.startRecording()
+        if (filePath == null) {
+            Toast.makeText(this, "无法启动录音", Toast.LENGTH_SHORT).show()
+            return
+        }
+        isQuickInsightRecording = true
+        updateQuickInsightUi()
+        Toast.makeText(this, "开始录音，再点一次结束", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun finalizeQuickInsightRecording(showToast: Boolean = true): Boolean {
+        val result = quickInsightRecorder.stopRecording()
+        isQuickInsightRecording = false
+        if (result == null) {
+            quickInsightAudioPath = null
+            quickInsightAudioDurationSeconds = 0
+            updateQuickInsightUi()
+            if (showToast) {
+                Toast.makeText(this, "录音保存失败", Toast.LENGTH_SHORT).show()
+            }
+            return false
+        }
+
+        val (tempPath, duration) = result
+        val persistedPath = persistQuickInsightAudioFile(tempPath).getOrElse {
+            deleteFileIfExists(tempPath)
+            quickInsightAudioPath = null
+            quickInsightAudioDurationSeconds = 0
+            updateQuickInsightUi()
+            if (showToast) {
+                Toast.makeText(this, "保存录音附件失败: ${it.message}", Toast.LENGTH_SHORT).show()
+            }
+            return false
+        }
+        quickInsightAudioPath = persistedPath
+        quickInsightAudioDurationSeconds = duration
+        updateQuickInsightUi()
+        if (showToast) {
+            Toast.makeText(this, "已附加语音", Toast.LENGTH_SHORT).show()
+        }
+        return true
+    }
+
+    private fun attachImageUriToQuickInsight(uriString: String) {
+        serviceScope.launch {
+            val result = copyQuickInsightUriToLocalFile(Uri.parse(uriString))
+            withContext(Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { path ->
+                        attachScreenshotToQuickInsight(path)
+                    },
+                    onFailure = { error ->
+                        Toast.makeText(
+                            this@FloatingWindowService,
+                            "附加图片失败: ${error.message}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
+        }
+    }
+
+    private fun copyQuickInsightUriToLocalFile(uri: Uri): Result<String> = runCatching {
+        val targetDir = java.io.File(filesDir, "quick-insight/images").apply { mkdirs() }
+        val extension = contentResolver.getType(uri)
+            ?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
+            ?.takeIf { it.isNotBlank() }
+            ?: "jpg"
+        val targetFile = java.io.File(targetDir, "insight_${System.currentTimeMillis()}.$extension")
+
+        contentResolver.openInputStream(uri)?.use { input ->
+            java.io.FileOutputStream(targetFile).use { output ->
+                input.copyTo(output)
+            }
+        } ?: error("无法读取所选图片")
+
+        targetFile.absolutePath
+    }
+
+    private fun launchQuickInsightAssistActivity(mode: String) {
+        val intent = Intent(this, QuickInsightAssistActivity::class.java).apply {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_NO_HISTORY or
+                    Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+            )
+            putExtra(QuickInsightAssistActivity.EXTRA_MODE, mode)
+        }
+        startActivity(intent)
+    }
+
+    private fun persistQuickInsightAudioFile(tempPath: String): Result<String> = runCatching {
+        val sourceFile = java.io.File(tempPath)
+        check(sourceFile.exists()) { "录音文件不存在" }
+
+        val targetDir = java.io.File(filesDir, "quick-insight/audio").apply { mkdirs() }
+        val targetFile = java.io.File(targetDir, "insight_voice_${System.currentTimeMillis()}.m4a")
+
+        sourceFile.inputStream().use { input ->
+            targetFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        sourceFile.delete()
+        targetFile.absolutePath
+    }
+
+    private fun saveQuickInsightFromOverlay() {
+        if (isSavingQuickInsight) {
+            return
+        }
+
+        val titleInput = quickInsightTitleInput?.text?.toString()?.trim().orEmpty()
+        val bodyInput = quickInsightBodyInput?.text?.toString()?.trim().orEmpty()
+
+        if (titleInput.isBlank() &&
+            bodyInput.isBlank() &&
+            quickInsightScreenshotPath.isNullOrBlank() &&
+            quickInsightAudioPath.isNullOrBlank()
+        ) {
+            Toast.makeText(this, "请至少输入正文，或附加截图/语音", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (isQuickInsightRecording && !finalizeQuickInsightRecording()) {
+            return
+        }
+
+        val localImagePath = quickInsightScreenshotPath
+        val localAudioPath = quickInsightAudioPath
+        val localAudioDuration = quickInsightAudioDurationSeconds
+        val finalTitle = resolveQuickInsightTitle(titleInput, bodyInput, localImagePath, localAudioPath)
+        val summary = buildQuickInsightSummary(finalTitle, bodyInput, localImagePath, localAudioPath)
+        val contentMd = buildQuickInsightMarkdown(bodyInput, localImagePath, localAudioPath)
+        val metaJson = com.google.gson.Gson().toJson(
+            buildMap<String, Any?> {
+                put("source", "灵感")
+                put("body", bodyInput)
+                put("image_uri", localImagePath)
+                put("audio_uri", localAudioPath)
+                put("audio_duration", localAudioDuration)
+                put("has_image", !localImagePath.isNullOrBlank())
+                put("has_audio", !localAudioPath.isNullOrBlank())
+            }
+        )
+
+        isSavingQuickInsight = true
+        updateQuickInsightUi()
+        hideQuickInsightWindow(deleteDraft = false)
+
+        mainHandler.post {
+            floatingBall?.isProcessing = true
+            Toast.makeText(this, "正在保存灵感...", Toast.LENGTH_SHORT).show()
+        }
+
+        serviceScope.launch {
+            val result = itemRepository.createFullItem(
+                title = finalTitle,
+                summary = summary,
+                contentMd = contentMd,
+                originUrl = localImagePath,
+                type = ItemType.INSIGHT,
+                status = ItemStatus.DONE,
+                metaJson = metaJson,
+                tags = emptyList(),
+                audioUrl = localAudioPath
+            )
+
+            withContext(Dispatchers.Main) {
+                floatingBall?.isProcessing = false
+                isSavingQuickInsight = false
+                result.fold(
+                    onSuccess = { item ->
+                        val broadcastIntent = Intent(ACTION_ITEM_ADDED).apply {
+                            putExtra(EXTRA_ITEM_ID, item.id)
+                            putExtra(EXTRA_ITEM_TYPE, ItemType.INSIGHT.name)
+                            setPackage(packageName)
+                        }
+                        sendBroadcast(broadcastIntent)
+                        clearQuickInsightDraftStatePreservingFiles()
+                        showResultOverlay("已存入灵感", item.title)
+                    },
+                    onFailure = { error ->
+                        deleteFileIfExists(localImagePath)
+                        deleteFileIfExists(localAudioPath)
+                        Toast.makeText(
+                            this@FloatingWindowService,
+                            "保存灵感失败: ${error.message}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
+        }
+    }
+
+    private fun resolveQuickInsightTitle(
+        title: String,
+        body: String,
+        imagePath: String?,
+        audioPath: String?
+    ): String {
+        if (title.isNotBlank()) return title
+        if (body.isNotBlank()) {
+            val singleLine = body.replace('\n', ' ').trim()
+            return if (singleLine.length > 22) "${singleLine.take(22)}..." else singleLine
+        }
+        return when {
+            !imagePath.isNullOrBlank() && !audioPath.isNullOrBlank() -> "图片语音灵感"
+            !imagePath.isNullOrBlank() -> "图片灵感"
+            !audioPath.isNullOrBlank() -> "语音灵感"
+            else -> "快速灵感"
+        }
+    }
+
+    private fun buildQuickInsightSummary(
+        title: String,
+        body: String,
+        imagePath: String?,
+        audioPath: String?
+    ): String {
+        if (body.isNotBlank()) {
+            return body.replace('\n', ' ').trim().take(120)
+        }
+        val parts = mutableListOf<String>()
+        if (!imagePath.isNullOrBlank()) parts += "含图片"
+        if (!audioPath.isNullOrBlank()) parts += "含语音"
+        return if (parts.isEmpty()) title else parts.joinToString(" · ")
+    }
+
+    private fun buildQuickInsightMarkdown(
+        body: String,
+        imagePath: String?,
+        audioPath: String?
+    ): String {
+        if (body.isNotBlank()) return body
+        return buildString {
+            appendLine("（快速灵感未填写正文）")
+            if (!imagePath.isNullOrBlank()) {
+                appendLine()
+                appendLine("- 已附图片")
+            }
+            if (!audioPath.isNullOrBlank()) {
+                appendLine("- 已附语音")
+            }
+        }.trim()
+    }
+
+    private fun formatDuration(seconds: Int): String {
+        val safeSeconds = seconds.coerceAtLeast(0)
+        val minutes = safeSeconds / 60
+        val remain = safeSeconds % 60
+        return if (minutes > 0) {
+            "${minutes}m ${remain}s"
+        } else {
+            "${remain}s"
+        }
+    }
+
+    private fun deleteFileIfExists(path: String?) {
+        if (path.isNullOrBlank()) return
+        runCatching { java.io.File(path).takeIf { it.exists() }?.delete() }
+    }
+
     // ==================== 结果展示 ====================
 
     private fun showResultOverlay(title: String, summary: String) {
@@ -580,6 +1274,16 @@ class FloatingWindowService : Service() {
     }
 
     // ==================== 业务逻辑处理 ====================
+
+    private fun handleCapturedImagePath(path: String) {
+        when (captureResultTarget) {
+            CaptureResultTarget.QUICK_INSIGHT_ATTACHMENT -> {
+                captureResultTarget = CaptureResultTarget.OCR_IMPORT
+                attachScreenshotToQuickInsight(path)
+            }
+            CaptureResultTarget.OCR_IMPORT -> handleQueuedScreenshot(path)
+        }
+    }
 
     private fun handleScreenshot(path: String) {
         mainHandler.post {
@@ -1570,10 +2274,9 @@ class FloatingWindowService : Service() {
                             setPackage(packageName)
                         }
                         sendBroadcast(broadcastIntent)
-                        openMainActivity(selectedType)
                         showResultOverlay(
                             "已加入${getTypeDisplayName(selectedType)}",
-                            "后台解析中"
+                            "已留在当前页面，链接正在后台解析"
                         )
 
                         serviceScope.launch {
@@ -1878,14 +2581,16 @@ class FloatingWindowService : Service() {
                 withContext(Dispatchers.Main) {
                     isCapturing = false
                     if (imagePath != null) {
-                        handleQueuedScreenshot(imagePath)
+                        handleCapturedImagePath(imagePath)
                     } else {
+                        captureResultTarget = CaptureResultTarget.OCR_IMPORT
                         Toast.makeText(this@FloatingWindowService, "保存截图失败", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     isCapturing = false
+                    captureResultTarget = CaptureResultTarget.OCR_IMPORT
                     Toast.makeText(this@FloatingWindowService, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } finally {
@@ -2031,13 +2736,15 @@ class FloatingWindowService : Service() {
 
                 withContext(Dispatchers.Main) {
                     if (imagePath != null) {
-                        handleScreenshotV2(imagePath)
+                        handleCapturedImagePath(imagePath)
                     } else {
+                        captureResultTarget = CaptureResultTarget.OCR_IMPORT
                         Toast.makeText(this@FloatingWindowService, "保存截图失败", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
+                    captureResultTarget = CaptureResultTarget.OCR_IMPORT
                     Toast.makeText(this@FloatingWindowService, "截图失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } finally {
@@ -2310,7 +3017,8 @@ class FloatingWindowService : Service() {
             inputViewVisibility = inputView.hideForCapture(),
             resultViewVisibility = resultView.hideForCapture(),
             competitionInputViewVisibility = competitionInputView.hideForCapture(),
-            categoryDialogVisibility = categoryDialogView.hideForCapture()
+            categoryDialogVisibility = categoryDialogView.hideForCapture(),
+            quickInsightViewVisibility = quickInsightView.hideForCapture()
         )
     }
 
@@ -2321,6 +3029,7 @@ class FloatingWindowService : Service() {
         resultView.restoreVisibility(state.resultViewVisibility)
         competitionInputView.restoreVisibility(state.competitionInputViewVisibility)
         categoryDialogView.restoreVisibility(state.categoryDialogVisibility)
+        quickInsightView.restoreVisibility(state.quickInsightViewVisibility)
     }
 
     private fun View?.hideForCapture(): Int? {
@@ -2341,7 +3050,8 @@ class FloatingWindowService : Service() {
         val inputViewVisibility: Int?,
         val resultViewVisibility: Int?,
         val competitionInputViewVisibility: Int?,
-        val categoryDialogVisibility: Int?
+        val categoryDialogVisibility: Int?,
+        val quickInsightViewVisibility: Int?
     )
 
     override fun onDestroy() {
@@ -2349,6 +3059,7 @@ class FloatingWindowService : Service() {
         hideFloatingBall()
         hideRegionSelectionOverlay()
         hideCategoryDialog()
+        hideQuickInsightWindow()
         pendingParseResult = null
         unregisterReceiver(captureReceiver)
         stopProjectionForeground()

@@ -62,6 +62,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "Gist·简研")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
