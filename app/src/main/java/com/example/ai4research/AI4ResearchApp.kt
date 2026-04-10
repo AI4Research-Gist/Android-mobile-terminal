@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import android.provider.Settings
+import com.example.ai4research.ai.local.OnDeviceModelBootstrapper
 import com.example.ai4research.service.FloatingWindowManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,9 @@ class AI4ResearchApp : Application() {
     
     @Inject
     lateinit var floatingWindowManager: FloatingWindowManager
+
+    @Inject
+    lateinit var onDeviceModelBootstrapper: OnDeviceModelBootstrapper
     
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
@@ -41,6 +45,9 @@ class AI4ResearchApp : Application() {
      */
     override fun onCreate() {
         super.onCreate()
+        applicationScope.launch {
+            onDeviceModelBootstrapper.initialize()
+        }
         registerActivityLifecycleCallbacks(AppLifecycleCallbacks())
     }
     

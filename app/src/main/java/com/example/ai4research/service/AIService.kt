@@ -4,6 +4,12 @@ import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
 import com.example.ai4research.BuildConfig
+import com.example.ai4research.ai.AiTarget
+import com.example.ai4research.ai.AiTaskRouter
+import com.example.ai4research.ai.AiTaskType
+import com.example.ai4research.ai.local.LocalAiBackend
+import com.example.ai4research.ai.local.LocalChatMessage
+import com.example.ai4research.ai.local.LocalGenerationRequest
 import com.example.ai4research.domain.model.ArticlePaperCandidate
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.model.ProjectOverview
@@ -42,7 +48,9 @@ import javax.inject.Singleton
 class AIService @Inject constructor(
     private val siliconFlowApi: SiliconFlowApiService,
     private val json: Json,
-    private val webContentFetcher: WebContentFetcher
+    private val webContentFetcher: WebContentFetcher,
+    private val aiTaskRouter: AiTaskRouter,
+    private val localAiBackend: LocalAiBackend
 ) {
 
     companion object {
@@ -328,12 +336,21 @@ Rules:
      */
     suspend fun parseLink(link: String): Result<String> = withContext(Dispatchers.IO) {
         try {
+            val messages = listOf(
+                SimpleMessage(role = "system", content = SYSTEM_PROMPT_LINK),
+                SimpleMessage(role = "user", content = "请解析这个链接：$link")
+            )
+
+            tryOnDeviceText(
+                taskType = AiTaskType.LINK_PARSE,
+                messages = messages,
+                maxTokens = 512,
+                temperature = 0.2f
+            )?.let { return@withContext it }
+
             val request = SimpleChatRequest(
                 model = SiliconFlowApiService.MODEL_TEXT,
-                messages = listOf(
-                    SimpleMessage(role = "system", content = SYSTEM_PROMPT_LINK),
-                    SimpleMessage(role = "user", content = "请解析这个链接：$link")
-                ),
+                messages = messages,
                 maxTokens = 512
             )
             
@@ -537,6 +554,20 @@ Rules:
                 ),
                 maxTokens = 1024
             )
+
+            tryOnDeviceText(
+                taskType = AiTaskType.TRANSCRIPTION_ENHANCE,
+                messages = request.messages,
+                maxTokens = 512,
+                temperature = 0.2f
+            )?.let { localResult ->
+                return@withContext localResult.fold(
+                    onSuccess = { content ->
+                        if (content.isBlank()) Result.success(rawText) else Result.success(content.trim())
+                    },
+                    onFailure = { Result.success(rawText) }
+                )
+            }
             
             val response = siliconFlowApi.chatCompletion(AUTH_HEADER, request)
             val content = response.choices.firstOrNull()?.message?.content?.trim()
@@ -735,6 +766,13 @@ Rules:
                 SimpleMessage(role = "user", content = prompt)
             )
 
+            tryOnDeviceText(
+                taskType = AiTaskType.ITEM_QA_SHORT,
+                messages = messages,
+                maxTokens = 700,
+                temperature = 0.2f
+            )?.let { return@withContext it }
+
             fun buildRequest(model: String) = SimpleChatRequest(
                 model = model,
                 messages = messages,
@@ -759,6 +797,40 @@ Rules:
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private suspend fun tryOnDeviceText(
+        taskType: AiTaskType,
+        messages: List<SimpleMessage>,
+        maxTokens: Int,
+        temperature: Float
+    ): Result<String>? {
+        val decision = aiTaskRouter.decide(taskType)
+        if (decision.preferredTarget != AiTarget.LOCAL) {
+            return null
+        }
+
+        val localResult = localAiBackend.generateText(
+            taskType = taskType,
+            request = LocalGenerationRequest(
+                messages = messages.map { LocalChatMessage(role = it.role, content = it.content) },
+                maxTokens = maxTokens,
+                temperature = temperature
+            )
+        )
+
+        if (localResult.isSuccess) {
+            Log.d(TAG, "On-device route succeeded for $taskType")
+            return localResult
+        }
+
+        if (!decision.allowCloudFallback) {
+            Log.w(TAG, "On-device route failed for $taskType without cloud fallback: ${localResult.exceptionOrNull()?.message}")
+            return localResult
+        }
+
+        Log.w(TAG, "On-device route failed for $taskType, falling back to cloud: ${localResult.exceptionOrNull()?.message}")
+        return null
     }
 
     private fun buildCompactItemMeta(metaJson: String?): String {

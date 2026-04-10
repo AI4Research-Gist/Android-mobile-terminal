@@ -28,6 +28,8 @@
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
 .android-home/
+.pydeps/
+.piptmp2/
 .DS_Store
 /build
 /captures

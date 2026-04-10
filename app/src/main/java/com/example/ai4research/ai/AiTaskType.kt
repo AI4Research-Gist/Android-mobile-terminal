@@ -1,0 +1,13 @@
+package com.example.ai4research.ai
+
+enum class AiTaskType {
+    TRANSCRIPTION_ENHANCE,
+    LINK_PARSE,
+    SHORT_SUMMARY,
+    ITEM_QA_SHORT,
+    OCR_POST_PROCESS,
+    IMAGE_OCR,
+    AUDIO_TRANSCRIPTION,
+    PROJECT_OVERVIEW,
+    RESEARCH_COMPARE
+}

@@ -157,6 +157,7 @@ app/src/main/
 - 更新日志入口：[`v0.6.0`](d:/Android-mobile-terminal/changelog/v0.6.0.md)
 - 上一版本说明：[`v0.5.1`](d:/Android-mobile-terminal/changelog/v0.5.1.md)
 - 更早版本说明：[`v0.5.0`](d:/Android-mobile-terminal/changelog/v0.5.0.md)
+- 测试版前开发总文档：[`测试版前开发总文档.md`](d:/Android-mobile-terminal/测试版前开发总文档.md)
 - 灵感模块补充说明：[`INSPIRATION_PAGE_V0.3.0_SPEC.md`](d:/Android-mobile-terminal/INSPIRATION_PAGE_V0.3.0_SPEC.md)
 - 知识连接参考文档：[`V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md`](d:/Android-mobile-terminal/V0_5_KNOWLEDGE_CONNECTION_REFERENCE.md)
 - 研究助手 PRD：[`V0_6_RESEARCH_ASSISTANT_PRD.md`](d:/Android-mobile-terminal/V0_6_RESEARCH_ASSISTANT_PRD.md)

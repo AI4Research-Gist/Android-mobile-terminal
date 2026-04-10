@@ -4,6 +4,7 @@
 本文档以当前代码库为唯一依据，完整说明 **Gist**（原名 AI4Research）的产品定位、架构设计、核心流程、数据模型、服务能力与技术细节，便于后续维护、迭代与交接。
 
 当前版本核心说明文档：
+- [`测试版前开发总文档.md`](D:/Android-mobile-terminal/测试版前开发总文档.md)
 - [`changelog/v0.6.0.md`](D:/Android-mobile-terminal/changelog/v0.6.0.md)
 - [`changelog/v0.5.1.md`](D:/Android-mobile-terminal/changelog/v0.5.1.md)
 - [`changelog/v0.5.0.md`](D:/Android-mobile-terminal/changelog/v0.5.0.md)
