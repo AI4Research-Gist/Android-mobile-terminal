@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import javax.inject.Inject
 
 data class DetailUiState(
@@ -36,6 +37,7 @@ data class DetailUiState(
     val isRegeneratingSummary: Boolean = false,
     val isGeneratingReadingCard: Boolean = false,
     val isRetryingOcr: Boolean = false,
+    val isBrowserParsing: Boolean = false,
     val generatedReadingCard: StructuredReadingCard? = null,
     val isComparisonDialogVisible: Boolean = false,
     val isGeneratingComparison: Boolean = false,
@@ -107,6 +109,7 @@ class DetailViewModel @Inject constructor(
                 isGeneratingComparison = false,
                 insightRecommendations = emptyList(),
                 isLookingUpInsightLinks = false,
+                isBrowserParsing = false,
                 chatMessages = emptyList(),
                 isAiResponding = false
             )
@@ -350,6 +353,79 @@ class DetailViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isRetryingOcr = false,
                     errorMessage = "重新解析 OCR 失败: ${result.exceptionOrNull()?.message}"
+                )
+            }
+        }
+    }
+
+    fun parseFromBrowserSnapshot(
+        pageUrl: String,
+        pageTitle: String?,
+        pageText: String,
+        pageHtml: String? = null
+    ) {
+        val item = _uiState.value.item ?: return
+        if (pageText.isBlank()) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Current browser page has no readable text")
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isBrowserParsing = true, errorMessage = null)
+
+            val linkResult = aiService.parseLinkStructured(pageUrl).getOrNull()
+            val summaryResult = aiService.summarizeText(
+                buildString {
+                    appendLine("URL: $pageUrl")
+                    pageTitle?.takeIf { it.isNotBlank() }?.let { appendLine("Title: $it") }
+                    appendLine()
+                    appendLine(pageText.take(12000))
+                }
+            ).getOrNull()
+
+            val parsedSummary = parseSummaryJson(summaryResult)
+            val finalTitle = pageTitle?.takeIf { it.isNotBlank() }
+                ?: parsedSummary["title"]?.takeIf { it.isNotBlank() }
+                ?: linkResult?.title?.takeIf { it.isNotBlank() }
+                ?: item.title
+
+            val finalSummary = parsedSummary["summary"]?.takeIf { it.isNotBlank() }
+                ?: item.summary.takeIf { it.isNotBlank() }
+                ?: pageText.take(220)
+
+            val mergedMetaJson = mergeBrowserSnapshotMeta(
+                existingMetaJson = item.rawMetaJson,
+                pageUrl = pageUrl,
+                pageTitle = pageTitle,
+                pageHtml = pageHtml,
+                pageText = pageText,
+                linkType = linkResult?.linkType,
+                linkId = linkResult?.id
+            )
+
+            val updatedMarkdown = buildString {
+                appendLine("# $finalTitle")
+                appendLine()
+                appendLine("- Browser source: $pageUrl")
+                appendLine()
+                appendLine(pageText)
+            }
+
+            val result = itemRepository.updateItem(
+                id = item.id,
+                title = finalTitle,
+                summary = finalSummary,
+                content = updatedMarkdown,
+                originUrl = pageUrl,
+                metaJson = mergedMetaJson
+            )
+
+            if (result.isSuccess) {
+                load(item.id)
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isBrowserParsing = false,
+                    errorMessage = "Browser parsing failed: ${result.exceptionOrNull()?.message}"
                 )
             }
         }
@@ -631,6 +707,46 @@ class DetailViewModel @Inject constructor(
         summaryZh?.let { map["summary_zh"] = it }
         summaryEn?.let { map["summary_en"] = it }
         summaryShort?.let { map["summary_short"] = it }
+
+        return gson.toJson(map)
+    }
+
+    private fun parseSummaryJson(raw: String?): Map<String, String> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw.trim())
+            buildMap {
+                put("title", json.optString("title"))
+                put("summary", json.optString("summary"))
+                put("authors", json.optString("authors"))
+                put("doi", json.optString("doi"))
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun mergeBrowserSnapshotMeta(
+        existingMetaJson: String?,
+        pageUrl: String,
+        pageTitle: String?,
+        pageHtml: String?,
+        pageText: String,
+        linkType: String?,
+        linkId: String?
+    ): String {
+        val type = object : TypeToken<MutableMap<String, Any?>>() {}.type
+        val map: MutableMap<String, Any?> = if (existingMetaJson.isNullOrBlank()) {
+            mutableMapOf()
+        } else {
+            runCatching { gson.fromJson(existingMetaJson, type) as MutableMap<String, Any?> }
+                .getOrElse { mutableMapOf() }
+        }
+
+        map["browser_snapshot_url"] = pageUrl
+        map["browser_snapshot_title"] = pageTitle
+        map["browser_snapshot_text"] = pageText.take(12000)
+        map["browser_snapshot_html"] = pageHtml?.take(40000)
+        map["browser_link_type"] = linkType
+        map["browser_link_id"] = linkId
 
         return gson.toJson(map)
     }

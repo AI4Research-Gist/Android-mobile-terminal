@@ -32,8 +32,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.ai4research"
-        minSdk = 26  
-        targetSdk = 34  
+        minSdk = 26
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -57,6 +57,16 @@ android {
             "SILICONFLOW_API_KEY",
             "\"${escapeBuildConfigValue(resolveSecret("AI4RESEARCH_SILICONFLOW_API_KEY"))}\""
         )
+        buildConfigField(
+            "String",
+            "FIRECRAWL_BASE_URL",
+            "\"${escapeBuildConfigValue(resolveSecret("AI4RESEARCH_FIRECRAWL_BASE_URL", "https://api.firecrawl.dev/v1/"))}\""
+        )
+        buildConfigField(
+            "String",
+            "FIRECRAWL_API_KEY",
+            "\"${escapeBuildConfigValue(resolveSecret("AI4RESEARCH_FIRECRAWL_API_KEY"))}\""
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -65,7 +75,14 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            resValue("string", "app_name", "Gist·简研")
+            resValue("string", "app_name", "Gist Debug")
+        }
+        create("recovery") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".recovery"
+            versionNameSuffix = "-recovery"
+            resValue("string", "app_name", "Gist Recovery")
+            matchingFallbacks += listOf("debug")
         }
         release {
             isMinifyEnabled = false
@@ -75,6 +92,7 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -89,13 +107,11 @@ android {
 }
 
 dependencies {
-    // Core Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
-    
-    // Compose
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.animation)
     implementation(libs.androidx.compose.foundation)
@@ -103,56 +119,38 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    // Material Icons Extended
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
-    
-    // Navigation
+
     implementation(libs.navigation.compose)
-    
-    // Hilt (依赖注入)
+
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
-    
-    // Retrofit & OkHttp (网络层)
+
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.kotlinx.serialization)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging.interceptor)
     implementation(libs.kotlinx.serialization.json)
-    
-    // Room (本地数据库)
+
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
-    
-    
-    
-    // Gson (JSON解析，用于Room TypeConverter)
+
     implementation(libs.gson)
-    
-    // Jsoup (HTML解析，用于网页内容抓取)
     implementation(libs.jsoup)
-    
-    // Compose Markdown (Markdown渲染)
     implementation(libs.compose.markdown)
-    
-    
-    // Security & Biometric (安全存储与生物识别)
+
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.security.crypto)
-    
-    // DataStore (数据持久化)
     implementation(libs.androidx.datastore.preferences)
-    
-    // Testing
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
-    
-    // Debug
+
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }

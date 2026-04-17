@@ -30,6 +30,7 @@
 .android-home/
 .pydeps/
 .piptmp2/
+recovery/
 .DS_Store
 /build
 /captures

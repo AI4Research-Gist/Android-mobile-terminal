@@ -3,6 +3,7 @@ package com.example.ai4research.di
 import com.example.ai4research.BuildConfig
 import com.example.ai4research.core.network.NocoAuthInterceptor
 import com.example.ai4research.core.util.Constants
+import com.example.ai4research.data.remote.api.FirecrawlApiService
 import com.example.ai4research.data.remote.api.NocoApiService
 import com.example.ai4research.data.remote.api.SiliconFlowApiService
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -83,6 +84,28 @@ object NetworkModule {
             .callTimeout(240, TimeUnit.SECONDS)
             .build()
     }
+
+    @Provides
+    @Singleton
+    @Named("firecrawl")
+    fun provideFirecrawlOkHttpClient(): OkHttpClient {
+        val loggingInterceptor = HttpLoggingInterceptor().apply {
+            level = if (BuildConfig.DEBUG) {
+                HttpLoggingInterceptor.Level.BASIC
+            } else {
+                HttpLoggingInterceptor.Level.NONE
+            }
+        }
+
+        return OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .retryOnConnectionFailure(true)
+            .connectTimeout(45, TimeUnit.SECONDS)
+            .readTimeout(75, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
+            .callTimeout(90, TimeUnit.SECONDS)
+            .build()
+    }
     
     /**
      * 提供通用 Web OkHttpClient（用于网页抓取）
@@ -137,6 +160,22 @@ object NetworkModule {
             .addConverterFactory(json.asConverterFactory(contentType))
             .build()
     }
+
+    @Provides
+    @Singleton
+    @Named("firecrawl")
+    fun provideFirecrawlRetrofit(
+        @Named("firecrawl") okHttpClient: OkHttpClient,
+        json: Json
+    ): Retrofit {
+        val contentType = "application/json".toMediaType()
+
+        return Retrofit.Builder()
+            .baseUrl(FirecrawlApiService.BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(json.asConverterFactory(contentType))
+            .build()
+    }
     
     /**
      * 提供 NocoApiService
@@ -154,5 +193,11 @@ object NetworkModule {
     @Singleton
     fun provideSiliconFlowApiService(@Named("siliconflow") retrofit: Retrofit): SiliconFlowApiService {
         return retrofit.create(SiliconFlowApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideFirecrawlApiService(@Named("firecrawl") retrofit: Retrofit): FirecrawlApiService {
+        return retrofit.create(FirecrawlApiService::class.java)
     }
 }

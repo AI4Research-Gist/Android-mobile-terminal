@@ -1,5 +1,7 @@
 package com.example.ai4research.ui.detail
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -50,9 +53,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -531,6 +536,14 @@ fun DetailScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            item?.originUrl?.takeIf { it.isNotBlank() }?.let { originalUrl ->
+                Spacer(modifier = Modifier.height(16.dp))
+                OriginalPageEntryCard(
+                    url = originalUrl,
+                    isDark = isSystemInDarkTheme()
+                )
+            }
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -2828,5 +2841,82 @@ private fun VoiceInfoRow(label: String, value: String, isDark: Boolean) {
             color = if (isDark) Color.White else Color.Black,
             modifier = Modifier.weight(1f, fill = false)
         )
+    }
+}
+
+@Composable
+private fun OriginalPageEntryCard(
+    url: String,
+    isDark: Boolean
+) {
+    val context = LocalContext.current
+    val normalizedUrl = remember(url) { normalizeBrowsableUrl(url) }
+    val accent = if (isDark) Color(0xFF7CC4FF) else Color(0xFF2563EB)
+
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = if (isDark) Color.White.copy(alpha = 0.04f) else Color.White.copy(alpha = 0.14f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Original Page",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = accent
+            )
+            Text(
+                text = "This follows the original APK approach: browser first, fullscreen desktop WebView as fallback.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            Text(
+                text = normalizedUrl,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(normalizedUrl)).apply {
+                                    addCategory(Intent.CATEGORY_BROWSABLE)
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    Text("Open In Browser")
+                }
+                Button(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(context, OriginalPageActivity::class.java).apply {
+                                    putExtra(OriginalPageActivity.EXTRA_URL, normalizedUrl)
+                                    putExtra(OriginalPageActivity.EXTRA_TITLE, "Original Page")
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    Text("Open Fullscreen")
+                }
+            }
+        }
+    }
+}
+
+private fun normalizeBrowsableUrl(url: String): String {
+    val trimmed = url.trim().removeSuffix("#pushState")
+    val lower = trimmed.lowercase()
+    return if (lower.startsWith("http://")) {
+        "https://" + trimmed.removePrefix("http://")
+    } else {
+        trimmed
     }
 }
