@@ -47,6 +47,7 @@ import com.example.ai4research.domain.model.ItemStatus
 import com.example.ai4research.domain.model.ItemType
 import com.example.ai4research.domain.repository.ItemRepository
 import com.example.ai4research.R
+import com.example.ai4research.share.SharedTextParser
 import com.example.ai4research.ui.floating.FloatingBallView
 import com.example.ai4research.ui.floating.FloatingMenuView
 import dagger.hilt.android.AndroidEntryPoint
@@ -1457,13 +1458,20 @@ class FloatingWindowService : Service() {
      * 5. 同步更新数据库
      */
     private fun handleLink(link: String) {
+        val normalizedLink = SharedTextParser.extractUrlCandidate(link)
+            ?: aiService.normalizeLinkInput(link)
+        if (normalizedLink.isBlank()) {
+            Toast.makeText(this, "无法识别有效链接", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         mainHandler.post {
             floatingBall?.isProcessing = true
             Toast.makeText(this, "请选择分类，链接将进入后台解析", Toast.LENGTH_SHORT).show()
         }
 
         try {
-            val draft = aiService.createQuickLinkDraft(link)
+            val draft = aiService.createQuickLinkDraft(normalizedLink)
             pendingParseResult = draft
             floatingBall?.isProcessing = false
             showCategorySelectionDialog(draft)
@@ -3211,3 +3219,4 @@ private class RegionSelectionOverlayView(
         }
     }
 }
+

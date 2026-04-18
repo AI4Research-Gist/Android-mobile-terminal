@@ -400,8 +400,8 @@ class WebContentFetcher @Inject constructor(
     }
 
     private fun FirecrawlMetadata?.resolvedUrl(fallback: String): String {
-        return this?.sourceUrl?.takeIf { it.isNotBlank() }
-            ?: this?.url?.takeIf { it.isNotBlank() }
+        return this?.url?.takeIf { it.isNotBlank() }
+            ?: this?.sourceUrl?.takeIf { it.isNotBlank() }
             ?: fallback
     }
 
@@ -426,6 +426,7 @@ class WebContentFetcher @Inject constructor(
 
             val response = okHttpClient.newCall(request).execute()
             val html = response.body?.string() ?: error("Web page returned empty body")
+            val finalUrl = response.request.url.toString()
             val doc = Jsoup.parse(html)
 
             val title = doc.select("meta[property=og:title]").attr("content")
@@ -459,7 +460,7 @@ class WebContentFetcher @Inject constructor(
                         appendLine("## Body")
                         appendLine(content)
                     },
-                    url = url,
+                    url = finalUrl,
                     authors = author.ifBlank { null },
                     abstract = description.ifBlank { null },
                     source = "web"
@@ -472,10 +473,11 @@ class WebContentFetcher @Inject constructor(
     }
 
     private fun extractMainContent(doc: Document): String {
-        doc.select("script, style, nav, footer, header, aside, .nav, .header, .footer, .sidebar, .advertisement, .ad")
+        val workingDoc = doc.clone()
+        workingDoc.select("script, style, nav, footer, header, aside, form, iframe, noscript, .nav, .header, .footer, .sidebar, .advertisement, .ad")
             .remove()
-        val mainContent = doc.select("article, main, .content, .article, .post-content, #content, #main").firstOrNull()
-        val text = (mainContent ?: doc.body())?.text().orEmpty()
+        val mainContent = workingDoc.select("article, main, .content, .article, .post-content, #content, #main").firstOrNull()
+        val text = (mainContent ?: workingDoc.body())?.text().orEmpty()
         val cleaned = text.replace(Regex("\\s+"), " ").trim()
         return if (cleaned.length > MAX_CONTENT_LENGTH) cleaned.take(MAX_CONTENT_LENGTH) + "..." else cleaned
     }

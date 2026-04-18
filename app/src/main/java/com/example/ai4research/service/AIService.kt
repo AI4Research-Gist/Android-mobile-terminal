@@ -22,6 +22,7 @@ import com.example.ai4research.data.remote.dto.VLChatRequest
 import com.example.ai4research.data.remote.dto.VLContent
 import com.example.ai4research.data.remote.dto.VLImageUrl
 import com.example.ai4research.data.remote.dto.VLMessage
+import com.example.ai4research.util.LinkInputNormalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -2345,14 +2346,40 @@ Rules:
     fun normalizeLinkInput(input: String): String {
         val trimmed = input.trim()
         if (trimmed.isBlank()) return trimmed
+        LinkInputNormalizer.extractFirstUrl(trimmed)?.let { return normalizePreferredScheme(it) }
         if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
-            return trimmed
+            return normalizePreferredScheme(LinkInputNormalizer.normalizeUrlCandidate(trimmed))
         }
 
         extractArxivIdFromInput(trimmed)?.let { return "https://arxiv.org/abs/$it" }
         extractDoiFromInput(trimmed)?.let { return "https://doi.org/$it" }
 
         return trimmed
+    }
+
+    private fun normalizePreferredScheme(url: String): String {
+        val normalized = url.trim()
+        if (!normalized.startsWith("http://", ignoreCase = true)) return normalized
+
+        val lower = normalized.lowercase()
+        val forceHttpsHosts = listOf(
+            "xhslink.com",
+            "xiaohongshu.com",
+            "www.xiaohongshu.com",
+            "mp.weixin.qq.com",
+            "weixin.qq.com",
+            "zhihu.com",
+            "www.zhihu.com",
+            "douyin.com",
+            "www.douyin.com",
+            "iesdouyin.com"
+        )
+
+        return if (forceHttpsHosts.any { lower.contains(it) }) {
+            "https://" + normalized.removePrefix("http://").removePrefix("HTTP://")
+        } else {
+            normalized
+        }
     }
     
     /**

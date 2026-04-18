@@ -2,6 +2,8 @@ package com.example.ai4research.ui.detail
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebChromeClient
@@ -19,6 +21,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import org.json.JSONObject
 
 class OriginalPageActivity : ComponentActivity() {
 
@@ -50,6 +53,29 @@ class OriginalPageActivity : ComponentActivity() {
             setPadding(32, 0, 32, 20)
             setTextColor(if (isDark) Color.parseColor("#9CA3AF") else Color.parseColor("#6B7280"))
         }
+
+        val actionBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(32, 0, 32, 20)
+        }
+
+        val parseButton = TextView(this).apply {
+            text = "Parse Current Page"
+            textSize = 14f
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#111827"))
+            setBackgroundColor(if (isDark) Color.parseColor("#2563EB") else Color.parseColor("#2563EB"))
+            setPadding(28, 18, 28, 18)
+        }
+
+        val browserButton = TextView(this).apply {
+            text = "Open In Browser"
+            textSize = 14f
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#111827"))
+            setPadding(28, 18, 28, 18)
+        }
+
+        actionBar.addView(parseButton)
+        actionBar.addView(browserButton)
 
         val loadingOverlay = FrameLayout(this)
         val progress = ProgressBar(this).apply { isIndeterminate = true }
@@ -113,8 +139,50 @@ class OriginalPageActivity : ComponentActivity() {
             loadUrl(normalizeBrowsableUrl(url))
         }
 
+        browserButton.setOnClickListener {
+            runCatching {
+                startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(normalizeBrowsableUrl(url))).apply {
+                        addCategory(Intent.CATEGORY_BROWSABLE)
+                    }
+                )
+            }
+        }
+
+        parseButton.setOnClickListener {
+            val script = """
+                (function() {
+                  return JSON.stringify({
+                    url: location.href,
+                    title: document.title || "",
+                    text: document.body ? document.body.innerText : "",
+                    html: document.documentElement ? document.documentElement.outerHTML : ""
+                  });
+                })();
+            """.trimIndent()
+            webView.evaluateJavascript(script) { raw ->
+                runCatching {
+                    val decoded = if (raw.startsWith("\"")) {
+                        JSONObject("{\"v\":$raw}").getString("v")
+                    } else {
+                        raw
+                    }
+                    val obj = JSONObject(decoded)
+                    val resultIntent = Intent().apply {
+                        putExtra(RESULT_URL, obj.optString("url"))
+                        putExtra(RESULT_TITLE, obj.optString("title"))
+                        putExtra(RESULT_TEXT, obj.optString("text"))
+                        putExtra(RESULT_HTML, obj.optString("html"))
+                    }
+                    setResult(RESULT_OK, resultIntent)
+                    finish()
+                }
+            }
+        }
+
         container.addView(titleView)
         container.addView(urlView)
+        container.addView(actionBar)
         container.addView(webView)
 
         root.addView(
@@ -144,6 +212,10 @@ class OriginalPageActivity : ComponentActivity() {
     companion object {
         const val EXTRA_URL = "extra_url"
         const val EXTRA_TITLE = "extra_title"
+        const val RESULT_URL = "result_url"
+        const val RESULT_TITLE = "result_title"
+        const val RESULT_TEXT = "result_text"
+        const val RESULT_HTML = "result_html"
     }
 }
 

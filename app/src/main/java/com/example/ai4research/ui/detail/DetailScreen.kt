@@ -9,9 +9,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -129,6 +131,24 @@ fun DetailScreen(
             ).show()
         }
         pendingExportContent = null
+    }
+
+    val originalPageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data ?: return@rememberLauncherForActivityResult
+        val pageUrl = data.getStringExtra(OriginalPageActivity.RESULT_URL).orEmpty()
+        val pageTitle = data.getStringExtra(OriginalPageActivity.RESULT_TITLE)
+        val pageText = data.getStringExtra(OriginalPageActivity.RESULT_TEXT).orEmpty()
+        val pageHtml = data.getStringExtra(OriginalPageActivity.RESULT_HTML)
+        if (pageUrl.isNotBlank() && pageText.isNotBlank()) {
+            viewModel.parseFromBrowserSnapshot(
+                pageUrl = pageUrl,
+                pageTitle = pageTitle,
+                pageText = pageText,
+                pageHtml = pageHtml
+            )
+        }
     }
 
     LaunchedEffect(itemId) {
@@ -487,97 +507,83 @@ fun DetailScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp)
+                .padding(horizontal = 20.dp, vertical = 18.dp)
         ) {
-            // Hero
+            val isDarkTheme = isSystemInDarkTheme()
             val heroAccent = type?.let { getItemAccent(it) } ?: MaterialTheme.colorScheme.primary
+            val heroShape = RoundedCornerShape(34.dp)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(168.dp)
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(heroAccent.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (typeName.isNotBlank()) {
-                        Text(
-                            text = typeName,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = heroAccent
+                    .clip(heroShape)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                heroAccent.copy(alpha = if (isDarkTheme) 0.34f else 0.26f),
+                                heroAccent.copy(alpha = if (isDarkTheme) 0.14f else 0.10f),
+                                if (isDarkTheme) Color(0xFF121722) else Color(0xFFFFFBF6)
+                            )
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                    )
+                    .border(
+                        1.dp,
+                        if (isDarkTheme) heroAccent.copy(alpha = 0.28f) else heroAccent.copy(alpha = 0.16f),
+                        heroShape
+                    )
+                    .padding(24.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (typeName.isNotBlank()) {
+                            DetailBadge(typeName, heroAccent, isDarkTheme)
+                        }
+                        DetailBadge(projectName, Color(0xFF14B8A6), isDarkTheme)
+                        item?.status?.name?.takeIf { it.isNotBlank() }?.let {
+                            DetailBadge(it.lowercase(), Color(0xFFF97316), isDarkTheme)
+                        }
                     }
                     Text(
-                        text = "AI 总结",
-                        style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
-                        color = heroAccent
+                        text = title,
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            lineHeight = 34.sp
+                        ),
+                        color = if (isDarkTheme) Color.White else Color(0xFF101828)
                     )
+                    Text(
+                        text = item?.summary?.takeIf { it.isNotBlank() }
+                            ?: "围绕这条内容的索引、笔记、关联关系和原文入口都汇总在这里。",
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 24.sp),
+                        color = if (isDarkTheme) Color.White.copy(alpha = 0.78f) else Color(0xFF344054)
+                    )
+                    item?.originUrl?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isDarkTheme) Color(0xFFBFE3FF) else Color(0xFF175CD3)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Title & meta
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = item?.originUrl ?: "",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Spacer(modifier = Modifier.height(22.dp))
 
             item?.originUrl?.takeIf { it.isNotBlank() }?.let { originalUrl ->
-                Spacer(modifier = Modifier.height(16.dp))
                 OriginalPageEntryCard(
                     url = originalUrl,
-                    isDark = isSystemInDarkTheme()
+                    isDark = isSystemInDarkTheme(),
+                    onOpenFullscreen = { intent -> originalPageLauncher.launch(intent) }
                 )
+                Spacer(modifier = Modifier.height(18.dp))
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Project selector (auto sync) - Liquid Glass Effect
-            val isDarkTheme = isSystemInDarkTheme()
-            val selectorBackground = if (isDarkTheme) {
-                Color.White.copy(alpha = 0.03f)
-            } else {
-                Color.White.copy(alpha = 0.12f)
-            }
-            val selectorBorder = if (isDarkTheme) {
-                Color.White.copy(alpha = 0.06f)
-            } else {
-                Color.White.copy(alpha = 0.3f)
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(selectorBackground)
-                    .border(
-                        width = 1.dp,
-                        color = selectorBorder,
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    .clickable { showProjectSheet = true }
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            DetailPanel(
+                title = "归属项目",
+                subtitle = "把这条内容放进明确的项目语境，后续的检索、关联和复盘都会更顺手。",
+                accent = Color(0xFF14B8A6),
+                isDark = isDarkTheme,
+                modifier = Modifier.clickable { showProjectSheet = true }
             ) {
-                Text(
-                    text = "归属项目",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -585,13 +591,13 @@ fun DetailScreen(
                 ) {
                     Text(
                         text = projectName,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (isDarkTheme) Color.White else Color(0xFF101828)
                     )
                     Text(
-                        text = if (uiState.isProjectSaving) "同步中..." else "更改",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                        text = if (uiState.isProjectSaving) "同步中..." else "切换",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color(0xFF14B8A6)
                     )
                 }
             }
@@ -625,7 +631,7 @@ fun DetailScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
             if (type == ItemType.PAPER && paperMeta != null && item != null) {
                 PaperIndexInfoCard(
@@ -682,29 +688,16 @@ fun DetailScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
             
-            // Content Card (Lyrics style) - Liquid Glass Effect
-            val cardBackground = if (isDarkTheme) {
-                Color.White.copy(alpha = 0.03f)
-            } else {
-                Color.White.copy(alpha = 0.12f)
-            }
-            val cardBorder = if (isDarkTheme) {
-                Color.White.copy(alpha = 0.06f)
-            } else {
-                Color.White.copy(alpha = 0.3f)
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(cardBackground)
-                    .border(
-                        width = 1.dp,
-                        color = cardBorder,
-                        shape = RoundedCornerShape(24.dp)
-                    )
+            DetailPanel(
+                title = if (isEditing) "编辑内容" else "内容正文",
+                subtitle = if (isEditing) {
+                    "这里保留摘要、备注与 Markdown 主体，适合做二次整理。"
+                } else {
+                    "把索引信息之外的原始内容、提炼说明和长文正文放在同一块阅读。"
+                },
+                accent = heroAccent,
+                isDark = isDarkTheme
             ) {
-                Column(modifier = Modifier.padding(24.dp)) {
                     if (isEditing) {
                         // 竞赛类型显示额外字段
                         if (type == ItemType.COMPETITION) {
@@ -942,7 +935,6 @@ fun DetailScreen(
                             )
                         )
                     }
-                }
             }
             
             Spacer(modifier = Modifier.height(80.dp)) // Bottom padding
@@ -1205,6 +1197,115 @@ private fun getItemAccent(type: ItemType): Color = when (type) {
     ItemType.INSIGHT -> Color(0xFFB24DFF)
     ItemType.VOICE -> Color(0xFFFF8A00)
     ItemType.COMPETITION -> Color(0xFFFF2D55)
+}
+
+@Composable
+private fun DetailPanel(
+    title: String,
+    accent: Color,
+    isDark: Boolean,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val shape = RoundedCornerShape(28.dp)
+    val baseBackground = if (isDark) Color(0xFF121722) else Color(0xFFFFFCF7)
+    val gradient = Brush.linearGradient(
+        colors = listOf(
+            accent.copy(alpha = if (isDark) 0.18f else 0.12f),
+            baseBackground,
+            if (isDark) Color.White.copy(alpha = 0.03f) else Color.White.copy(alpha = 0.88f)
+        )
+    )
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(18.dp, shape, ambientColor = accent.copy(alpha = 0.12f), spotColor = accent.copy(alpha = 0.16f))
+            .clip(shape)
+            .background(gradient)
+            .border(
+                BorderStroke(
+                    1.dp,
+                    if (isDark) accent.copy(alpha = 0.24f) else accent.copy(alpha = 0.18f)
+                ),
+                shape
+            )
+            .padding(20.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp), content = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.2.sp
+                    ),
+                    color = accent
+                )
+                subtitle?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isDark) Color.White.copy(alpha = 0.68f) else Color.Black.copy(alpha = 0.56f)
+                    )
+                }
+            }
+            content()
+        })
+    }
+}
+
+@Composable
+private fun DetailBadge(
+    text: String,
+    accent: Color,
+    isDark: Boolean
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (isDark) accent.copy(alpha = 0.18f) else accent.copy(alpha = 0.10f))
+            .border(
+                1.dp,
+                if (isDark) accent.copy(alpha = 0.28f) else accent.copy(alpha = 0.16f),
+                RoundedCornerShape(999.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = accent
+        )
+    }
+}
+
+@Composable
+private fun DetailInfoBlock(
+    label: String,
+    value: String,
+    isDark: Boolean,
+    accent: Color
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (isDark) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = accent.copy(alpha = 0.9f)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = if (isDark) Color.White else Color(0xFF101828)
+        )
+    }
 }
 
 private fun extractStructuredReadingCard(
@@ -1499,7 +1600,6 @@ private fun StructuredReadingCardView(
     isDark: Boolean,
     isLoading: Boolean
 ) {
-    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF2563EB)
     val sections = listOf(
         "研究问题" to card.researchQuestion,
@@ -1511,12 +1611,11 @@ private fun StructuredReadingCardView(
         "我的笔记" to card.myNotes
     ).filter { !it.second.isNullOrBlank() }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardBg)
-            .padding(16.dp)
+    DetailPanel(
+        title = "阅读卡",
+        subtitle = "把研究问题、方法、证据和可复用点压成一张结构化卡片。",
+        accent = accentColor,
+        isDark = isDark
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1550,7 +1649,6 @@ private fun StructuredReadingCardView(
             )
         } else {
             sections.forEach { (label, value) ->
-                Spacer(modifier = Modifier.height(10.dp))
                 PaperSummarySection(label, value.orEmpty(), isDark)
             }
         }
@@ -2001,7 +2099,6 @@ private fun PaperIndexInfoCard(
     isDark: Boolean,
     summaryPrefs: android.content.SharedPreferences
 ) {
-    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF2F6DFF)
     val venue = meta.conference ?: meta.source ?: item.originUrl
     val authorText = meta.authors.joinToString(", ").ifBlank { "未知作者" }
@@ -2020,20 +2117,12 @@ private fun PaperIndexInfoCard(
         else -> summaryShort
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardBg)
-            .padding(16.dp)
+    DetailPanel(
+        title = "论文索引",
+        subtitle = "把作者、来源、标识符和摘要集中成一张可扫读的索引面板。",
+        accent = accentColor,
+        isDark = isDark
     ) {
-        Text(
-            text = "论文索引",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-            color = accentColor
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
         PaperIndexRow("作者", authorText, isDark)
         meta.year?.let { PaperIndexRow("年份", it.toString(), isDark) }
         venue?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("来源", it, isDark) }
@@ -2149,36 +2238,22 @@ private fun SummaryLanguageChip(
 
 @Composable
 private fun PaperSummarySection(label: String, value: String, isDark: Boolean) {
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isDark) Color.White else Color.Black
-        )
-    }
+    DetailInfoBlock(
+        label = label,
+        value = value,
+        isDark = isDark,
+        accent = if (isDark) Color(0xFF9CC2FF) else Color(0xFF2563EB)
+    )
 }
 
 @Composable
 private fun PaperIndexRow(label: String, value: String, isDark: Boolean) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = if (isDark) Color.White else Color.Black
-        )
-    }
+    DetailInfoBlock(
+        label = label,
+        value = value,
+        isDark = isDark,
+        accent = if (isDark) Color(0xFF9CC2FF) else Color(0xFF2563EB)
+    )
 }
 
 @Composable
@@ -2204,23 +2279,14 @@ private fun ArticleInfoCard(
     meta: com.example.ai4research.domain.model.ItemMetaData.ArticleMeta,
     isDark: Boolean
 ) {
-    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF6366F1)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardBg)
-            .padding(16.dp)
+    DetailPanel(
+        title = "资料索引",
+        subtitle = "适合网页、公众号和社媒资料的来源索引卡，信息密度更高也更好读。",
+        accent = accentColor,
+        isDark = isDark
     ) {
-        Text(
-            text = "资料索引",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-            color = accentColor
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
         meta.platform?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("平台", it, isDark) }
         meta.accountName?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("账号", it, isDark) }
         meta.author?.takeIf { it.isNotBlank() }?.let { PaperIndexRow("作者", it, isDark) }
@@ -2286,22 +2352,14 @@ private fun ArticleInfoCard(
 
 @Composable
 private fun NoteCard(note: String, isDark: Boolean) {
-    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF00A86B)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardBg)
-            .padding(16.dp)
+    DetailPanel(
+        title = "备注",
+        subtitle = "把判断、下一步动作和项目语境写在这里，不让灵感只剩标题。",
+        accent = accentColor,
+        isDark = isDark
     ) {
-        Text(
-            text = "备注",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-            color = accentColor
-        )
-        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = note,
             style = MaterialTheme.typography.bodyMedium,
@@ -2366,29 +2424,19 @@ private fun InsightMediaCard(
     isDark: Boolean,
     onImageClick: () -> Unit
 ) {
-    val cardBg = if (isDark) Color(0xFF1E1E2E) else Color(0xFFF8F9FA)
     val accentColor = Color(0xFF10B981)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardBg)
-            .padding(16.dp)
+    DetailPanel(
+        title = "灵感内容",
+        subtitle = detail.body.take(72).ifBlank { "图片、语音和归位词条会一起陈列在这里。" },
+        accent = accentColor,
+        isDark = isDark
     ) {
-        Text(
-            text = "灵感内容",
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-            color = accentColor
-        )
-
         if (detail.createdAtLabel.isNotBlank()) {
-            Spacer(modifier = Modifier.height(10.dp))
             InsightMetaRow("创建时间", detail.createdAtLabel, isDark)
         }
 
         if (!detail.categoryName.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(10.dp))
             InsightMetaRow("归位词条", detail.categoryName, isDark)
         }
 
@@ -2414,19 +2462,12 @@ private fun InsightMediaCard(
 
 @Composable
 private fun InsightMetaRow(label: String, value: String, isDark: Boolean) {
-    Column(modifier = Modifier.padding(vertical = 2.dp)) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = if (isDark) Color.White else Color.Black
-        )
-    }
+    DetailInfoBlock(
+        label = label,
+        value = value,
+        isDark = isDark,
+        accent = Color(0xFF10B981)
+    )
 }
 
 @Composable
@@ -2744,23 +2785,12 @@ private fun formatTimelineDate(date: java.util.Date): String {
 
 @Composable
 private fun CompetitionInfoRow(label: String, value: String, isDark: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = if (isDark) Color.White else Color.Black
-        )
-    }
+    DetailInfoBlock(
+        label = label,
+        value = value,
+        isDark = isDark,
+        accent = Color(0xFFFF2D55)
+    )
 }
 
 /**
@@ -2824,61 +2854,36 @@ private fun VoiceInfoCard(
 
 @Composable
 private fun VoiceInfoRow(label: String, value: String, isDark: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = if (isDark) Color.White else Color.Black,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-    }
+    DetailInfoBlock(
+        label = label,
+        value = value,
+        isDark = isDark,
+        accent = Color(0xFFFF8A00)
+    )
 }
 
 @Composable
 private fun OriginalPageEntryCard(
     url: String,
-    isDark: Boolean
+    isDark: Boolean,
+    onOpenFullscreen: (Intent) -> Unit
 ) {
     val context = LocalContext.current
     val normalizedUrl = remember(url) { normalizeBrowsableUrl(url) }
     val accent = if (isDark) Color(0xFF7CC4FF) else Color(0xFF2563EB)
 
-    Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = if (isDark) Color.White.copy(alpha = 0.04f) else Color.White.copy(alpha = 0.14f),
-        modifier = Modifier.fillMaxWidth()
+    DetailPanel(
+        title = "Original Page",
+        subtitle = "需要回到网页上下文时，这里保留了浏览器和全屏查看两种入口。",
+        accent = accent,
+        isDark = isDark
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = "Original Page",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = accent
-            )
-            Text(
-                text = "This follows the original APK approach: browser first, fullscreen desktop WebView as fallback.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
-            Text(
-                text = normalizedUrl,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = normalizedUrl,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = {
                         runCatching {
@@ -2895,7 +2900,7 @@ private fun OriginalPageEntryCard(
                 Button(
                     onClick = {
                         runCatching {
-                            context.startActivity(
+                            onOpenFullscreen(
                                 Intent(context, OriginalPageActivity::class.java).apply {
                                     putExtra(OriginalPageActivity.EXTRA_URL, normalizedUrl)
                                     putExtra(OriginalPageActivity.EXTRA_TITLE, "Original Page")
@@ -2906,7 +2911,6 @@ private fun OriginalPageEntryCard(
                 ) {
                     Text("Open Fullscreen")
                 }
-            }
         }
     }
 }

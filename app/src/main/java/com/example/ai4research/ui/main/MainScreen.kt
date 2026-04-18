@@ -58,6 +58,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.unit.dp
+import java.text.DecimalFormat
 
 /**
  * Main Screen Refactored with WebView
@@ -97,6 +98,10 @@ fun MainScreen(
     var showScanImportDialog by remember { mutableStateOf(false) }
     var selectedScanType by remember { mutableStateOf(ItemType.ARTICLE) }
     var selectedScanProjectId by remember { mutableStateOf<String?>(null) }
+    var pendingDocumentDraft by remember { mutableStateOf<ImportedDocumentDraft?>(null) }
+    var showDocumentImportDialog by remember { mutableStateOf(false) }
+    var selectedDocumentType by remember { mutableStateOf(ItemType.ARTICLE) }
+    var selectedDocumentProjectId by remember { mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     fun emitWebEvent(eventName: String, payload: Map<String, Any?>) {
@@ -175,6 +180,63 @@ fun MainScreen(
             }
         )
     }
+    if (showDocumentImportDialog) {
+        DocumentImportConfigDialog(
+            document = pendingDocumentDraft,
+            projects = projectsState,
+            selectedType = selectedDocumentType,
+            selectedProjectId = selectedDocumentProjectId,
+            onTypeSelected = { selectedDocumentType = it },
+            onProjectSelected = { selectedDocumentProjectId = it },
+            onDismiss = {
+                showDocumentImportDialog = false
+                pendingDocumentDraft = null
+            },
+            onConfirm = {
+                val documentDraft = pendingDocumentDraft
+                if (documentDraft != null) {
+                    val selectedTypeForImport = selectedDocumentType
+                    val selectedProjectIdForImport = selectedDocumentProjectId
+                    val projectName = projectsState.firstOrNull { it.id == selectedProjectIdForImport }?.name
+                    showDocumentImportDialog = false
+                    pendingDocumentDraft = null
+                    coroutineScope.launch {
+                        val result = viewModel.importDocumentFile(
+                            selectedType = selectedTypeForImport,
+                            title = buildDocumentImportTitle(documentDraft.displayName),
+                            summary = buildDocumentImportSummary(documentDraft),
+                            contentMarkdown = buildDocumentImportMarkdown(
+                                fileName = documentDraft.displayName,
+                                mimeType = documentDraft.mimeType,
+                                fileSizeBytes = documentDraft.sizeBytes,
+                                previewText = documentDraft.previewText,
+                                projectName = projectName
+                            ),
+                            fileUri = documentDraft.uri.toString(),
+                            fileName = documentDraft.displayName,
+                            mimeType = documentDraft.mimeType,
+                            fileSizeBytes = documentDraft.sizeBytes,
+                            projectId = selectedProjectIdForImport,
+                            projectName = projectName
+                        )
+                        val message = result.fold(
+                            onSuccess = { "已导入${getItemTypeLabel(selectedTypeForImport)}：${documentDraft.displayName}" },
+                            onFailure = { error -> "文件导入失败：${error.message ?: "请重试"}" }
+                        )
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        if (result.isSuccess && isPageReady) {
+                            webViewRef?.evaluateJavascript(
+                                "if(window.setActiveTab) window.setActiveTab('${itemTypeToTabId(selectedTypeForImport)}');",
+                                null
+                            )
+                        }
+                    }
+                } else {
+                    showDocumentImportDialog = false
+                }
+            }
+        )
+    }
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -234,6 +296,29 @@ fun MainScreen(
                 "durationSeconds" to readAudioDurationSeconds(context, uri)
             )
         )
+    }
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
+        val documentDraft = buildImportedDocumentDraft(context, uri)
+        if (documentDraft == null) {
+            Toast.makeText(context, "无法读取该文件，请换一个文件试试", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+
+        pendingDocumentDraft = documentDraft
+        selectedDocumentType = inferDocumentItemType(documentDraft)
+        selectedDocumentProjectId = currentProjectId
+        showDocumentImportDialog = true
     }
     
     // 用于记录待处理的 targetTab
@@ -340,6 +425,23 @@ fun MainScreen(
             onNavigateToVoiceRecording = onNavigateToVoiceRecording,
             onOpenLinkCapture = { floatingWindowManager.openQuickLinkCapture() },
             onStartScanCapture = { imagePickerLauncher.launch(arrayOf("image/*")) },
+            onStartFileImport = {
+                documentPickerLauncher.launch(
+                    arrayOf(
+                        "application/pdf",
+                        "text/plain",
+                        "text/markdown",
+                        "text/*",
+                        "application/json",
+                        "application/msword",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/vnd.ms-powerpoint",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        "application/vnd.ms-excel",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                )
+            },
             onPickInsightImage = { insightImagePickerLauncher.launch(arrayOf("image/*")) },
             onRecordInsightAudio = {
                 val intent = android.content.Intent(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION)
@@ -604,6 +706,7 @@ class MainAppInterface(
     private val onNavigateToVoiceRecording: () -> Unit = {},
     private val onOpenLinkCapture: () -> Unit = {},
     private val onStartScanCapture: () -> Unit = {},
+    private val onStartFileImport: () -> Unit = {},
     private val onPickInsightImage: () -> Unit = {},
     private val onRecordInsightAudio: () -> Unit = {},
     private val emitJsEvent: (String, String) -> Unit = { _, _ -> }
@@ -842,6 +945,14 @@ class MainAppInterface(
     }
 
     @JavascriptInterface
+    fun startFileImport() {
+        android.util.Log.d("MainAppInterface", "startFileImport called")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onStartFileImport()
+        }
+    }
+
+    @JavascriptInterface
     fun pickInsightImage() {
         android.util.Log.d("MainAppInterface", "pickInsightImage called")
         android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -992,6 +1103,142 @@ private fun getItemTypeLabel(type: ItemType): String {
     }
 }
 
+private data class ImportedDocumentDraft(
+    val uri: android.net.Uri,
+    val displayName: String,
+    val mimeType: String?,
+    val sizeBytes: Long?,
+    val previewText: String?
+)
+
+private fun buildImportedDocumentDraft(
+    context: android.content.Context,
+    uri: android.net.Uri
+): ImportedDocumentDraft? {
+    val displayName = queryDisplayName(context, uri) ?: return null
+    val mimeType = context.contentResolver.getType(uri)
+    val sizeBytes = queryFileSizeBytes(context, uri)
+    val previewText = readDocumentPreviewText(context, uri, displayName, mimeType)
+    return ImportedDocumentDraft(
+        uri = uri,
+        displayName = displayName,
+        mimeType = mimeType,
+        sizeBytes = sizeBytes,
+        previewText = previewText
+    )
+}
+
+private fun buildDocumentImportTitle(fileName: String): String {
+    return fileName.substringBeforeLast('.').ifBlank { fileName }
+}
+
+private fun buildDocumentImportSummary(document: ImportedDocumentDraft): String {
+    val preview = document.previewText
+        ?.replace('\n', ' ')
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim()
+        ?.take(120)
+        ?.takeIf { it.isNotBlank() }
+    return preview ?: "已导入文件：${document.displayName}"
+}
+
+private fun buildDocumentImportMarkdown(
+    fileName: String,
+    mimeType: String?,
+    fileSizeBytes: Long?,
+    previewText: String?,
+    projectName: String?
+): String {
+    return buildString {
+        appendLine("# ${buildDocumentImportTitle(fileName)}")
+        appendLine()
+        appendLine("## 文件信息")
+        appendLine("- 文件名: $fileName")
+        mimeType?.takeIf { it.isNotBlank() }?.let {
+            appendLine("- 文件类型: $it")
+        }
+        fileSizeBytes?.let {
+            appendLine("- 文件大小: ${formatFileSize(it)}")
+        }
+        projectName?.takeIf { it.isNotBlank() }?.let {
+            appendLine("- 项目: $it")
+        }
+        appendLine("- 导入方式: 本地文件")
+        appendLine()
+        appendLine("## 导入说明")
+        appendLine("该文件已导入到资料库。当前版本优先保留文件元信息与可读取的文本预览，后续会继续接入更完整的文件解析。")
+        appendLine()
+        if (!previewText.isNullOrBlank()) {
+            appendLine("## 文本预览")
+            appendLine("```text")
+            appendLine(previewText.replace("```", "'''"))
+            appendLine("```")
+        } else {
+            appendLine("## 文本预览")
+            appendLine("当前文件类型暂不支持直接提取正文，已先保存文件元信息。")
+        }
+    }.trim()
+}
+
+private fun inferDocumentItemType(document: ImportedDocumentDraft): ItemType {
+    val lowerName = document.displayName.lowercase()
+    val lowerMime = document.mimeType.orEmpty().lowercase()
+    return when {
+        lowerMime == "application/pdf" || lowerName.endsWith(".pdf") -> ItemType.PAPER
+        else -> ItemType.ARTICLE
+    }
+}
+
+private fun queryFileSizeBytes(context: android.content.Context, uri: android.net.Uri): Long? {
+    return runCatching {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getLong(0).takeIf { it >= 0L }
+                } else {
+                    null
+                }
+            }
+    }.getOrNull()
+}
+
+private fun readDocumentPreviewText(
+    context: android.content.Context,
+    uri: android.net.Uri,
+    displayName: String,
+    mimeType: String?
+): String? {
+    val lowerName = displayName.lowercase()
+    val lowerMime = mimeType.orEmpty().lowercase()
+    val canReadAsText = lowerMime.startsWith("text/") ||
+        lowerMime == "application/json" ||
+        lowerName.endsWith(".md") ||
+        lowerName.endsWith(".txt") ||
+        lowerName.endsWith(".json") ||
+        lowerName.endsWith(".csv") ||
+        lowerName.endsWith(".log") ||
+        lowerName.endsWith(".xml") ||
+        lowerName.endsWith(".html")
+
+    if (!canReadAsText) return null
+
+    return runCatching {
+        context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+            reader.readText().take(4000).trim()
+        }
+    }.getOrNull()
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024L) return "${bytes} B"
+    val kb = bytes / 1024.0
+    if (kb < 1024.0) return "${DecimalFormat("#.#").format(kb)} KB"
+    val mb = kb / 1024.0
+    if (mb < 1024.0) return "${DecimalFormat("#.#").format(mb)} MB"
+    val gb = mb / 1024.0
+    return "${DecimalFormat("#.#").format(gb)} GB"
+}
+
 @Composable
 private fun ScanImportConfigDialog(
     imageCount: Int,
@@ -1077,6 +1324,109 @@ private fun ScanImportConfigDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text("开始处理")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DocumentImportConfigDialog(
+    document: ImportedDocumentDraft?,
+    projects: List<Project>,
+    selectedType: ItemType,
+    selectedProjectId: String?,
+    onTypeSelected: (ItemType) -> Unit,
+    onProjectSelected: (String?) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+    val typeOptions = listOf(
+        ItemType.ARTICLE,
+        ItemType.PAPER,
+        ItemType.COMPETITION,
+        ItemType.INSIGHT
+    )
+
+    ComposeAlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("导入文件")
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState)
+            ) {
+                Text(document?.displayName ?: "已选择文件")
+                document?.mimeType?.takeIf { it.isNotBlank() }?.let {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("类型: $it", style = MaterialTheme.typography.bodySmall)
+                }
+                document?.sizeBytes?.let {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("大小: ${formatFileSize(it)}", style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("分类", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                typeOptions.forEach { type ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onTypeSelected(type) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedType == type,
+                            onClick = { onTypeSelected(type) }
+                        )
+                        Text(getItemTypeLabel(type))
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("项目", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onProjectSelected(null) }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedProjectId == null,
+                        onClick = { onProjectSelected(null) }
+                    )
+                    Text("未分配")
+                }
+                projects.forEach { project ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onProjectSelected(project.id) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedProjectId == project.id,
+                            onClick = { onProjectSelected(project.id) }
+                        )
+                        Text(project.name)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("导入")
             }
         },
         dismissButton = {

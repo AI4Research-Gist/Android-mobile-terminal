@@ -386,6 +386,48 @@ class MainViewModel @Inject constructor(
         return itemRepository.updateReadStatus(id, readStatus)
     }
 
+    suspend fun importDocumentFile(
+        selectedType: ItemType,
+        title: String,
+        summary: String,
+        contentMarkdown: String,
+        fileUri: String,
+        fileName: String,
+        mimeType: String?,
+        fileSizeBytes: Long?,
+        projectId: String?,
+        projectName: String?
+    ): Result<ResearchItem> {
+        val cleanTitle = title.trim().ifBlank { "导入文件" }
+        val cleanSummary = summary.trim().ifBlank { "已导入文件，等待进一步整理" }
+        val metaJson = gson.toJson(
+            buildMap<String, Any?> {
+                put("source", "file_import")
+                put("import_mode", "local_file")
+                put("file_uri", fileUri)
+                put("file_name", fileName)
+                put("mime_type", mimeType)
+                put("file_size_bytes", fileSizeBytes)
+                put("has_text_preview", contentMarkdown.contains("## 文本预览"))
+            }
+        )
+
+        val result = itemRepository.createFullItem(
+            title = cleanTitle,
+            summary = cleanSummary,
+            contentMd = contentMarkdown,
+            originUrl = null,
+            type = selectedType,
+            status = ItemStatus.DONE,
+            metaJson = metaJson,
+            tags = emptyList(),
+            projectId = projectId,
+            projectName = projectName
+        )
+        refreshDiagnostics()
+        return result
+    }
+
     fun importScannedImages(
         imageUris: List<Uri>,
         selectedType: ItemType,
@@ -433,6 +475,7 @@ class MainViewModel @Inject constructor(
                 "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
+                "is_starred" to item.isStarred,
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
                 "tags" to (item.metaData as? ItemMetaData.PaperMeta)
@@ -440,6 +483,7 @@ class MainViewModel @Inject constructor(
                     ?.ifEmpty { (item.metaData as? ItemMetaData.PaperMeta)?.tags ?: emptyList() }
                     ?.joinToString(","),
                 "meta_json" to (item.rawMetaJson ?: serializeMetaData(item)),
+                "created_at_ms" to item.createdAt.time,
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
@@ -463,6 +507,7 @@ class MainViewModel @Inject constructor(
                 "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
+                "is_starred" to item.isStarred,
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
                 "organizer" to competitionMeta?.organizer,
@@ -473,6 +518,7 @@ class MainViewModel @Inject constructor(
                 "is_overdue" to timelineSummary.isOverdue,
                 "sort_key" to timelineSummary.sortKey,
                 "meta_json" to serializeMetaData(item),
+                "created_at_ms" to item.createdAt.time,
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
@@ -494,6 +540,7 @@ class MainViewModel @Inject constructor(
                 "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
+                "is_starred" to item.isStarred,
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
                 "meta_json" to serializeMetaData(item),
@@ -501,6 +548,7 @@ class MainViewModel @Inject constructor(
                 "account_name" to articleMeta?.accountName,
                 "author" to articleMeta?.author,
                 "publish_date" to articleMeta?.publishDate,
+                "created_at_ms" to item.createdAt.time,
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
@@ -522,9 +570,11 @@ class MainViewModel @Inject constructor(
                 "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
+                "is_starred" to item.isStarred,
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
                 "meta_json" to (item.rawMetaJson ?: serializeMetaData(item)),
+                "created_at_ms" to item.createdAt.time,
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
@@ -557,6 +607,7 @@ class MainViewModel @Inject constructor(
                 "note" to item.note,
                 "status" to item.status.toServerString(),
                 "read_status" to item.readStatus.toServerString(),
+                "is_starred" to item.isStarred,
                 "project_id" to item.projectId,
                 "project_name" to item.projectName,
                 "meta_json" to gson.toJson(
@@ -566,6 +617,7 @@ class MainViewModel @Inject constructor(
                         "note" to item.note
                     )
                 ),
+                "created_at_ms" to item.createdAt.time,
                 "CreatedAt" to item.createdAt.toString(),
                 "UpdatedAt" to item.createdAt.toString()
             )
